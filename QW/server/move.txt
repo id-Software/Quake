@@ -1,0 +1,39 @@
+
+dead state flag for no user input
+
+
+floor = under feet test
+	onground?
+	
+feet = wading test
+
+waist = swimming test
+
+head = submerged test
+
+
+if ( floor == solid)
+	if (head == water)
+		friction = 0.8;
+	else if (waist == water)
+		friction =
+	else if (feet == water)
+		friction =
+	else
+		friction = 
+	walk code
+	return;
+	
+if (floor == water)
+	if (head == water)
+		total underwater
+	if (waist == water)
+		treading water
+	drifting down
+	
+if (floor == air)
+	falling
+
+
+
+	

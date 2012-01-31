@@ -1,0 +1,362 @@
+           ----------------------------------------------
+            QuakeWorld v2.30 Release Notes (Aug 26,1998)
+           ----------------------------------------------
+              Copyright id Software 1996, 1997, 1998
+                   
+                     Programmers:
+                  Dave 'Zoid' Kirsch 
+                http://www.quakeworld.net/
+                  zoid@idsoftware.com
+                
+                 Jack 'Morbid' Mathews
+                 http://www.gamespy.com 
+                   jack@gamespy.com
+
+2.30 Changes to QuakeWorld Server
+---------------------------------
+
+- Fixed many of the overflow problems found in 2.2x
+- Minor fixes to player movement code
+- sv_mapcheck defautls to on
+
+2.30 Chanes to QuakeWorld Client
+--------------------------------
+
+- "crosshaircolor" controls the color for the crosshair in "crosshair 2"
+  Values are 0 through 255 and represent a color in the palette.
+- "cl_chasecam 1" while in spectator mode gives a through-the-eyes view
+  of the player.
+- gl_cshiftpercent controls the blend precentage in GLQWCL (default 100).
+- Packet loss meter added to player scoreboard, "PL" is the column title.
+  This indicates the amount of packet loss the player is receiving.
+
+2.21 Changes to QuakeWorld Server
+---------------------------------
+
+New:
+- infokey(self, "ip") and infokey(self, "ping") return expected values as 
+strings (use stof for ping).
+- sv_mapcheck controls map checksumming.  Vis data is not included in the 
+checksum with 2.21 clients.
+
+Fixed/Changed:
+- Proxy checksumming code changed to less CPU intensive algorithm.
+- Fixed lots of overflow bugs (TF2.6 now works)
+- Optimized some of the server code
+- Server can accept 2.20 clients
+- Movement bug on maps such as ctf4 and the lip by the outside 100health on 
+dm3 fixed.
+
+2.21 Changes to QuakeWorld Client
+---------------------------------
+
+New:
+- CVar cl_maxfps added that controls the max fps rate independant of rate (it 
+defaults to zero, which means rate controlled).  PLEASE NOTE:  Setting 
+cl_maxfps to high values on a modem will OVERRUN YOUR MODEM and lag you since a 
+packet is sent every frame, resulting in your sending more data than your modem 
+can handle.  This is why fps was tied to rate in the first place.
+
+Fixed/Changed:
+- Demo recording lock ups fixed
+- Map checks don't include vis data (only works on 2.21 servers)
+- Client works on 2.20 and 2.21 servers
+- Movement bug on maps such as ctf4 and the lip by the outside 100health on 
+dm3 fixed.
+- Small bug in fov changes in glqwcl fixed (calculated fov span at wrong 
+point)
+- Linux client was hard locked at 30fps, fixed
+
+2.20 Changes to QuakeWorld Server
+---------------------------------
+
+New:
+- Map checksumming.  Client map must match server.
+
+Fixed/Changed:
+- Packets are now restricted to 1500 bytes for broken routers.
+- Server signon sequence changed to multipart due to new packet size 
+  limitations
+- Challenge/response system to stop spoofing
+- New internal port handling to route through broken NAT routers.
+- Client userinfo spamming reduced
+- Name changes are broadcast
+- Player physics tuned to be more like original Quake
+- Autoaim is off by default in the server (sv_aim 2)
+- Serverinfo watervis controls whether clients with GLQWCL can enable 
+  r_wateralpha
+
+2.20 Changes to QuakeWorld Client
+---------------------------------
+
+Fixed/Changed:
+- Signon sequence changed to correspond to new server protocol
+- Demos can now be initiated during a server connection
+
+2.11 Changes to QuakeWorld Client
+---------------------------------
+New:
+- You can now specify the size of the console in the GL version.  For example,
+  if you want a 320x200 console, put "-conwidth 320" on the command line.
+  -conheight is also supported, but if unspecified it will automatically use
+  a 4:3 aspect.  I.e., -conwidth 512 defaults to -conheight 384.  In high
+  resolution modes such as 800x600 and 1024x768, the console defaults to
+  640x480, otherwise the font and status bar become too small to read.  If
+  you do want a higher resolution console in those modes, specify it as well:
+  glqwcl -width 800 -height 600 -conwidth 800
+  Note that not all cards support modes higher than 640x480.
+- GL_SGIS_multitexture is now supported.  This allows some hardware that can
+  blend textures together to render the world in one pass instead of two
+  (world textures for one pass, lightmaps for the second).  You need a card
+  such as a 3DFX VooDoo with two TMU units in order to take advantage of
+  this.  If you have the required hardware, you will get a 60 to 100%
+  improvement in rendering speed.
+
+Fixed/Changed:
+- GL Sprite bug fixed
+
+2.11 Changes to QuakeWorld Server
+---------------------------------
+- Win32 -heapsize <kb>/-mem <mb> options were broken
+
+2.10 Changes to QuakeWorld Client
+---------------------------------
+New:
+- Added alternate crosshair.  Enabled with "crosshair 2".
+
+Fixed/Changed:
+- Fixed prediction bug in spectator/camera view.  Camera will no longer try
+  to view under platforms.  Water still confuses it.
+- Fixed random crash/exit problem present in 2.0
+
+2.10 Changes to QuakeWorld Server
+---------------------------------
+- Spectators are now indicated with a (s) on server console "status" command
+- Fixed minor security hole
+
+2.01 Changes to QuakeWorld Server
+---------------------------------
+New:
+- Added SpectatorConnect, SpectatorThink and SpectatorDisconnect Quake-C
+  functions.  They are empty shells for now (a example of moving spectators
+  from point to point is included with impulse 1) but can be used in lots
+  of ways.
+
+Fixed/Changed:
+- Fixed the crash bug with spectators
+- Changed the death msgs in the Quake-C to fix the old bug of incorrect msgs
+  when your weapon changed.  Minor things like if two guys with pentagrams
+  telefrag, they both die (happens in deathmatch 4).  Thanks to Nolan 'Radix'
+  Pflug <nolan@fyi.net> for diffs of the progs changes to get this worked out.
+- Fixed the mipmapping color errors in the GL version
+
+2.00 Changes to QuakeWorld Client
+---------------------------------
+        
+New:
+- Put support back in for -zone option
+- Added rerecord <filename> to cause a reconnect with demo recording on the
+  same server
+- Added EF_BLUE and EF_RED for new GL light bubbles
+- Made rocket trails fade out in GL
+- Added NOSKINS 2 to use but not download skins
+- Precalculate light bubble
+- Translucent console (GL)
+- 8bit 3DFX texture support.  reduces texture thrashing due to way less 
+  texture memory used.
+- will work on pre 2.0 servers, but can cause minor movement errors due to
+  differences in movement prediction
+- support for server controlled maxspeed and gravity multiplier.
+- added low/avg/high ping values to the showteamscores so an
+  average team ping is calculated
+- Added startup graphic banner
+- add other player clip hulls to player prediction and local prediction
+  this removes the problem of walking through other players and makes
+  close combat a lot nicer.
+
+Fixed/Changed:
+- Using TexSubImage2D to upload partial lightmaps (GL)
+- fixed resized console in gl version, had some dead space, so put a mini
+  frag list on the bottom
+- changed lightning in gl version so in default of gl_flashblend 1 you don't
+  see your own light, so having the quad doesn't obscure your vision
+- fixed dynamic lightning of alias models in gl version (players and what
+  not were not lit up by dynamic lights)
+- exiting the world in spectator mode is no longer lava red, but
+  slime green.
+- fixed the z-angle on entities (for example, the flag was rotated wrong)
+  in GL version.
+- Spectator camera changed from a free float to a locked camera that tracks
+
+2.00 Changes to QuakeWorld Server
+---------------------------------
+
+New:
+- Added flood procection to the server
+  default is 4 lines in 8 secs, wait for 10 on activation
+  Command to change is:  floodprot <lines> <time> <wait-time>
+- Added localinfo.  32k of key=value storage.  Values are stored with the
+  localinfo console command on the server, i.e.
+      localinfo e1m1 e1m2
+  localinfo is persistant from the life of the server (between maps)
+  progs can access localinfo using infokey(world, "key") and set it using
+      localcmd("localinfo ");
+      localcmd(key);
+      localcmd(" ");
+      localcmd(value);
+      localcmd("\n");
+  values with spaces should be quoted
+  If the same key exists in serverinfo and localinfo, serverinfo will override
+  localinfo is not visible 'outside' the server
+- Using localinfo, you can now configure a series of maps to run without
+  editing the quake-c.  usage:  localinfo <from-map> <to-map>.  For example,
+  to run a server that loops through e1m2, dm2, dm4 and dm6, try this:
+        localinfo e1m2 dm2
+        localinfo dm2 dm4
+        localinfo dm4 dm6
+        localinfo dm6 e1m2
+  Note that the last one should loop back to the first, otherwise normal
+  level changing applies.  Put the localinfo commands in the server.cfg
+- Protocol has changed, old clients will no longer work.  changable move
+  vars such as gravity, maxspeed, etc. are supported again
+- Full server controlled localized client maxspeed and gravity is in
+  Create to new fields in the QC, .float gravity and .float maxspeed.  
+  .maxspeed defaults to sv_maxspeed (320), .gravity defaults to 1.0 
+  (full gravity).
+  Change them at will in the QC, but don't change them too often as every 
+  change is noted and the clients are updated with the change so that 
+  their prediction works correctly.  The per-client maxspeed should be 
+  very handy for the TF guys.
+- added support for 'namefun' (high bit characters).  On by default, server
+  operators can turn it off with sv_highchars 0
+
+Fixed/Changed:
+- sv_friction defaults to 6 as in previous QuakeWorld release.  Regular Quake
+  uses a default friction of 4, so if the server op wants Regular Quake
+  behavior, he can change it to 4.
+- fixed 'download ./server.cfg' security bug.
+- fixed up ramp movement (on ground stuff)
+- removed password from userinfo after player connect so that other
+  players and spectators can't use the 'user' command to see the
+  passwd
+- setting password or spectator_password to 'none' is the same as
+  clearing it
+- change player move physics to support ramp accel, there was a bug in
+  stair stepping that prevented proper movement.  With this bug, you can't
+  jump into the RL room on dm6, or hit the secret light on e4m1.
+
+1.64 Changes to QuakeWorld Client
+---------------------------------
+New:
+- Added download percentage bar.  Displays filename and a bar indicating        
+  visual completeness of download and a percentage.  Overwrites
+  any text at the bottom.
+- Added auto-tracking camera for spectator mode.  It's mostly a novelty, but
+  its fun.
+- Added +showteamscores.  In team games, the intermission displays team
+  totals, unless you hit TAB to display frag scores
+  bind a key to +showteamscores will give you the team score display.
+- Added client side DEMO support and playback
+  usage:  record <file> <server>
+  Autodownload is disabled when recording.
+  playback: playdemo <file>
+  File uses the .qwd extension and is incompatible with regular Quake and its 
+  demos.
+- Adjust console input a bit to allow room for download percent bar (moved up
+  six pixels).
+- Add cl_hightrack cvar for spectator mode, causes it to always
+  select camera view on player with the highest frags.  cl_hightrack 1 turns
+  it on, cl_hightrack 0 turns it off (default)
+- Added text to the "Single player" and "Multiplayer" menu options.
+- Allowed Ctrl-V (paste) at console.
+- Added GL support.
+- Added FOV setting in GL version.
+
+Fixed/Changed:
+- If a model file isn't found (couldn't be download) a msg is displayed
+  telling the user they may need to download or purchase an addon pak.
+- Made all skin downloads go into QW directory.
+- Fixed water jump bug where you hop immediately back out in narrow entrances.
+- Added copyright dialog on exit (press y to quit) with credits and version
+  number.
+- New cvar, cl_warncmd, defaults to zero and disables the 'unknown command'
+  msg.  qwcl stuffs 'cl_warncmd 1' to itself after quake.rc loads. This gets
+  rid of unknown command messages (like unknown command 'startdemos') from 
+  the default exec files, as well as hiding "execing" messages.
+- New command, windows, which will pop a user in fullscreen mode back to     
+  Windows (not GL or Linux versions).
+- Turned off bobbing in spectator mode.
+- Now execs the config.cfg in a gamedir upon receiving a new gamedir from
+  the server (saves the current config into the current gamedir before
+  switching to the new one).
+- Reconnect command will now reconnect to the server it is currently   
+  connected to, or last one it was connected to.
+- Fixed it so entering 'record <file> <server>' while connected disconnects 
+  before starting recording.
+- Fixed scoreboard while dead in GL version.
+- Made it so players are never completely black in the GL version.
+- Changed some console load up msgs in GL.
+- Fixed it so exec files without a trailing new line still work.
+- changed effects in gl to not be as striking (hard to see).
+- Fixed it so a 'glquake' directory is created in other gamedirs for model
+  meshes in GL version.
+- Fixed tolerance on corrupt skin files.
+
+1.64 Changes to QuakeWorld Server
+---------------------------------
+New:
+- Added new allow_download vars:
+    allow_download_skins, allow_download_models,
+    allow_download_sounds, allow_download_maps
+- Added a few client to server commands for auto-camera support.
+- Adding new server cvar, sv_spectalk (defaults to 1, or on) that controls
+  whether spectators can talk to players.  If disabled, spectators can
+  only talk to each other.
+- New command, sv_gamedir, which sets the visible gamedir to clients.  this
+  allows servers to have a different physical game directories, handing for
+  machines with multiple servers that don't support symbolic links.  for
+  example:
+          gamedir ctf4.1
+        sv_gamedir ctf
+  causes qwsv to use the physical directory of 'ctf4.1', but report the
+  directory to clients (players) as 'ctf' for their files.
+
+Fixed/Changed:
+- Fixed bug in serverinfo strings (memory overwrite and length problem).
+- Map files are permitted to be downloaded if they aren't in a pak file
+  (unless allow_download or allow_download_maps isn't set).
+- Fixed annoying NET_GetPacket: Connection Refused msgs.
+- Fixed annoying water jump bug where you would immedately hop back out of 
+  water just after you jumped in.
+- Fixed air velocity movement so that it is like regular Quake, 
+  players have more control over their air movement and can cut
+  velocity as needed just like in Quake.  This gives more control
+  to the player and rewards skill.
+- Spectators no longer can send or receive say_team msgs (possible
+  cheating could happen).
+- Stopped reporting spectators as players when front-ends request info.
+- Fixed bug that disallowed 9's in ip address for filtering.
+- Spectators can now send say_team msgs, but only to other spectators.
+- No duplicate names allowed now (will rename people who do it).
+- A client can not name themselves 'console'.
+
+
+WorkArounds:
+------------
+
+-If you get the message 'GLIDE.DLL not found' OR QSpy reports error 1157, 
+you need to get and install the latest Glide drivers from 
+http://www.3dfx.com (currently v2.31).
+
+------------------------------
+2.00 Release Notes written by:
+------------------------------
+Dave 'Zoid' Kirsch - zoid@idsoftware.com
+
+------------------------------
+1.64 Release Notes written by:
+------------------------------
+Sean 'Redwood' Martin
+Redwood's Quake Page - http://redwood.stomped.com
+
+Special Thanks: All of the beta testers.

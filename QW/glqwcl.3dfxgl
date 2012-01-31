@@ -1,0 +1,9 @@
+#!/bin/sh
+
+# This script preloads the lib3dfxgl.so library which overrides the functions
+# present in libMesaGL.so.  This allows glquake to run using 3DFX's miniport
+# and without Mesa 3-D.  Glide and X11 libraries have to be installed tho, 
+# even tho GLQuake doesn't use X11, it's linked against it because Mesa 3-D
+# requires them.
+
+LD_PRELOAD=./lib3dfxgl.so ./glqwcl $*

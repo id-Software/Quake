@@ -1,0 +1,97 @@
+Here is a brief explanation  of all the legal mumbo jumbo contained in the
+various license agreements that may or may not be part of this package.
+
+(This document was designed to be a quick overview of our license terms.
+You must refer to the full text of the license for a complete listing of 
+terms and conditions.)
+
+QUAKE SHAREWARE END USER LICENSE (slicnse.txt) or
+What You Can and Cannot Do With the Shareware Version of Quake.
+
+CAN DO:
+-- Play & Enjoy the single player game 
+-- Setup a shareware version based server on a not-for-profit basis
+
+CANNOT DO:
+-- Run the game with user developed levels.  
+-- You may not commercially exploit the shareware version in any way
+        This specifically excludes retail distribution of the shareware 
+        version. Do not call or e-mail to ask if you can be a retail 
+        distributor of the shareware version -- the answer is no! 
+-- Commercially exploit any id copyrighted and/or trademarked property. 
+        Example: Game names, logos, graphics, etc.
+
+
+QUAKE REGISTERED VERSION END USER LICENSE (rlicnse.txt) or
+What You Can and Cannot Do With the Registered Version of Quake.
+
+CAN DO:
+-- Play & Enjoy the single player game
+-- Setup a registered version based server on a not-for-profit basis
+-- Develop new levels and/or level creation utilities.  
+-- Play the game and/or setup a Registered Version based server using
+   a user-developed level.
+
+CANNOT DO:
+-- Commercially exploit the Registered  Version of Quake in any way;
+   see commercially exploitation license info below.
+-- Commercially exploit any id copyrighted and/or trademarked
+   property. 
+        Example: Game names, logos, game graphics, etc. 
+-- Sell user-developed levels and/or tools
+
+COMMERCIAL EXPLOITATION LICENSE (comexp.txt -- accompanies Quake
+                                 registered version only)
+
+If you are interested in trying to make money using the registered version
+of Quake (this sort of thing is not allowed using the shareware version) you
+must sign our easy-to-digest Commercial Exploitation License.
+
+This is a royalty free license that allows you to run Quake for a profit
+through a certain monthly gross profit range. If your Quake-related business
+becomes successful the agreement brings id into the revenue stream.
+
+Basic terms of the commercial exploitation license:
+
+-- License grants a royalty free commercial exploitation right for the
+   registered version of Quake as a whole so long as Quake's monthly gross
+   revenue is below $5,000.00
+
+-- License provides for a 12.5% royalty to be paid to id Software in months
+   where the licensee's Quake related monthly gross revenue is above $5,000.00
+
+-- Royalty is based off net income.  Net income is defined as Quake-related
+   gross income less Quake-related expenses.
+
+-- License expressly prohibits commercial exploitation via the sale (retail
+   or otherwise) of the shareware or registered versions of Quake.
+
+-- License expressly prohibits advertising/marketing use of our copyrighted
+   and/or trademarked properties.
+
+To get into bed with us on this deal you must print two (2) copies of the
+document named comexp.txt. (You should find comexp.txt somewhere on the
+registered version CD.)  Sign/fill in the blanks of both copies where
+indicated and mail both to:
+
+		id Software
+		18601 LBJ #666
+		Mesquite, TX  75150
+		Attn: ComExp License
+
+We will then countersign the documents and mail one back to you.
+
+Two items worth noting here:
+
+1. It is VERY IMPORTANT that the information you enter in the signature
+block be legible. We prefer it if you enter the info into the blanks before
+printing your two copies. If we cannot read your information we will not be
+able to return the documents to you.
+
+2. The terms of this document are not subject to negotiation. If you cannot
+live with the terms spelled out in the agreement do not engage in any
+commercial exploitation of Quake and do not sign the document.
+
+
+ 
+

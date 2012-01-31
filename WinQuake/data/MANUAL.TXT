@@ -1,0 +1,1030 @@
+Table of Contents
+        I. THE STORY
+                A. Background
+                B. Prelude to Destruction
+
+        II. INSTALLING QUAKE
+                A. Installation
+                B. README.TXT
+                C. MANUAL.TXT
+                D. TECHINFO.TXT
+
+        III. THE BASICS OF PLAY
+		A. Goal of the Game
+		B. Skill
+		C. Episode
+		D. Getting About 
+		E. Finding Things
+
+        IV. CONTROLS
+		A. Keyboard Commands
+		B. The Main Menu
+		C. Console
+		D. Command Line
+		E. Cheat Codes
+
+        V. THE GAME
+		A. The Screen
+		B. Messages 
+		C  Ending a Level
+		D. Ending a Dimension
+
+        VI. YOUR NEW ENVIRONMENT
+		A. Firepower
+		B. Ammo
+		C. Power-ups
+		D. Bad Guys
+		E. Environmental Hazards and Effects
+
+        VII. MULTIPLAYER ACTION 
+		A. Cooperative
+		B. Deathmatch	
+		C. Team Games 
+
+        VIII. COMMONLY ASKED QUESTIONS
+
+        IX. TECH SUPPORT
+		A. Tech Support Options
+		B. In Europe
+		C. Problems
+
+	X. LEVELS AND DESIGNERS
+
+	XI. LEGAL BOILERPLATE 
+****************
+I. THE STORY
+A. Background
+      You get the phone call at 4 a.m. By 5:30 you're in the secret
+   installation. The commander explains tersely, "It's about the Slipgate
+   device. Once we perfect these, we'll be able to use them to transport
+   people and cargo from one place to another instantly.
+
+      "An enemy codenamed Quake, is using his own slipgates to insert death
+   squads inside our bases to kill, steal, and kidnap..
+
+      "The hell of it is we have no idea where he's from. Our top scientists
+   think Quake's not from Earth, but another dimension. They say Quake's
+   preparing to unleash his real army, whatever that is.
+
+      "You're our best man. This is Operation Counterstrike and you're in
+   charge. Find Quake, and stop him ... or it ... You have full authority
+   to requisition anything you need. If the eggheads are right, all our
+   lives are expendable.."
+
+B. Prelude to Destruction
+      While scouting the neighborhood, you hear shots back at the base Damn,
+   that Quake bastard works fast! He heard about Operation Counterstrike,
+   and hit first. Racing back, you see the place is overrun. You are almost
+   certainly the only survivor. Operation Counterstrike is over. Except for
+   you.
+
+      You know that the heart of the installation holds a slipgate.
+   Since Quake's killers came through, it is still set to his dimension.
+   You can use it to get loose in his hometown. Maybe you can get to the
+   asshole personally. You pump a round into your shotgun, and get moving.
+      
+II. INSTALLING QUAKE
+A. Installation
+   You must install Quake before you can play it. It will not run off the
+   CD-ROM. Place the CD-ROM into your drive, log on to that drive, and type
+   'INSTALL'. If you have downloaded Quake via modem, simply go to the
+   directory you've placed Quake in, unzip it, and type 'INSTALL'.
+
+B. README.TXT
+   After you install Quake, you go right into the README.TXT file, which is
+   henceforth available in your Quake directory. This is a full listing of
+   Quake's technical parameters, and is constantly updated with new versions
+   of Quake. We strongly recommend that after you install Quake, you glance
+   through README.TXT.
+
+   You may wish to print this file out, so you can have a copy of it on hand
+   while playing Quake.
+
+C. MANUAL.TXT
+   Also available in your Quake directory is a file labeled MANUAL.TXT.
+   This is the file you are now reading.
+
+D. TECHINFO.TXT
+   For those who are more technically inclined, or to fill out a bug report,
+   check out TECHINFO.TXT. Information on filling out a bug report is located
+   at the end of TECHINFO.TXT.
+
+
+III. THE BASICS OF PLAY
+A. Goal of the Game
+	Quake has two basic goals. First, stay alive. Second, get out of the
+        place you're in. The first level of each episode ends in a slipgate -- 
+        these signify thatyou're entering another dimension. When you complete 
+        an entiredimension (this takes six to eight levels), you'll find a
+        Rune and another slipgate, which returns you to the start. 
+
+B. Skill
+	The start area has three short hallways. The one you go down selects
+        the Skill you wish to play at.
+	Easy -- This is meant for little kids and grandmas. 
+	Medium --  Most people should start Quake at Medium skill. 
+	Hard -- Here at id, we play Hard skill, and we think you should too,
+        once you're ready.
+	(Nightmare) -- This is so bad that the entry is hidden, so people
+        won't wander in by accident. If you find it, don't say we didn't warn
+        you.
+
+C. Episode
+	After the Skill halls, you're in a room with four exits. Each exit
+        leads to a different military complex, at the end of which is a
+        slipgate leading to a new dimension. If you have not registered, the 
+        first episode, Dimension of the Doomed, is the only place you can go. 
+        After registration, all four episodes are available. The other three 
+        episodes, in order from second to fourth, are Realm of Black Magic, 
+        Netherworld, and The Elder World.
+
+=============================================================================
+== TIP -- From episode 1 to episode 4, the dimensions become progressively ==
+== more difficult. We suggest you play the episodes in the proper order to ==
+== get the maximum fun out of Quake.                                       ==
+=============================================================================
+
+D. Getting About
+      The specific keys named below can be changed by using the Configure Keys
+      Menu. If you have renamed Run as the R key, for instance, then the Shift 
+      key will not double your speed. 
+   Walk
+      Use the arrow keys or the mouse. To walk steadily forward, hold down
+      the Forward key (up arrow or center mouse button). Turn left or right
+      with the left or right arrow keys or sliding your mouse to the left or 
+      right.
+   Run
+      Hold down Run (the Shift key) to double your speed.
+   Jumping
+      Tap the Jump key (the space bar or Enter key). You jump further if 
+      you're moving forward, and you jump higher if you're moving up a slope at 
+      the time. You'll be surprised at the spots you can reach in a jump. You 
+      can even avoid some attacks by jumping at the right time.
+   Swimming
+      When underwater, aim yourself in the direction you wish to go, and
+      move forward. You have full three-dimensional freedom. Unfortunately,
+      as in real life, you may lose your bearings while underwater. Use
+      jump (the space bar or Enter key) to kick straight up towards the
+      surface. Once on the surface, tread water by holding down jump.
+      To get out of the drink, swim towards the shore. Once there, use jump
+      to clamber up. If you're down a well or you can't get a grip, you may
+      not be able to climb out. There is always another way out, but you may
+      have to submerge to find it.
+   Shooting
+      Tap the Shoot key (the Ctrl key or left mousebutton) to fire. Hold it 
+      down tokeep firing.
+   Use
+      Quake has no "Use" function. To push a button or open a door, walk up
+      to it. To ride a platform up or down, step atop it. If a door won't open 
+      or a platform won't lower, you may need to do something special to 
+      activate it.
+   Picking up stuff
+      To pick up items, weapons, and power-ups, walk over them. If you can't
+      pick up something, it means you already have the maximum possible of 
+      that thing. If it is armor, it means the stuff you're trying to get is 
+      worse than what you now have.
+
+E. Finding Things
+   Buttons and Floorplates
+      Buttons activate with a touch, and floorplates must be stepped on.
+      If you see a distinctive-looking button in a spot you cannot reach,
+      it's probably a shootable button-- fire at it.
+   Doors
+      Most doors open at your approach. If one doesn't, seek a button,
+      floorplate, or key.
+   Secret Doors
+      Some doors are camouflaged. Almost all secret doors open when they are
+      shot or hit with an axe. The rest are opened by hidden pressure plates
+      or buttons.
+   Platforms
+      Most platforms only go up and down, while some follow tracks around
+      rooms or levels. When you step atop of a platform, it rises to its
+      full height, and usually only lowers when you step off. Some platforms
+      must be activated via button or pressure plate.
+   Pressure Plates & Motion Detectors
+      Invisible or visible sensors which open doors, unleash traps, warn
+      monsters, etc.
+   Uncovering Secrets
+      Secrets are hidden lots of ways. You might need to shoot a button, kill
+      a monster, walk through a secret motion detector, etc.
+   The Secret of Secrets
+      All secrets in Quake are indicated by clues. Don't waste your time
+      hacking at every wall. It's much more productive (and fun) to use your
+      brain and your eyes. Look up. An angled texture, a light shining under
+      a wall, a strange sound -- anything -- might be the clue. Something
+      prominent in a room might be decoration ... or it might be the clue.
+
+=============================================================================
+== TIP -- Bouncing a grenade off a shootable button or secret door won't   ==
+== open it, but if the grenade's explosion goes off nearby, this may       ==
+== activate such secrets.                                                  ==
+=============================================================================
+
+IV. CONTROLS
+A. Keyboard Commands
+   By using the key configuration option from the Main Menu, you can
+   customize the keyboard to suit your fancy, except for the Function keys,
+   the Escape key, and the ~ (tilde) key.
+
+FUNCTION KEYS
+Help				F1
+Save Game			F2
+Load Game			F3
+Options Menu			F4
+Multiplayer Menu		F5
+Quicksave			F6
+Quickload			F9
+Quit to operating system        F10
+Screenshot                      F12
+
+WEAPONS
+Axe				1
+Shotgun				2
+Double Barrelled Shotgun	3
+Nailgun				4
+Supernailgun			5
+Grenade Launcher		6
+Rocket Launcher			7
+Thunderbolt			8
+Change to next weapon		/
+
+MOVEMENT
+Move / Turn	arrow keys
+Jump / Swim	Space bar or Enter
+Run		Shift
+Sidestep Left	. or >
+Sidestep Right	, or <
+Strafe *	Alt
+Swim Up         D
+Swim Down       C
+
+OTHER CONTROLS
+Main Menu		Escape
+Console			~ (tilde)
+Look Up			A or PgDn
+Look Down		Z or Del
+Center View		X or End
+Mouse Look **		\ or center mouse button
+Keyboard Look ***	Ins
+
+  * Turning right or left sidesteps instead while the Strafe key is pressed.
+ ** Sliding your mouse forward and back looks up and down while the Mouse
+    Look key is pressed.
+*** The walk forward/backpedal arrows will look up and down while the
+    Keyboard Look key is pressed.
+
+B. The Main Menu
+   Tap the Escape key to pop  up the Main Menu. While you are in the menu,
+   the game is paused.
+      Use the arrow keys to move the Quake icon up and down the menu. Place 
+   the icon before the desired option, and tap the Enter key. To return to the
+   Main Menu, tap the Escape key again. To exit the menu and return to the
+   game, tap the Escape key when you are on the Main Menu.
+
+   NEW GAME
+      Discards the game you're playing, and starts anew.
+
+   MULTIPLAYER
+      Controls multiplayer game starting and details...
+      Name
+         Type your name or alias here, and all messages about you will use
+         this. So the computer says stuff like, "Josephine rides Bad Bill's
+         rocket."
+      Shirt Color
+         Lets you select your character's uniform color from 14 different
+         options (numbered 0-13).
+      Pants Color
+         As above, but your pants color also determines what team you're on,
+         if in team play. (After all, pants are more important than shirts.)
+      Communications Configuration
+         Takes you to a separate menu on which you can change communications
+         settings.
+         Com Port
+            Selects the COM Port to use for Communications. A null modem or 
+            modem must be connected to this port.
+         Baud Rate
+            Selects the COM port baud rate (9600-57600bps). This is NOT the
+            same as setting the modem speed. The COM port speed must be AT 
+            LEAST the same speed as the modem speed.
+         Device
+            Selects the type of connection, either direct (null-modem) or
+            modem.
+         Modem Init String
+            The Initialization string for the modem. 
+      
+      Start a Multiplayer Game
+         If you want your machine to be the host for a multiplayer game 
+         (Note: if you are starting a listen server, id Software strongly 
+         recommends that the fastest machine act as the host! If you are
+         playing a game with more than 4 players, we suggest using a 
+         dedicated server as the host!), select this option, and you'll get
+         the following menu  ...
+         Begin Game
+            Starts up the game. Now all your friends have to do is log on, 
+            using either "search for local network games" or "join a 
+            running game at..." Multiplayer options (see below). 
+         Maximum Players
+            You can have up to 16 players. You need at least 2, or it's not 
+            "multiplayer", right?
+         Game Type
+            Toggles between cooperative and deathmatch.
+         Team Color Rules
+            Toggles between "none" and "no friendly fire". In the latter mode, 
+            your shots won't injure someone wearing the exact same color 
+            pants as you. 
+         Skill
+            Chooses skill level. Only applicable in a cooperative game. 
+         Frag Limit
+            From none to 100, in ten-frag increments. When someone reaches 
+            the frag limit, by killing the 40th (or whatever) person, then 
+            the game ends immediately, and final scores are printed. If your 
+            frag limit is none, the game won't end till someone exits the 
+            level or the time limit expires. 
+         Time Limit
+            From none to 60 minutes, in 10 minute increments. When the time
+            limit is up, the game ends immediately, and final scores are 
+            printed. If your time limit is none, the game won't end till 
+            someone exits the level or the frag limit is reached. 
+         Start Map 
+            Lets you choose what map you'd like to play on. The top line 
+            gives you the episode name, and the lower line is the level's 
+            name. Note that all levels in Quake are fun to play, but the 
+            episode Deathmatch Arena is composed of special levels that are 
+            solely-designed for deathmatch play. Try them, you'll like them. 
+      Search For Local Network Games
+         Has your computer look through your network. It will list all the 
+         games it finds on the console, and you can choose to join one of 
+         them by typing connect <server>.
+      Join A Running Game At ... 
+         Lets you join a game either by typing its net address (for a net 
+         game) or your friend's modem phone number (for a modem game). 
+         If necessary, ensure your modem and network connections are operative 
+         by checking your Communications Configuration menu. 
+
+   SAVE
+      Brings up a list of saved games. Highlight the desired slot, and tap the      Enter key. Each saved game is identified by the level's name, plus the 
+      proportion of kills you have achieved so far. 
+   LOAD
+      Brings up a list of saved games. Highlight the desired slot, and tap the
+      Enter key. 
+   OPTIONS
+      Miscellaneous game options ...
+         Configure Keys
+            Permits you to customize Quake so every action is linked to the 
+            button or key that you prefer. 
+               First, move the cursor (via the arrow keys) to the action you 
+            wish to change. Then tap the Enter key. Now press the key or 
+            button you want to bind to that action. For instance, if you wish
+            to use the Alt key for Jump, move the cursor to Jump / Swim, tap 
+            the Enter key, then press the Alt key. 
+               Each action can have two different keys assigned to it. If you 
+            already have two keys in an entry, you cannot add more from this 
+            menu. 
+               To clear the keys bound to an action, move the cursor to that 
+            action and tap the Backspace or Delete key instead of the Enter 
+            key. This will clear the keys formerly bound to that action, 
+            leaving it blank.
+               You can bind any key to an action except Function keys, the 
+            Escape key, and the ~ (tilde) key. "Weird" keys such as Scroll 
+            Lock, Print Screen, etc. may or may not work, depending on your 
+            machine, but why bother?
+ 
+            Attack
+               Fires your weapon
+            Change Weapon
+               Switches to the weapon "above" the one you're now using. Wraps 
+               around to the axe.
+            Jump / Swim Up
+               If you're on land, jumps. If you're underwater, kicks you 
+               towards the surface. If you're right at the water's edge, pops
+               you up out of the water, if you combine it with forward 
+               movement. 
+            Walk Forward 
+            Backpedal 
+            Turn Left 
+            Turn Right 
+            Run
+               Press this while moving, and you move at double speed. 
+            Step Left
+               Sidesteps (strafes) left
+            Step Right
+               Sidesteps (strafes) right
+            Sidestep
+               Press this when using turn left or turn right and you sidestep
+              (strafe) instead.
+            Look Up
+               Lets you angle your view upwards. Your view returns to 
+               horizontal when you start walking forward. 
+             Look Down
+               Lets you angle your view upwards. Your view returns to 
+               horizontal when you start walking forward. 
+             Center View
+                If  you're looking up or down, returns your view to dead 
+                center. 
+             Mouse Look
+                Press this to allow your mouse to look up or down (by 
+                sliding it forward and back), and to remain looking up or 
+                down even if you move forward. 
+             Keyboard Look
+                Press this to use your movement keys to look up or down. 
+             Go To Console
+                Brings down the Console. Also possible by tapping the 
+                ~ (tilde) key. 
+             Reset To Defaults
+                Everything you've changed in the options menu is reset by 
+                this option. Consider it an "Oops" key. 
+             Screen Size
+                A slider which enlarges or shrinks your view area. All 
+                Quake's sliders use the right and left arrow keys. 
+             Brightness
+                Pretty much self-explanatory. Choose a brightness which 
+                doesn't strain your eyes. 
+             Mouse Speed
+                Adjusts mouse sensitivity. The further you set the slider 
+                to the right, the quicker your mouse reacts. 
+             Music Volume
+                Self-explanatory
+             Sound Effects Volume
+                Self-explanatory
+             Always Run
+                When this is selected, you do not need the Run key -- you 
+                are always at double speed.
+             Invert Mouse Up / Down
+                This gives your mouse "airplane-style" controls. This means 
+                that pushing the mouse forward "noses down", and pulling it 
+                back "noses up". Some people prefer this control technique. 
+              Lookspring
+                 Returns your view immediately to straight ahead when you 
+                 release the look up / down key. Otherwise, you must move 
+                 forward for a step or two before your view snaps back. 
+                 Lookspring does not work while you are underwater. 
+              Lookstrafe
+                 If you are using the look up / down key, then this option 
+                 causes you to sidestep instead of turn when you try to move 
+                 left or right.
+
+   HELP / ORDERING
+      Lists the default keyboard and mouse commands. Also contains the 
+      information you need to register Quake. 
+    QUIT
+      Exits Quake at once. 
+
+=============================================================================
+== TIP -- Quake saves your current key configuration when you quit, so     ==
+== next time you play, you have the same configuration.                    ==
+=============================================================================
+
+C. Console
+      Tap the ~ (tilde) key to bring down the console. As with the Main Menu, 
+   when the console is down, a singleplayer game is paused. A wide variety of
+   esoteric commands can be entered at the console. If your keyboard has no 
+   ~ (tilde), the Options Menu (inside the Main Menu) has a "Console" option. 
+
+D. Command Line
+   For special command line parameters, see README.TXT. 
+
+E. Cheat Codes
+   id Software, as in our previous games, has removed all cheat codes from 
+   Quake. 
+
+V. THE GAME
+A. The Screen
+      The large top part of the screen is the view area, in which you see 
+   monsters and architecture. Immediately below is the Inventory, beneath 
+   which is the Status Bar. You can enlarge the viewing area (tap the + key), 
+   so much that it engulfs first the Inventory Bar and then the Status Bar. 
+   The - key shrinks the view area. 
+
+   Inventory Bar
+      Lists ammo, weapons, deathmatch scores, and power-ups.
+         The active weapon is lit up. Each weapon has a number by it -- type 
+      the appropriate number key to switch to that weapon.
+         In addition, this gives the amount of ammo you have of each type, 
+      any keys you possess, and any power=ups currently active. Plus it shows 
+      how many and which of the four Runes you possess. 
+         In Deathmatch, it shows the top four scores in the game. 
+
+   Status Bar
+      A vital part of the screen. When your armor, hit points, or ammo get 
+      low, the number turns red. 
+         From left to right, the big numbers represent: Armor Points, Health, 
+      and Ammo (of the current weapon). Icons show the Armor Type (green,  
+      yellow, or red), your adorable face, and your Ammo Type). 
+
+   Score Bar
+      Hold down theTab key to replace the Status Bar with the Score Bar. 
+         This lists the proportion of monsters you've killed, secrets you've 
+      found, and time you've spent, along with the level name. 
+         In Deathmatch, the Score bar lists the top six scorers, along with 
+      their names. 
+
+B.  Messages 
+   Quake talks to you from time to time. Some messages appear at the top of 
+   the screen. These are non-critical, and tell you that you've picked up an 
+   object, or you've died in an interesting fashion. Ignore these messages if
+   you please. 
+      Certain messages appear inconveniently in the middle of your view. These 
+   are always important, and you do not want to ignore them!
+
+D Ending a Level
+   Once you finish a level, you'll find a slipgate or a distinctive archway 
+   leading to the next level. Pass through to emerge onto a new level. 
+      You start the new level with the same armor, weapons, and ammo you had at 
+   the end of the previous one. If a power-up was active at the end of the 
+   previous level, it is now, sadly, gone. Make the best of it. If your hit 
+   points were over 100 or under 50, they are altered to 100 or 50, 
+   respectively. Otherwise, your hit points are unchanged. 
+
+D. Ending a Dimension
+   Once you've finished all the levels in a particular dimension, you return 
+   to the starting hall. New dimensions are started from scratch -- you, your 
+   shotgun, and axe.
+
+VI. Your New Environment
+A. Firepower
+   You are blessed with eight different Means o' Mass Destruction. Each has 
+   its place in a balanced diet. 
+
+   Axe
+      The last resort. Face it  -- going toe-to-toe with the uglies in Quake
+      demonstrates all the good sense of a man parachuting into an alligator 
+      farm. 
+
+   Shotgun
+      The basic gun, to which all other guns compare favorably.
+
+   Double-barrelled Shotgun
+      A worthy weapon with three minor drawbacks: first, it uses up 2 shells 
+      per blast; second, it's slow; third, its shot pattern is very loose at 
+      long range. But in general, once you find this puppy, the other shotgun 
+      starts rusting from disuse. 
+
+   Nailgun
+      A two-barrel dingus that prickles bad guys with armor-piercing darts, 
+      technically termed "nails". 
+
+   Supernailgun 
+      The great equalizer. Four cyclic barrels that hose out spikes like 
+      crazy. Pro: foes drop like flies. Con: eats ammo like popcorn. 
+
+   Grenade Launcher
+      Thumps neat exploding bombs into the air. You can even bounce a grenade
+      off the wall or floor.. When a grenade hits someone, it explodes. 
+      If it misses, the bomb sits on the floor for a moment, then explodes. 
+      Even though I sometimes bounce grenades into myself, this gun's still 
+      my favorite. 
+
+   Rocket Launcher
+      For when a grenade positively, absolutely, has to be there on time. 
+
+   Thunderbolt  
+      Try it. You'll like it. Use the same technique as watering your 
+      rosebush.
+
+   Switching Between Weapons
+      If you are firing a weapon and run out of ammo, Quake automatically 
+      switches you to another weapon. It will never switch to the grenade 
+      launcher or rocket launcher, however, for reasons that ought to be 
+      obvious. So if you're firing away happily and suddenly switch to the 
+      axe, it doesn't mean you're out of all ammo -- you may still have 
+      grenades. But Quake requires you to select such dangerous 
+      explosives on your own. 
+
+=============================================================================
+== TIP -- If you shoot the Thunderbolt underwater, it discharges all its ==  
+== cells in every direction in a single gigantic KA-ZAP, with you at the   == 
+== center. Don't try this at home.                                         ==
+=============================================================================
+
+B. Ammo
+   The eight weapons use four types of ammo. Each ammo type comes in two 
+   flavors -- small and large. The large boxes carry twice as much as the 
+   small. 
+
+   Shells 
+      For shotguns and double-barrelled shotguns. A small box holds 20.
+
+   Flechettes 
+      For nailguns and supernailgunss. A small box holds 25. 
+
+   Grenades 
+      For grenade launchers and rocket launchers. A small crate holds 5.
+
+   Cells 
+      For Mr. Thunderbolt. A small battery has 6 charges, lasting a little 
+      over a second.
+
+C. Power-ups
+   All power-ups except armor burn out after a while, so smoke 'em while you 
+   got 'em. 
+
+   Armor 
+      Comes in three flavors; green, yellow, and red, from weakest to most 
+      powerful.
+
+   Megahealth
+      Gives you 100 additional hit points. After a few seconds, all hit points 
+      over 100 start slowing draining away, because it's too much for the human 
+      frame to hold. Still, it's nice while it lasts. 
+
+   Biosuit 
+      lets you breathe underwater and swim through slime without harm. Does 
+      not protect against lava. 
+
+   Ring of Shadows 
+      Renders you almost totally invisible. Only your eyes can be seen. 
+      Monsters don't detect you unless you do something stupid. Like shoot.
+
+   Pentagram of Protection 
+      Renders you invulnerable. 
+
+   Quad Damage 
+      Magnum upgrade! You now deliver four times the pain!
+
+=============================================================================
+== TIP -- When quad damage is activated, use the grenade or rocket         ==
+== launcher with care -- their bursts are four times as deadly to you, as  ==
+== well as your enemies.                                                   ==
+=============================================================================
+
+D. Bad Guys
+   Quake critters are extremely tough, but you have the firepower to vent 
+   your grievances on them anyway. Good hunting. 
+
+   Rottweiler
+      Bad, bad doggie! Play dead! -- blam! -- yipe! Good  dog!
+
+   Grunt 
+      Goons with probes inserted into their pleasure centers; wired up so 
+      when they kill someone, they get paroxysms of ecstasy. In essence, 
+      customized serial killers. Easy to kill, and they tote shotgun shells. 
+      It's like a little Christmas each time you blow a Grunt away!
+
+   Enforcer (registered only) 
+      Grunt, Mark Two. Recruits who are surlier and beefier than the rest get 
+      outfitted in combat armor and built-in blasters. 
+
+   Knight 
+      Canned meat. Open 'er up and see if it's still fresh. 
+
+   Death Knight (registered only) 
+      This particular canned meat tends to open you up instead. 
+
+   Rotfish (registered only) 
+      Disgusting little critters who dish it out, but can't take it.
+
+   Zombie
+      Thou canst not kill that which doth not live. But you can blast it 
+      into chunky kibbles. 
+
+   Scrag 
+      Floats like a butterfly, stings like a bee. Ugly as hell. They're not 
+      real tough, but like to bushwhack you. 
+
+   Ogre 
+      What's worse than a cannibal monster eight feet tall? One with a 
+      chainsaw. And a sack of grenades.
+
+   Spawn (registered) 
+      A merrily bouncing blob as dangerous to kill as to ignore. Blech.
+
+   Fiend 
+      In essence, organic buzzsaws, rife with pummeling power! 
+
+   Vore (registered) 
+      A spideresque hybrid horror. Keep your eye on the energy pod he hurls. 
+
+   Shambler 
+      Even other monsters fear him, so expect a clobbering. He shrugs off 
+      explosions. Good luck. 
+
+=============================================================================
+== TIP -- Some weapons are better vs. particular monsters than others. If  ==
+== a new monster seems real tough, switch weapons.                         ==
+=============================================================================
+
+E. Environmental Hazards and Effects
+
+   Explosions
+      Radioactive containers are in some military bases. Shooting these 
+      things unleashes a big boom, so be careful -- you may not want to 
+      stand too close in a firefight. 
+         Your own grenades and rockets cause explosions too, of course -- the 
+      blast can hurt you if you're too close. 
+
+   Water 
+      Safe enough unless you stay under so long you start to drown. Come up 
+      for air periodically to prevent this. 
+
+   Slime 
+      Hurts you instantly and keeps on hurting. Stay out of slime unless you 
+      have a very good reason to take a dip. 
+
+   Lava 
+      If you're quick and the lava's shallow, you might escape before you're 
+      burnt to a crisp,  but don't bet on it. 
+
+   Traps 
+      Quake has many different traps. Don't be paranoid, because traps aren't 
+      really very common, but be aware of their existence. Traps can't be 
+      classified because they come in many varieties -- monsters in ambush, 
+      spike shooters, crushing walls, trapdoors, etc. 
+
+    Teleporters 
+      These are distinctive in appearance and emit a unique sound. When you 
+      step into a teleporter, you're instantly transported to another 
+      teleporter, or atop a teleport pad. If you teleport directly right atop 
+      of somebody else, he or she is killed instantly. 
+
+=============================================================================
+== TIP -- Monsters are smart enough not to activate their own traps, but   ==
+== if you activate the traps, the monsters can get caught by them.         ==
+=============================================================================
+
+VII. Multiplayer Action 
+   Quake can be even more fun when you're playing with friends than when 
+   you're playing by yourself.
+      When you are using the console or Main Menu in multiplayer, the game does
+   not pause. Irresponsible players and monsters can freely shoot you, and
+   your only recourse is bloodthirsty vengeance. 
+     The Talk function is useful here. When you talk, the message appears at 
+   the top of all players' screens, preceded by the speaker's name.
+     To talk, press 'T' and start typing your message. Press ENTER to set
+   the message to everyone.
+     To set up, run, or join a multiplayer game, use the Main Menu Multiplayer
+   option. README.TXT contains details that may be useful if your network or 
+   modem need special configurations. 
+
+A. Cooperative
+   In a co-op game, you and your friends work together to finish the level. 
+   When one person exits, everyone else exits too, wherever they might be. If 
+   you are killed in co-op, you reappear at the start area, and have to catch 
+   up to your buddies. Use Talk to find out where they are. See the 
+   Multiplayer options on the Main Menu for more info.
+
+B. Deathmatch	
+   In a deathmatch, play is totally cutthroat. No monsters exist, and when 
+   you are killed, you reappear in a random spot. After you pick up an item, 
+   it respawns (i.e. pops back into existence) after a while. (Some items 
+   take longer to respawn than others.) Every time you kill someone, you get 
+   a Frag. The person with the most Frags wins, so wreak slaughter amongst 
+   your pals! 
+      If you kill yourself, whether intentionally or by accident, you lose a 
+   Frag. This includes drowning, getting crushed, and so forth. See the 
+   Multiplayer options on the Main Menu for more info.
+
+C. Team Games 
+   Team play is a cool combination of co-op and deathmatch. Each team picks 
+   a "uniform" and everyone on that team changes their color to the team 
+   color. The team with the most Frags wins. See README.TXT or the Main Menu 
+   for details. 
+
+=============================================================================
+== TIP -- if you have the Team Color Rules set to No Friendly Fire, your   ==
+== weapons won't hurt other players wearing the same color pants as you.   ==
+== (You can still have differently-colored shirts.) Your shots still wear  ==
+== down their armor, and your own grenade and rocket explosions still hurt ==
+== YOU, just not them.                                                     ==
+=============================================================================
+
+VIII. Commonly Asked Questions
+
+Q. I'm stuck. How do I get through the level?
+A. Take a stroll around and look for a place you haven't been yet. Sometimes 
+you have to kill a particular monster in order to progress, so exterminate 
+them all!
+
+Q. How can I find all the secrets? 
+A. Don't worry about it. You never have to find a secret to finish a level.. 
+Also, some secrets are intentionally hard to find. 
+
+Q. I've cleared out the whole level, but my monster kill score isn't 100%. 
+Where are they hiding?
+A. Some monsters hide inside secrets, or are released by them. You won't be 
+able to kill those monsters until you find their secrets. Also, some monsters 
+might  lurk underwater. Good fishing. 
+
+Q. Don't you worry that Quake teaches people that all problems can be solved 
+by the misuse of deadly force? 
+A. No. 
+
+Q. Did I really see two monsters fighting each other?
+A. Probably. Some monsters hate one another almost as much as they hate you. 
+You can use this to your advantage (exercise left up to the reader). 
+
+Q. How do I prevent motion sickness when watching Quake?
+A. If you're one of the unlucky sufferers from motion sickness in Quake, 
+we're sorry to say the answer seems to differs from person to person. Try 
+sitting closer to the screen, or further away. Dim the lights in your room, 
+or turn them up high. Adjust screen brightness up or down. Take a break from 
+Quake and rest your eyes every hour or so. One or more of these tricks, or a 
+combination, ought to work. 
+
+Q. Are you guys Satan-worshipers?
+A. No. 
+
+IX. Tech Support
+   Any of the information listed below could change. Check the id software Web
+Site, at www.idsoftware.com, for updates.
+
+A. Tech Support Options
+id Software does charge for technical support, but we strive to offer this 
+service at the lowest cost possible. Because volume on the support lines 
+dictates costs, we periodically adjust our rates for Voice Tech Support. 
+Check our web site for current pricing.
+
+Paying for Voice or Automated Support
+   1 -- You can get Voice Support using a major credit card for a one-time 
+   shot. The system asks for your credit card number and expiration date, then 
+   pre-authorizes your credit card for the tech support call. You will only be 
+   billed for the number of minutes actually used.
+
+   2 -- You can assign yourself a rechargeable PIN account. The system 
+   prompts you for your credit card information, and assigns you a PIN account
+   number. You can use the PIN to access Voice Support, Automated Support and 
+   the Game Hints Line. Once your account runs out, you can charge it up
+   again.
+
+   3 -- You may also charge up a PIN account using the number 
+   1 (900) call-2-id. Then call back at 1 (800) id-games, and use your
+   new PIN to receive all the support and hints you wish.
+
+Voice Support
+Telephone -- 1 (800) id-games
+   Lines Open from 12 noon to 10pm Central Time
+   7 Days a week ($1.75 per minute maximum as of this printing)
+   Closed some holidays
+Please have the following information handy.
+   1.  Game title and version number. (The version number can be found in the 
+   lower right-hand corner of the console.)
+   2.  Your operating system, processor, processor speed and amount of RAM.
+   3.  If you are having a sound, video or modem problem, we need to know the   
+   device brand name and model.
+
+Automated Support
+Telephone -- 1 (800) id-games 
+   Lines Open 24 hours a day, 365 days a year (366 in Leap year)
+   ($0.25 per minute)
+Please have pencil and paper handy
+
+E-mail Support
+   Just send your e-mail to support@idsoftware.com
+   We will respond within 48 hours after receiving your e-mail. When sending
+   e-mail, cut and paste the following into your e-mail message and fill
+   in the blanks --
+
+Date:  
+Name:  
+Phone number:  
+E-mail address:  (please include this, we redirect tons of mail)
+Game Title:  
+Version #:  
+Operating system (eg., DOS 6.0 or Windows 95):
+Computer type:  
+Processor type:  
+Processor speed:  
+Video card brand and model:  (only if video problem)
+Audio card brand and model:  (only if audio problem)
+Modem brand and model:  (only if modem problem)
+Network card brand and model:  (only if netgame problem)
+Network configuration (eg., NET.CFG file):  (only if netgame problem)
+Drivers, protocol stacks, and versions:  (eg., lsl v2.14, exp16odi
+v2.33, and ipxodi v3.01)  (only if netgame problem)
+If there were any error messages or fault information, report them
+here:
+Please state the problem you encountered:
+Please state how to reproduce the problem:
+
+Web Support
+   Found at www.idsoftware.com
+   Our web support pages provide the same information that's available via
+   Automated Support, except it's free!
+
+News Sites
+   For information, FAQ, or announcements, check out
+      rec.games.computer.quake.announce
+
+   For editing and hecking Quake-related files, check out
+      rec.games.computer.quake.editing
+
+   For general Quake discussion, check out
+      rec.games.computer.quake.misc
+
+Game Hints Line
+Telephone -- 1 (800) id-games or 1 (900) call-2-id
+   Lines Open 24 hours a day, 365 days a year (366 in Leap year)
+   ($0.85 per minute)
+
+B. In Europe
+   Our help lines in Europe are open 7:30am - 5:00pm GMT, Monday - Friday. 
+
+      English:  +44 01923 209145
+      German:   +44 (0)1923 209151
+      French:   +44 (0)1923 209148
+
+C. Problems
+   If you have an unfavorable experience using our services, please send
+   e-mail to support@idsoftware.com. Kindly include your full name,
+   address, phone number, and the problem encountered.
+
+X. LEVELS & DESIGNERS
+
+***************************************
+The Beginning
+start -- Welcome to Quake -- by John Romero
+***************************************
+Dimension of the Doomed (shareware episode)
+e1m1: Slipgate Complex -- by John Romero
+e1m2: Castle of the Damned -- by Tim Willits
+e1m3: The Necropolis -- by Tim Willits
+e1m4: The Grisly Grotto -- by Tim Willits
+e1m5: Gloom Keep -- by Tim Willits
+e1m6: The Door To Chthon -- by American McGee
+e1m7: The House of Chthon -- by American McGee
+***************************************
+Realm of Black Magic
+e2m1: The Installation -- by John Romero
+e2m2: Ogre Citadel -- by John Romero
+e2m3: Crypt of Decay -- by John Romero
+e2m4: The Ebon Fortress  -- by John Romero
+e2m5: The Wizard's Manse -- by John Romero
+e2m6: The Dismal Oubliette -- by John Romero
+***************************************
+Netherworld
+e3m1: Termination Central -- by John Romero
+e3m2: The Vaults of Zin -- by American McGee
+e3m3: The Tomb of Terror -- by American McGee
+e3m4: Satan's Dark Delight -- by American McGee
+e3m5: Wind Tunnels --by Tim Willits
+e3m6: Chambers of Torment -- by American McGee & Tim Willits
+***************************************
+The Elder World
+e4m1: The Sewage System -- by Tim Willits
+e4m2: The Tower of Despair --by Sandy Petersen
+e4m3: The Elder God Shrine --by Sandy Petersen
+e4m4: The Palace of Hate --by Sandy Petersen
+e4m5: Hell's Atrium --by Sandy Petersen
+e4m6: The Pain Maze --by Sandy Petersen
+e4m7: Azure Agony --by Sandy Petersen
+***************************************
+The End
+end: Shub-Niggurath's Pit --by John Romero
+***************************************
+The Deathmatch Arenas
+dm1: Place of Two Deaths --by Tim Willits
+dm2: Claustrophobopolis --by American McGee
+dm3: The Abandoned Base --by John Romero
+dm4: The Bad Place --by American McGee
+dm5: The Cistern --by Tim Willits
+dm6: The Dark Zone --by Tim Willits
+***************************************
+???
+Ziggurat Vertigo --by American McGee
+Underearth --by Tim Willits
+The Haunted Halls -- by American McGee
+The Nameless City -- by Sandy Petersen
+***************************************
+
+XI. Legal Boilerplate 
+   Quake (tm) (c) id Software, Inc. All rights reserved. All trademarks are
+   the property of their respective companies. For full information on the
+   legal issues of owning and using Quake, please refer to the files
+   LICINFO.TXT and ORDER.TXT.
+
+The program you've purchased was produced through the effort of many people.
+Don't make copies for others who have not paid for the right to the
+registered version of Quake. To report copyright violations to the Software
+Publishers Association, call 1 (800) 388-PIR8 or write:
+
+	Software Publishers Association
+	Suite 901
+	1101 Connecticut Avenue NW
+	Washington, DC  20036
+
+XII. MUSIC CREDITS
+
+Titles of Songs or Themes (C) 1996 TVT/Interscope Records.
+All Rights Reserved.
+Written by Trent Reznor (C) 1996 Leaving Hope/TVT Music.
+ASCAP All Rights Reserved.
+
+Note: music is ONLY available on CD. See your local software retailer
+or order Quake today at 1-800-idgames!
+
+XIII. Thanks
+
+id Software would like to give special thanks to:
+
+Sean Barrett
+Raymond Chen
+DJ Delorie
+Andy Glew
+Lance Hacking
+Chris Hecker
+Todd Laney
+Terje Mathisen
+Charles Sandmann
+Jon Vondrak
+Billy Zelsnack
+The GameTech crew
+Syntrillium Software for CoolEdit

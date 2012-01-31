@@ -1,0 +1,436 @@
+Client
+------
+
+Commands:
+
+cd
++moveup -moveup
++movedown -movedown
++left -left
++right -right
++forward -forward
++back -back
++lookup -lookup
++lookdown -lookdown
++strafe -strafe
++moveleft -moveleft
++moveright -moveright
++speed -speed
++attack -attack
++use -use
++jump -jump
++klook -klook
++mlook -mlook
+impulse
+version", CL_Version_f
+changing", CL_Changing_f
+disconnect", CL_Disconnect_f
+record", CL_Record_f
+stop", CL_Stop_f
+playdemo", CL_PlayDemo_f
+timedemo", CL_TimeDemo_f
+skins", Skin_Skins_f
+allskins", Skin_AllSkins_f
+quit", CL_Quit_f
+connect", CL_Connect_f
+reconnect", CL_Reconnect_f
+rcon", CL_Rcon_f
+packet", CL_Packet_f
+user", CL_User_f
+users", CL_Users_f
+setinfo", CL_SetInfo_f
+fullinfo", CL_FullInfo_f
+fullserverinfo", CL_FullServerinfo_f
+color", CL_Color_f
+download", CL_Download_f
+kill", NULL
+say", NULL
+say_team", NULL
+serverinfo", NULL
+windows", CL_Windows_f
+version", CL_Version_f
+changing", CL_Changing_f
+disconnect", CL_Disconnect_f
+record", CL_Record_f
+stop", CL_Stop_f
+playdemo", CL_PlayDemo_f
+timedemo", CL_TimeDemo_f
+skins", Skin_Skins_f
+allskins", Skin_AllSkins_f
+quit", CL_Quit_f
+connect", CL_Connect_f
+reconnect", CL_Reconnect_f
+rcon", CL_Rcon_f
+packet", CL_Packet_f
+user", CL_User_f
+users", CL_Users_f
+setinfo", CL_SetInfo_f
+fullinfo", CL_FullInfo_f
+fullserverinfo", CL_FullServerinfo_f
+color", CL_Color_f
+download", CL_Download_f
+kill", NULL
+say", NULL
+say_team", NULL
+serverinfo", NULL
+windows", CL_Windows_f
+stuffcmds",Cmd_StuffCmds_f
+exec",Cmd_Exec_f
+echo",Cmd_Echo_f
+alias",Cmd_Alias_f
+wait", Cmd_Wait_f
+cmd", Cmd_ForwardToServer_f
+path", COM_Path_f
+path", COM_Path_f
+toggleconsole", Con_ToggleConsole_f
+togglechat", Con_ToggleChat_f
+messagemode", Con_MessageMode_f
+messagemode2", Con_MessageMode2_f
+clear", Con_Clear_f
+gl_texturemode", &Draw_TextureMode_f
+timerefresh", R_TimeRefresh_f	
+envmap", R_Envmap_f	
+pointfile", R_ReadPointFile_f	
+screenshot",SCR_ScreenShot_f
+sizeup",SCR_SizeUp_f
+sizedown",SCR_SizeDown_f
+vid_nummodes", VID_NumModes_f
+vid_describecurrentmode", VID_DescribeCurrentMode_f
+vid_describemode", VID_DescribeMode_f
+vid_describemodes", VID_DescribeModes_f
+force_centerview", Force_CenterView_f
+joyadvancedupdate", Joy_AdvancedUpdate_f
+bind",Key_Bind_f
+unbind",Key_Unbind_f
+unbindall",Key_Unbindall_f
+togglemenu", M_ToggleMenu_f
+menu_main", M_Menu_Main_f
+menu_options", M_Menu_Options_f
+menu_keys", M_Menu_Keys_f
+menu_video", M_Menu_Video_f
+help", M_Menu_Help_f
+menu_quit", M_Menu_Quit_f
+togglemenu", M_ToggleMenu_f
+menu_main", M_Menu_Main_f
+menu_options", M_Menu_Options_f
+menu_keys", M_Menu_Keys_f
+menu_video", M_Menu_Video_f
+help", M_Menu_Help_f
+menu_quit", M_Menu_Quit_f
+timerefresh", R_TimeRefresh_f	
+pointfile", R_ReadPointFile_f	
++showscores", Sbar_ShowScores
+-showscores", Sbar_DontShowScores
++showteamscores", Sbar_ShowTeamScores
+-showteamscores", Sbar_DontShowTeamScores
+screenshot",SCR_ScreenShot_f
+sizeup",SCR_SizeUp_f
+sizedown",SCR_SizeDown_f
+play", S_Play
+playvol", S_PlayVol
+stopsound", S_StopAllSoundsC
+soundlist", S_SoundList
+soundinfo", S_SoundInfo_f
+vid_nummodes", VID_NumModes_f
+vid_describemode", VID_DescribeMode_f
+vid_describemodes", VID_DescribeModes_f
+vid_debug", VID_Debug_f
+force_centerview", Force_CenterView_f
+vid_testmode", VID_TestMode_f
+vid_nummodes", VID_NumModes_f
+vid_describecurrentmode", VID_DescribeCurrentMode_f
+vid_describemode", VID_DescribeMode_f
+vid_describemodes", VID_DescribeModes_f
+vid_forcemode", VID_ForceMode_f
+vid_windowed", VID_Windowed_f
+vid_fullscreen", VID_Fullscreen_f
+vid_minimize", VID_Minimize_f
+vid_testmode", VID_TestMode_f
+vid_nummodes", VID_NumModes_f
+vid_describecurrentmode", VID_DescribeCurrentMode_f
+vid_describemode", VID_DescribeMode_f
+vid_describemodes", VID_DescribeModes_f
+vid_forcemode", VID_ForceMode_f
+vid_windowed", VID_Windowed_f
+vid_fullscreen", VID_Fullscreen_f
+vid_minimize", VID_Minimize_f
+v_cshift", V_cshift_f	
+bf", V_BonusFlash_f
+centerview", V_StartPitchDrift
+flush", Cache_Flush
+
+CVars:
+
+cl_nodelta
+host_speeds
+developer
+cl_warncmd
+cl_upspeed
+cl_forwardspeed
+cl_backspeed
+cl_sidespeed
+cl_movespeedkey
+cl_yawspeed
+cl_pitchspeed
+cl_anglespeedkey
+cl_shownet
+cl_timeout
+cl_hightrack
+lookspring
+lookstrafe
+sensitivity
+m_pitch
+m_yaw
+m_forward
+m_side
+rcon_password
+rcon_address
+entlatency
+cl_predict_players
+baseskin
+noskins
+name
+password
+spectator
+skin
+team
+topcolor
+bottomcolor
+rate
+msg
+noaim
+cl_pushlatency
+cl_nopred
+registered
+con_notifytime
+host_framerate
+d_subdiv16
+d_mipcap
+d_mipscale
+gl_nobind
+gl_max_size
+gl_picmip
+r_norefresh
+r_lightmap
+r_fullbright
+r_drawentities
+r_drawviewmodel
+r_shadows
+r_mirroralpha
+r_wateralpha
+r_dynamic
+r_novis
+r_speeds
+gl_clear
+gl_texsort
+gl_cull
+gl_smoothmodels
+gl_affinemodels
+gl_polyblend
+gl_flashblend
+gl_playermip
+gl_nocolors
+gl_keeptjunctions
+gl_reporttjunctions
+scr_fov
+scr_viewsize
+scr_conspeed
+scr_showram
+scr_showturtle
+scr_showpause
+scr_centertime
+scr_printspeed
+vid_mode
+vid_wait
+vid_nopageflip
+_vid_wait_override
+_vid_default_mode
+_vid_default_mode_win
+vid_config_x
+vid_config_y
+vid_stretch_by_2
+_windowed_mouse
+gl_ztrick
+m_filter
+in_joystick
+joy_name
+joy_advanced
+joy_advaxisx
+joy_advaxisy
+joy_advaxisz
+joy_advaxisr
+joy_advaxisu
+joy_advaxisv
+joy_forwardthreshold
+joy_sidethreshold
+joy_pitchthreshold
+joy_yawthreshold
+joy_forwardsensitivity
+joy_sidesensitivity
+joy_pitchsensitivity
+joy_yawsensitivity
+joy_wwhack1
+joy_wwhack2
+showpackets
+showdrop
+r_draworder
+r_speeds
+r_timegraph
+r_netgraph
+r_zgraph
+r_graphheight
+r_drawflat
+r_ambient
+r_clearcolor
+r_waterwarp
+r_fullbright
+r_drawentities
+r_drawviewmodel
+r_aliasstats
+r_dspeeds
+r_reportsurfout
+r_maxsurfs
+r_numsurfs
+r_reportedgeout
+r_maxedges
+r_numedges
+r_aliastransbase
+r_aliastransadj
+scr_fov
+scr_viewsize
+scr_conspeed
+scr_showram
+scr_showturtle
+scr_showpause
+scr_centertime
+scr_printspeed
+nosound
+volume
+precache
+loadas8bit
+bgmvolume
+bgmbuffer
+ambient_level
+ambient_fade
+snd_noextraupdate
+snd_show
+_snd_mixahead
+vid_mode
+vid_redrawfull
+vid_waitforrefresh
+mouse_button_commands[0]
+mouse_button_commands[1]
+mouse_button_commands[2]
+vid_mode
+vid_wait
+vid_nopageflip
+_vid_wait_override
+_vid_default_mode
+_vid_default_mode_win
+vid_config_x
+vid_config_y
+vid_stretch_by_2
+_windowed_mouse
+vid_fullscreen_mode
+vid_windowed_mode
+block_switch
+vid_window_x
+vid_window_y
+vid_mode
+vid_wait
+vid_nopageflip
+_vid_wait_override
+_vid_default_mode
+_vid_default_mode_win
+vid_config_x
+vid_config_y
+vid_stretch_by_2
+_windowed_mouse
+vid_fullscreen_mode
+vid_windowed_mode
+block_switch
+vid_window_x
+vid_window_y
+v_centermove
+v_centerspeed
+v_iyaw_cycle
+v_iroll_cycle
+v_ipitch_cycle
+v_iyaw_level
+v_iroll_level
+v_ipitch_level
+v_idlescale
+crosshair
+cl_rollspeed
+cl_rollangle
+cl_bob
+cl_bobcycle
+cl_bobup
+v_kicktime
+v_kickroll
+v_kickpitch	
+v_gamma
+
+
+Server
+------
+
+Commands:
+edict", ED_PrintEdict_f
+edicts", ED_PrintEdicts
+edictcount", ED_Count
+profile", PR_Profile_f
+logfile", SV_Logfile_f
+fraglogfile", SV_Fraglogfile_f
+kick", SV_Kick_f
+status", SV_Status_f
+map", SV_Map_f
+setmaster", SV_SetMaster_f
+say", SV_ConSay_f
+heartbeat", SV_Heartbeat_f
+quit", SV_Quit_f
+god", SV_God_f
+give", SV_Give_f
+noclip", SV_Noclip_f
+serverinfo", SV_Serverinfo_f
+user", SV_User_f
+gamedir", SV_Gamedir_f
+sv_gamedir", SV_Gamedir
+addip", SV_AddIP_f
+removeip", SV_RemoveIP_f
+listip", SV_ListIP_f
+writeip", SV_WriteIP_f
+
+Cvars:
+rcon_password
+password
+spectator_password
+sv_mintic
+sv_maxtic
+fraglimit
+timelimit
+teamplay
+samelevel
+maxclients
+maxspectators
+hostname
+deathmatch
+spawn
+developer
+timeout
+zombietime
+sv_maxvelocity
+sv_gravity
+sv_aim
+filterban
+allow_download
+allow_download_skins
+allow_download_models
+allow_download_sounds
+allow_download_maps
+cl_rollspeed
+cl_rollangle
+sv_spectalk
+sys_nostdout
+sys_extrasleep
+sys_nostdout

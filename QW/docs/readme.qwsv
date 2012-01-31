@@ -1,0 +1,13 @@
+QWSV Notes (May.05.1998 Release)
+--------------------------------
+ 
+ Please refer to
+
+ http://www.quakeworld.net/
+
+ for documentation.
+
+ Server operators wishing to link to our master server at id, please use;
+
+ qwsv +setmaster 192.246.40.37.
+

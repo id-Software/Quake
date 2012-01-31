@@ -1,0 +1,162 @@
+Linux Glquake v0.98, Quake v1.09 release notes
+
+Requirements
+------------
+
+For 3DFX based hardware, you must download and install Linux GLIDE from 
+http://glide.xxedgexx.com/3DfxRPMS.html and install as per the
+instructions.
+
+Running GLQuake
+---------------
+
+There are three different ways to execute GLQuake:
+
+1. The binary "glquake" requires Mesa 3-D 2.5 or later installed and compiled
+with 3DFX support (fxMesa..() function interface).  It also requires
+svgalib 1.3.0 or later for keyboard/mouse input.  This binary is a console
+application.  Mesa 3-D requires GLIDE to be installed.
+
+2. The shell script "glquake.3dfxgl" runs the "glquake" binary after
+preloading the lib3dfxgl.so library.  This is a port of 3DFX's Win32
+OpenGL MCD (Mini Client Driver) to Linux.  It is faster than Mesa 3-D
+since it was written specifically with supporting GLQuake in mind.
+lib3dfxgl.so requires that GLIDE be installed.
+
+3. The binary "glquake.glx" is linked against standard OpenGL libraries.
+It should run on many different hardward OpenGL implementations under
+Linux and X11.  This binary is an X11 application and must be run under
+X11.  It will work with Mesa 3-D as a standard glX based OpenGL 
+applications.  If the Mesa 3-D library is compiled with 3DFX support,
+you can have Mesa 3-D support 3DFX hardware under X11 by setting the
+enviroment variable "MESA_GLX_FX" to "fullscreen" for fullscreen mode
+and "window" for windowed mode.
+
+You must also have SVGALib 1.3.0 or later installed.  GLQuake uses SVGALib
+for mouse and keyboard handling.
+
+If you have gpm and/or selection running, you will have to terminate them
+before running GLQuake since they will not give up the mouse when GLQuake
+attempts to run.  You can kill gpm by typing 'killall gpm' as root.
+
+You must run GLQuake as root or setuid root since it needs to access things 
+such as sound, keyboard, mouse and the 3DFX video.  Future versions may not 
+require root permissions.
+
+resolution options
+------------------
+glquake -width 512 -height 384
+Tries to run glquake at the specified resolution.  
+Only highend VooDoo cards support such high resolutions (most
+cards on the market right now do not).  Another popular and supported mode
+is 512x384 (-width 512 -height 384) which can offer a faster speed than
+the default 640x480.
+
+You can also specify the resolution of the console independant of the screen
+resolution.
+
+glquake -conwidth 320
+This will specify a console resolution of 320 by 240 (the height is
+automatically determined by the default 4:3 aspect ratio, you can also
+specify the height directly with -conheight).
+
+In higher resolution modes such as 800x600 and 1024x768, glquake will default
+to a 640x480 console, since the font becomes small enough at higher 
+resolutions to become unreadable.  If do you wish to have a higher resolution
+console and status bar, specify it as well, such as:
+glquake -width 800 -height 600 -conwidth 800
+
+texture options
+---------------
+The amount of textures used in the game can have a large impact on performance.  
+There are several options that let you trade off visual quality for better 
+performance.
+
+There is no way to flush already loaded textures, so it is best to change 
+these options on the command line, or they will only take effect on some of 
+the textures when you change levels.
+
+OpenGL only allows textures to repeat on power of two boundaries (32, 64, 
+128, etc), but software quake had a number of textures that repeated at 24 
+or 96 pixel boundaries.  These need to be either stretched out to the next 
+higher size, or shrunk down to the next lower.  By default, they are filtered 
+down to the smaller size, but you can cause it to use the larger size if you 
+really want by using: 
+
+glquake +gl_round_down 0
+This will generally run well on a normal 4 MB 3dfx card, but for other cards 
+that have either worse texture management or slower texture swapping speeds, 
+there are some additional settings that can drastically lower the amount of 
+textures to be managed.
+
+glquake +gl_picmip 1
+This causes all textures to have one half the dimensions they otherwise would.  
+This makes them blurry, but very small.  You can set this to 2 to make the 
+textures one quarter the resolution on each axis for REALLY blurry textures.
+
+glquake +gl_playermip 1
+This is similar to picmip, but is only used for other players in deathmatch.  
+Each player in a deathmatch requires an individual skin texture, so this can 
+be a serious problem for texture management.  It wouldn't be unreasonable to 
+set this to 2 or even 3 if you are playing competatively (and don't care if 
+the other guys have smudged skins).  If you change this during the game, it 
+will take effect as soon as a player changes their skin colors.
+
+run time options
+----------------
+At the console, you can set these values to effect drawing.
+
+gl_texturemode GL_NEAREST
+Sets texture mapping to point sampled, which may be faster on some GL systems 
+(not on 3dfx).
+
+gl_texturemode GL_LINEAR_MIPMAP
+This is the default texture mode.
+
+gl_texturemode GL_LINEAR_MIPMAP_LINEAR
+This is the highest quality texture mapping (trilinear), but only very high 
+end hardware (intergraph intense 3D / realizm) supports it.  Not that big of 
+a deal, actually.
+
+gl_finish 0
+This causes the game to not issue a glFinish() call each frame, which may make 
+some hardware run faster.  If this is cleared, the 3dfx will back up a number 
+of frames and not be very playable.
+
+gl_flashblend 0
+By default, glquake just draws a shaded ball around objects that are emiting 
+light.  Clearing this variable will cause it to properly relight the world 
+like normal quake, but it can be a significant speed hit on some systems.
+
+gl_ztrick 0
+Glquake uses a buffering method that avoids clearing the Z buffer, but some 
+hardware platforms don't like it.  If the status bar and console are flashing 
+every other frame, clear this variable.
+
+gl_keeptjunctions 0
+If you clear this, glquake will remove colinear vertexes when it reloads the 
+level.  This can give a few percent speedup, but it can leave a couple stray 
+blinking pixels on the screen.
+
+novelty features
+----------------
+These are some rendering tricks that were easy to do in glquake.  They aren't 
+very robust, but they are pretty cool to look at.
+
+r_shadows 1
+This causes every object to cast a shadow.
+
+r_wateralpha 0.7
+This sets the opacity of water textures, so you can see through it in properly 
+processed maps.  0.3 is very faint, almost like fog.  1 is completely solid 
+(the default).  Unfortunately, the standard quake maps don't contain any 
+visibility information for seeing past water surfaces, so you can't just play 
+quake with this turned on.  If you just want to see what it looks like, you 
+can set "r_novis 1", but that will make things go very slow.  When I get a 
+chance, I will probably release some maps that have been processed properly 
+for this.
+
+r_mirroralpha 0.3
+This changes one particular texture (the stained glass texture in the EASY 
+start hall) into a mirror.  The value is the opacity of the mirror surface.
+

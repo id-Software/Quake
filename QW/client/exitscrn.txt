@@ -1,0 +1,22 @@
+            QuakeWorld
+    version 1.64 by id Software
+
+Programming
+ John Carmack    Michael Abrash
+ John Cash       Christian Antkow
+
+Additional Programming
+ Dave 'Zoid' Kirsch
+   Courtesy of ThreeWave Software
+ Jack 'morbid' Mathews
+   Courtesy of the QuakeSpy Team
+
+QuakeWorld is an unsupported
+product of id Software.
+
+Quake is a trademark of Id Software,
+inc., (c)1996, 1997 Id Software, inc.
+All rights reserved. NIN logo is a
+registered trademark licensed to
+Nothing Interactive, Inc. All rights
+reserved. Press y to exit

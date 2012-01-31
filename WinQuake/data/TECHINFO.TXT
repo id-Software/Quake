@@ -1,0 +1,1901 @@
+Welcome to the Quake Technical Information file!
+
+TABLE OF CONTENTS
+-----------------
+Introduction to the Console..............
+Video Subsystem Documentation............
+Sound Subsystem Documentation............
+CD Audio Subsystem Documentation.........
+Network Subsystem Documentation..........
+Modem Strings............................
+Win95 Documentation......................
+Key Binding and Aliases..................
+Quake Keys and Common Commands...........
+Making a Config File.....................
+Demos....................................
+Reporting Quake Bugs.....................
+
+
+==========================================
+==     Introduction to the Console      ==
+==========================================
+
+Throughout this document, examples of commands are given, all of which
+are typed in at the console. To bring up the console, press the tilde ('~')
+key or press ESC to bring up the menu, select Options, and select Console...
+from the options menu. To exit the console, press ESC.
+
+The console provides a way to change console variables and also accepts
+commands that change game settings such as movement keys, video mode, as
+well as providing an interface for key binding and command aliasing (more
+on that later).
+
+The console also has a command history with which you can browse through
+previous commands. Use the up and down arrows to navigate through the
+command history and press <enter> to re-issue a command.
+
+Partially typing a command and then pressing the TAB key will complete the
+currently typed text with the first matching console variable or command.
+(Yes, this is a good way to look for console commands.)
+
+To review previous actions by page, use the PGUP and PGDN keys.
+
+
+==========================================
+==    Video Subsystem Documentation     ==
+==========================================
+
+The Video Modes menu
+--------------------
+
+Video modes can most easily be selected from the the Video Modes menu, which
+is brought up by selecting the Video Options choice in the Options menu.
+All the resolutions that Quake can support on the current computer are
+displayed.
+
+Please note that higher-resolution modes require correspondingly more
+system memory in order for Quake to run, and that some high-resolution
+modes may not be available when running Quake on 8 Mb machines.  Such
+modes are not listed in the Video Modes menu.  Please do not report
+video modes that do not appear in the Video Modes menu as bugs; either
+those modes are not supported by your video adapter, or there is not
+enough system memory for Quake to support those modes.
+
+The video modes listed in the Video Modes menu can be tested, set, and made
+the default mode for Quake from the Video menu, as follows:
+
+* The arrow keys can be used to move the blinking indicator to any of the
+modes listed in the Video menu.
+
+* Pressing the 'T' key tests the mode the blinking indicator points to, by
+setting the mode, leaving it set for 5 seconds, and returning to the previous
+mode.  This lets you verify that your computer does in fact support that
+mode.  We highly recommend that you always test modes with 'T' before setting
+thempermanently by pressing the Enter key, in case some sort of hardware or
+software glitch causes a mode to function incorrectly and produce a garbled
+screen.  It is unlikely but possible that testing or setting a mode will
+cause your computer to hang or crash; if this happens, there is a serious
+hardware or software bug, and you should not attempt to select that mode
+again.
+
+* Pressing the Enter key sets the mode the blinking indicator points to,
+leaving it set so Quake will then run in that mode.  We suggest that you
+test a mode by pressing the 'T' key before setting it by pressing the Enter
+key.  Note that a selection made with the Enter key remains in effect only
+until Quake is exited (or a new mode is set).  You must explictly make a mode
+the default mode by pressing the 'D' key in order to automatically set that
+mode when you start Quake up in the future.
+
+* Pressing the 'D' key makes the current mode the default mode that Quake
+starts up with.  Note that the current mode is the mode that's displayed in
+white in the mode list, not necessarily the mode that the blinking indicator
+points to.  The current default mode is listed in the description of the 'D'
+key at the bottom of the Video Modes menu.
+
+* Pressing Esc exits the Video Modes menu.
+
+Please see "Bug Reporting," below, for information on how to report any
+problems you encounter.
+
+
+Video modes from the console:  Quick start
+------------------------------------------
+
+More comprehensive but more complex video control is available through the
+Quake console.  This section describes the commands necessary to perform
+basic mode setting through the console (this is similar to what can be
+accomplished through the Video Modes menu), and following sections describe
+console video control in detail.
+
+To see all the video modes that are available, bring up the console (either
+press tilde ('~'), or press Esc to bring up the menu, select Options, and
+select Console... from the Options menu).
+
+From the console, type vid_describemodes<enter> to see all available modes.
+Type vid_mode <mode #> to set a mode, where <mode #> is the mode number
+listed for the desired mode by vid_describemodes.  Higher-resolution modes
+generally require more extra system memory in order to run, and many are
+not available in 8 Mb systems; modes that are supported by the video
+adapter but are currently unavailable due to system  memory limitations
+will still show up inthe mode list from vid_describemodes, but will
+have "**" in place of a mode number.  (Such modes will not show up at
+all in the Video Modes menu.)  If you try to set a mode for which
+there is insufficient system memory, you will receive a message to that
+effect, and the video mode will remain unchanged.
+
+
+More detail
+-----------
+
+This version of Quake supports software drawing in a variety of
+video modes.  It does not support any 3-D hardware accelerators.
+Video modes that are built into Quake are:
+
+320x200, 360x200, 320x240, 360x240, 320x350, 360x350, 320x400,
+360x400, 320x480, 360x480
+
+However, the higher-resolution modes on this list require additional
+memory, and may not be available in 8 Mb systems.
+
+In addition, all VESA 2.0 256-color linear framebuffer modes
+supported by the video adapter are supported.  Further information
+about VESA 2.0 is provided below.
+
+
+Video mode reporting and selection
+----------------------------------
+
+Quake assigns each available video mode a mode number, which can
+then be used to query information about the mode or to select the
+mode.  The first 11 mode numbers are always as follows:
+
+0:  320x200
+1:  320x200
+2:  360x200
+3:  320x240
+4:  360x240
+5:  320x350
+6:  360x350
+7:  320x400
+8:  360x400
+9:  320x480
+10: 360x480
+
+You will notice that modes 0 and 1 are both 320x200; mode 1 is a
+Mode X-style version, which may someday allow support of page
+flipping for cleaner graphics, but right now it's just slower with
+no advantages, so use mode 0 for 320x200 resolution.  Modes 2-10
+are all higher resolution than mode 0, and look very nice, but are
+also all slower than mode 0.  Mode 0 is the fastest of the 11
+built-in modes.
+
+In addition to the built-in modes, Quake checks for the presence
+of a VESA version 2.0 driver.  If such a driver is detected, the
+driver is queried for all 8-bit-per-pixel linear framebuffer (LFB)
+modes that are supported; also, if no LFB 320x200 mode is available,
+a banked 320x200 VESA mode is queried for.  All such modes are added
+to the mode list starting at mode 11.  The available modes will vary
+depending on adapter, graphics chipset, amount of video memory, and VESA
+2.0 driver.  The higher the resolution, the lower the performance, and
+thehigher-resolution modes will often be too slow for good gameplay
+on most machines.  (Also, higher-resolution modes often need more memory
+than is available in an 8 Mb system.)  The screen can be sized down to
+improve performance in higher-resolution modes, but then of course the
+effective resolution of Quake is reduced.
+
+At the same resolution, VESA LFB modes are often faster than the non-VESA
+modes 0-10, because adapters often have faster memory access in LFB modes.
+
+If a given VESA mode can support page flipping, then it defaults to page-
+flipped operation.  A VESA mode can be forced to non-page-flipped operation
+by setting the vid_nopageflip console variable to 1, then setting the mode
+(note that vid_nopageflip takes operation on the next, not the current, mode
+set, and note that it then stays in effect permanently, even when Quake is
+exited and restarted, unless it is manually set back to 0).  If there is not
+enough memory for two pages in a VESA mode, or if the
+adapter doesn't support page flipping, then the mode will automatically
+be non-page-flipped.  Page flipping can have higher visual quality, but may
+be either faster or slower, depending on the graphics adapter and other
+hardware.  (See the discussion of the Pentium Pro, below, for a
+discussion of why page flipping can be faster but is sometimes much slower
+on that processor.)  Page-flipped modes use less system memory than non-
+page-flipped modes.
+
+Quake's VESA support, including VESA driver detection, can be disabled by
+using the -stdvid command-line switch, and can also be disabled, along with
+sound, network, and other hardware support, by the -safe command-line switch.
+
+The maximum resolution supported by Quake is 1280x1024.  Modes with higher
+resolutions will not be reported by vid_describemodes, and cannot be set.
+
+There is no support for any 3-D accelerator boards in this version of Quake.
+Coming soon.
+
+Quake always starts up in mode 0, and modes 0-10 are always available, given
+enough system memory.
+
+
+A note on modes reported in the Video Modes menu
+------------------------------------------------
+
+The vid_describemodes console command lists all modes with
+resolution less than or equal to 1280x1024 that are
+supported by the video adapter, although modes for which there
+is not enough system memory have "**" for the mode number.  VGA,
+Mode X-style, and VESA 2.0 modes are listed separately, so a
+single resolution can be listed as many as three times, once for
+each hardware mode that supports it.  For example, mode 0 is
+VGA mode 0x13, which supports 320x200 resolution, and mode 1 is
+320x200 Mode X-style mode.  Quake looks identical in both
+modes, although it usually runs faster in mode 0.
+
+The Video Modes menu is much simpler.  Only modes with resolution
+less than or equal to 1280x1024 that are both supported by the
+hardware and for which there is sufficient system memory are
+listed.  Further, a given resolution is listed only once.  If a
+given resolution is available in multiple hardware modes, then
+selecting that resolution will select the appropriate hardware mode
+as follows:
+
+If the mode is 320x200, then VGA mode 0x13 is selected, and
+equivalent Mode X and VESA modes are ignored;
+
+Otherwise, the VESA version of the mode is used.
+
+You can always see what video mode is selected from the console by typing
+the command:
+
+vid_mode<enter>
+
+command.
+
+None of this has any effect on selecting modes through the
+console, where all the different versions of each mode are
+listed, and the desired version can be selected by using the
+appropriate mode number.
+
+
+How to get VESA 2.0 support
+---------------------------
+
+Some video adapters have VESA 2.0 support in ROM.  Other video
+adapters come with loadable VESA 2.0 TSRs.  In the absence of either
+of these, UniVBE, a shareware product from SciTech, provides VESA 2.0
+support for most video adapters.  The latest version of UniVBE can be
+obtained from the following locations:
+
+www: http://www.scitechsoft.com
+ftp: ftp.scitechsoft.com
+CIS: GO SCITECH
+AOL: Keyword SciTech
+
+SciTech can be contacted at:
+
+email: sales@scitechsoft.com
+
+SciTech Software
+5 Governors Lane, Suite D
+Chico, CA
+95926-1989
+
+The current version at this writing is UniVBE 5.2.  This version
+supports many more adapters than previous versions, and adds
+a number of useful low- and medium-resolution modes, such as 400x300
+and 512x384.
+
+
+Video-related commands
+----------------------
+
+vid_describecurrentmode
+   lists the description for the current video mode.
+
+vid_describemode <mode #>
+   lists the description for the specified video mode, where <mode #> is as
+   reported by vid_describemodes.
+
+vid_describemodes
+   lists descriptions for all available video modes.
+
+vid_mode <mode #>
+   sets the display to the specified mode, where <mode #> is as reported by
+   vid_describemodes.
+
+vid_nopageflip <1|0>
+   when set to 1, VESA mode sets will always select non-page-flipped
+   operation.  When set to 0, VESA mode sets will select page-flipped
+   operation whenever possible.  All non-VESA modes are always
+   non-page-flipped.  The setting of vid_nopageflip is remembered
+   when Quake is exited (by being saved in config.cfg), and is reloaded
+   when Quake is restarted, so once vid_nopageflip is set to 1, all
+   VESA modes set in all Quake sessions after that point be will non-page-
+   flipped until vid_nopageflip is set to 0.  Note that setting this
+   variable doesn't affect whether the current video mode is page-flipped,
+   but rather whether page-flipping can be used by future mode sets.
+
+vid_nummodes
+   reports the total number of modes available.
+
+vid_testmode <mode #>
+   tries to switch Quake to the specified mode, then returns to the current
+   mode after 5 seconds.  This allows you to try an untested mode without
+   ending up with a black screen if, for example, the monitor can't display
+   the mode properly.  There may still be instances in which, due to VESA
+   driver or hardware bugs, the machine will hang in certain modes;
+   vid_testmode can't recover from these situations, but it can recover
+   from a blank or scrambled screen.
+
+vid_wait <wait type>
+  sets the type of waiting that the video adapter should do, as follows:
+  0: no waiting
+  1: wait for vertical sync active
+  2: wait for display enable active
+
+The default state of vid_wait depends on the video mode selected.
+(_vid_wait_override can force vid_wait to 1, wait for vertical
+sync; see the description of _vid_wait_override below.)
+In built-in modes 0-10, the default is always 0, no waiting.  You
+can set vid_wait to 1 (wait for vertical sync) to eliminate shear
+and tearing in these modes (so partially-completed frames are never
+drawn, resulting in a rock-solid image).  However, waiting for
+vertical sync can result in substantial performance loss.
+
+In VESA modes, if the adapter is VGA compatible and there's enough
+memory for three video pages, then triple-buffering is enabled and
+vid_wait is set to 2, wait for display enable.  There is little
+performance loss to this sort of waiting.  If the adapter is not
+VGA compatible, or if there's only enough memory for double-buffering,
+then vid_wait is set to 1 (wait for vertical sync).  This can cause
+significant loss of performance, but some sort of wait is generally
+necessary to avoid occasional glitching of the screen when
+page-flipping; we always choose the lowest-cost wait option that
+seems to be safe to use.  If there's only enough memory for one
+page, or if vid_nopageflip 1 is in effect, then vid_wait is set to 0
+(no wait).  As with modes 0-10, vid_wait 1 can be used to eliminate
+shear, but at a performance cost.
+
+We have encountered problems with a few adapters in VESA modes when
+vid_wait is set to 2 (wait for display enable).  Apparently some adapters
+just toggle display enable all the time, rather than only when pixels
+are being sent to the screen; this can cause occasional glitches in
+which the screen image jumps for one frame.  You can fix this by
+setting vid_wait to 1 (wait for vertical sync).  We would have made
+vid_wait 1 the default, but it's slower, and vid_wait 2 works on most
+machines.
+
+The default setting for vid_wait can be changed from the console
+at any time.  If you are in a VESA mode that waits for vertical
+sync and want to turn it off to get a speed-up, you can do so.
+However, changing a vid_wait 1 default in a VESA mode may result
+in problems.  If vid_wait defaults to 1 (wait for vertical sync)
+in a mode, and you force it to 2 (wait for display enable), the
+machine may hang, because some VGA-incompatible adapters, such as
+some ATI Mach64s, don't support the display enable status.  If you
+force vid_wait to 0 (no wait), then the screen may glitch periodically
+if the page flips at a time that results in a bad flip address,
+although some adapters work fine with no wait at all.
+
+If you force a new setting for vid_wait and encounter problems, DO
+NOT send us a bug report!
+
+_vid_wait_override <1|0>
+	can be used to force wait for vertical sync in all modes.  When
+    _vid_wait_override is set to 0, the type of waiting, if any, for
+    each video mode that's set thereafter is automatically set to
+    what appears to be the fastest safe state.  However, it is
+    possible in some cases that automatic setting may result in some
+	screen glitching, and it is also true that shear can be
+    eliminated by waiting for vertical sync (although at a cost in
+	performance), so it may be desirable in some cases to override
+    the automatic wait selection and always wait for vertical sync.
+    This can be done by setting _vid_wait_override to 1.  Once set,
+    this remains in effect through all succeeding mode sets, even
+    when Quake is exited and re-entered; the only way to keep Quake
+    from waiting for vertical sync once _vid_wait_override is set to
+    1 is to set _vid_wait_override to 0.  Note that changing
+    _vid_wait_override doesn't affect the current mode, but rather
+    takes effect on the next mode set.  _vid_wait_override is initially
+    set to 0.
+
+_vid_default_mode <mode #>
+    can be used to force Quake to start up in a particular mode.
+    The easiest way to select a default mode is by pressing the
+    'D' key in the Video Modes menu, but you can alternatively
+    use _vid_default_mode to specify the mode in which you want
+    Quake to start up in future Quake sessions.  _vid_default_mode
+    is initially set to 0.
+
+
+Higher-quality perspective texture mapping
+------------------------------------------
+
+For maximum speed, perspective correction is performed only every 16
+pixels.  This is normally fine, but it is possible to see texture ripples
+in surfaces that are viewed at sharp angles.  For more precise texture
+mapping, set the console variable d_subdiv16 to 0.  Doing this will result
+in somewhat slower performance, however, and the difference in visual
+quality will not normally be noticeable.
+
+
+Known video problems and workarounds
+------------------------------------
+
+If you think you've encountered a bug, see "Bug Reporting," below.
+As a general rule, go back to mode 0 if you have problems; mode 0
+should work properly in all cases.
+
+On some ATI Mach64 adapters, the palette is sometimes too dark in
+some VESA modes, and is tinted oddly (too red, for example) in other
+modes.  The workaround is to use different modes, or modes 0-10.
+
+In modes 0-10, shear and tearing can occur as partially finished
+frames are displayed.  Workaround:  set vid_wait to 1 (wait for
+vertical sync); this can result in a substantial performance loss,
+however.  An alternative is to use a page-flipped VESA mode.
+
+In page-flipped VESA modes, occasional glitched frames may occur with some
+VESA driver-hardware combinations.  Workaround:  set vid_wait to 1 (wait
+for vertical sync) (you can set _vid_wait_override to 1 to make waiting
+for vertical sync permanent for future Quake sessions), or use a different
+mode.
+
+The VESA video drivers that come with some video adapters don't
+support low-resolution modes such as 320x200; often,
+nothing lower than 640x400 is supported.  For example,
+this is the case with some ATI adapters.  There's nothing
+Quake can do to provide low-resolution VESA modes in these
+cases, because Quake simply supports whatever modes the VESA
+driver chooses to report as supported.  Unfortunately, 640x400
+is too high a resolution for really good performance unless you
+have a very fast Pentium or a Pentium Pro, so on machines with
+this sort of adapter, the VESA modes aren't very usable.
+Workaround:  Use UniVBE 5.2, which supports low-resolution modes
+on a wide variety of adapters.  Note that a few adapters simply can't
+support low-resolution modes, in which case you'll have to stick with
+the low-resolution VGA and Mode X modes that are built into Quake,
+which run fine but may be somewhat slower than VESA modes.
+
+A few video adapters are almost but not fully VGA compatible, because
+they don't support some unusual VGA video modes.  In particular, a few
+adapters don't support the 360-wide Mode X-style video modes that are
+build into Quake (modes 2, 4, 6, 8, and 10), and display garbage in those
+modes.  Workaround:  use different modes, such as 0, 3, 5, 7, 9, or any
+VESA modes that are available.
+
+Under Win 95, the palette occasionally gets messed up when switching from
+Quake to the desktop and back again.  You can restore the palette by
+bringing down the console (either press tilde ('~'), or press Esc to bring
+up the menu, select Options, and select Console... from the Options menu),
+and typing bf and pressing the enter key, to generate a background flash,
+which sets the palette.  Press Esc to exit the console.  Alternatively,
+setting the screen brightness, either from the Options menu or via the
+gamma console variable, sets the palette.
+
+Under Win 95, if the system key (the key with the Win 95 flag on it) is
+pressed while Quake is running fullscreen in a VESA mode, Win 95 may be
+unable to switch back from the desktop to Quake, in which case it will
+notify you of this, then terminate the Quake session.  This is a quirk
+of Win 95, and normally there is no workaround other than not to press
+that key or not to use VESA modes.  (Some people go so far as to remove
+the system key from their keyboard.)  However, you can
+disable the system key for Quake with the following utility:
+
+http://www.microsoft.com/windows/download/doswinky.exe
+
+Switching away from Quake with Alt-Enter, Ctrl-Esc, Alt-Tab, or
+Alt-Spacebar all work fine (except that if you disable the system key
+with doswinky.exe, Ctrl-Esc will also be disabled).
+
+
+Performance
+-----------
+
+Quake's graphics should be adequately fast in mode 0 (320x200) on all
+Pentium-class machines. If you feel Quake is running slowly, set the
+showturtle console variable to 1; you will then see a turtle icon
+appear in the upper left corner of the screen if the frame rate drops
+below 10 frame/second.  If you are getting the turtle, you are probably
+not getting great gameplay.  Performance can be improved in several ways:
+
+* size down the screen with the minus key
+
+* select a lower-resolution mode, if possible
+
+* use a VESA mode
+
+* if you're using a VESA mode and vid_wait is set to 1 (wait for
+vertical sync) by default (you can check by typing vid_wait<enter>
+in the console), you can try setting vid_wait to 0 or 2, as detailed
+in the discussion of the vid_wait command above.  Be aware that
+risks of screen glitching or hung machines are associated with
+overriding a default vid_wait 1 setting in VESA modes.
+
+To see how exactly fast Quake is running, bring up the console and type
+
+host_speeds 1<enter>
+
+You will see a display at the top indicating total frame time in
+milliseconds, and also server, graphics, and sound frame time in
+milliseconds.  (Note, though, that unless you also do
+
+snd_noextraupdate 1<enter>
+
+sound time will actually show up as graphics time.  However,
+snd_noextraupdate 1 can cause sound to get choppy, so it's not
+generally recommended.)
+
+Lower numbers are better.
+
+Type
+
+host_speeds 0<enter>
+
+to turn off the frame time display.
+
+
+Pentium Pro Performance
+-----------------------
+
+The Pentium Pro is a very fast Quake platform, but has one weak spot; it is
+by default very slow on writes to video memory.  This means that in default
+hardware configurations, you are usually much better off setting
+vid_nopageflip to 1 if you use VESA modes, so drawing is done to system
+memory instead of to video memory.  Remember that you must set the mode
+after setting vid_nopageflip to 1 in order to get vid_nopageflip to take
+effect.  (vid_nopageflip can sometimes be faster on a Pentium, too, but
+not by nearly as much in general, and it's often slower.)
+
+The Pentium Pro has some special features that are not turned on by default,
+but which can help Quake performance a LOT.  These features can be enabled
+by John Hinkley's program FASTVID, which can be obtained from
+ftp://members.aol.com/JHinkley/fastvid.zip.  Performance in 640x480
+mode on a Pentium Pro/150 nearly doubled after FASTVID was run; Quake
+was very playable (and looked great!) at this resolution.
+
+There's the usual caution with FASTVID:  It could conceivably make your
+system run goofily, or who knows what.  FASTVID is not a product of
+id Software, and id makes no guarantees regarding FASTVID. In other words,
+use FASTVID at your own risk.
+
+************************************************************************
+IMPORTANT NOTE: FASTVID works only on Pentium Pros!!!  Please do NOT
+contact either John Hinkley or id with problems concerning FASTVID on
+Pentium or 486 machines.
+************************************************************************
+
+
+Video Bug Reporting
+-------------------
+
+If you encounter a video-related bug, please fill out the form found at the
+end of this file and e-mail it to support@idsoftware.com.  There are several
+problems that are not bugs, and shouldn't be reported, including:
+
+* unavailability of some VESA modes; VESA modes are only supported by
+Quake if they are 8-bpp, are LFB modes (except for 320x200), and are
+no greater than 1280x1024 in resolution.  If you have a VESA mode
+that doesn't seem to be working properly, please contact the
+manufacturer; we just use the information that the VESA driver
+provides us with.
+
+* problems that occur when you change vid_wait from a default value
+of 1 (wait for vertical sync) in VESA modes
+
+* sluggish performance on 486s
+
+* the known palette problem on some Mach64s.
+
+* the known palette problems switching from fullscreen to the desktop and
+back under Win95.
+
+* the known problems switching back from the desktop in VESA modes after the
+system (Windows flag) key has switched from fullscreen to the desktop.
+
+* video modes that are not listed in the Video Modes menu, or that are not
+listed or are listed with "**" in the output from vid_describemodes; such
+modes are either not supported by your video adapter, or cannot be supported
+by Quake in the amount of memory your system has.  High-resolution modes will
+often not be available in 8 Mb systems.
+
+* 360-wide video modes that don't work although other resolutions do work
+
+* lack of low-resolution VESA modes; the availability of low-resolution modes
+is the responsibility of the VESA driver.  UniVBE 5.2 provides low-resolution
+modes on most adapters.
+
+Apart from these, we would very much like to hear about any video
+problems you encounter.
+
+
+==========================================
+==     Sound Subsystem Documentation    ==
+==========================================
+
+Quake's sound subsystem works only with Sound Blaster compatible sound
+cards.  For Quake to get the correct settings for DMA channel and PORT
+address, you must set your BLASTER environment variable (or have it set for
+you with the DIAGNOSE utility in your SB16 directory).  If you do not have
+the BLASTER environment variable set, your sound will not work.  If your
+sound card supports Sound Blaster compatibility, Windows 95 should set this
+variable for you.
+
+Note:  some sound cards do not have 100% Sound Blaster compatible
+hardware, but emulate the Sound Blaster interface.  Such cards may
+display some inconsistencies relative to an actual sound blaster.
+In particular, sound may be delayed on some cards.
+
+Note:  it is possible for sound to get choppy if the frame rate
+drops to a very low level, below 5 frames a second.  A frame rate
+that low will not provide a good gameplay experience, so if you
+do experience choppy sound, your machine is almost certainly not
+fast enough to run Quake satisfactorily in general.
+
+If (when) you see bugs, please use the form attached to the end
+of these docs to submit a bug report.
+
+Sound Card Command Line Options, Commands, and Variables
+==================================================================
+
+The commands and variables below work under any operating system.
+Command-Line options are typed on the command line in most any place
+but only in operating systems which support command line interfaces,
+like DOS's COMMAND.COM, or NEXTSTEP's or Linux's csh, sh, or bash.
+For example, under DOS, the NOSOUND option would be used like this:
+"C:> quake -nosound".
+
+Command-Line Options
+--------------------
+
+NOSOUND
+  Syntax: -nosound
+  Description: This will prevent *any* sound code from being executed.  If
+	you are having technical difficulty with the game and then try
+	running the game with this option and the problem goes away, then
+	the problem is probably somewhere in the sound code.
+
+SSPEED
+  Syntax: -sspeed <speed>
+  Description: This will ask the sound code to set the playback speed
+    within the constraints of the capabilities of the card.  This is
+	11025 Hz by default and usually from 8000 to 44100.  Making this
+	faster requires more CPU horsepower, and has no actual benefits,
+	because the sounds only contain 11 KHz data.  Making this slower
+	degrades sound quality, but improves performance and saves memory.
+
+Commands
+--------
+
+SOUNDINFO
+  Syntax: soundinfo
+  Description: This prints the "portable" information on your current
+        audio hardware setting in the game.  It specifies whether there is
+        stereo output (0 or 1), the number of samples in the DMA buffer, the
+        current sample position (changes each time you run SOUNDINFO and
+        ranges from 0 to the number of samples), the number of sample bits,
+	the submission chunk (1 in DOS or Linux w/ mmaped sound, larger in
+	Linux w/o mmaped sound), playback speed in Hz, the DMA buffer address
+	in hexadecimal (usually 8 digits after the 0x, starting with 0xf00..
+	in DOS, starting with 0x400.. in Linux, and less than 8 digits if the
+	hardware was not initialized successfully), and the number of
+        channels mixed in software (8 by default, changeable w/NUMCHANNELS
+        command).
+
+STOPSOUNDS
+  Syntax: stopsounds
+  Description: Stops any current looping sounds.
+
+
+Sound Blaster Sound Card Command-Line Options and Commands
+==========================================================
+
+The following applies to Sound Blaster cards or compatibles under DOS
+or a DOS box.
+
+Commands
+--------
+
+SBINFO
+  Syntax: sbinfo
+  Description: This will print information on the Sound Blaster card
+    in the system.  If the version is 4 or greater, then it is some
+	kind of Sound Blaster 16 or compatible.  Version 2 is an 8 bit mono
+	sound blaster, Version 3 is an 8 bit stereo sound blaster pro.
+	The port is the I/O portsensed from the A variable in the BLASTER
+	environment variable.The DMA is the DMA channel and is confirmed in
+	hardware if thecard is version 4 or higher.  The mixer port can be
+	ignored.
+
+
+==========================================
+==   CD Audio Subsystem Documentation   ==
+==========================================
+
+Overview
+========
+Quake is designed to play background music off of a CD-ROM.  The Quake CD has
+music tracks on it and each level has been assigned a track that will be
+played.
+
+Win95 Users:  Putting a CD other than the Quake CD into the drive when Quake
+is already running will sometimes cause another Windows application to start
+and switch you back to Windows with Quake running in the background.  You
+will probably want to stop whatever was started and switch back to Quake as
+quickly as possible... especially if you are playing deathmatch.
+
+
+Command Line Parameters
+=======================
+-nocdaudio
+   This will prevent the CD audio system from even attempting to initialize.
+   No CD commands or functions will be available.  The game will just run
+   with no music.
+
+-cdmediacheck
+   This causes the game to periodically check to see if the CD has been
+   removed and a new one placed in the player.  It is off by default since
+   this operation is very slow on some CD players and is not needed under
+   Win95.  There is normally no reason to enable this option; it would
+   only be useful if you were going to be changing the CD from within the
+   game on a regular basis.
+
+Commands
+========
+There is normally no reason you would need to use any of these commands.  If
+you are playing Quake with the Quake CD in your CD-ROM drive, the appropriate
+music track will be played automatically.
+
+cd on
+   Re-enables the CD audio system after a "cd off" command.
+
+cd off
+   Shuts down the CD audio system.  No more music will be played unless it
+   is re-enabled.
+
+cd reset
+   Causes the CD audio to re-initialize.  This is useful if you change
+   CDs or insert the CD after you've already run Quake.
+
+cd play <track number>
+   Plays the specified track one time.
+
+cd loop <track number>
+   Plays the specified track.  It will be repeated until either it is
+   manually stopped or another track is started.
+
+cd stop
+   Stops the currently playing track.
+
+cd resume
+   Will resume playback of a stopped track.
+
+cd eject
+   This is for CD players that do not have a manual eject button.
+
+cd remap <track1> <track2> <track3> ...
+   Allows you to switch what tracks are played.  This is especially useful
+   if you want to play music other than that on the Quake CD.  If the CD
+   audio system is told to play track 1, it will instead play the 1st
+   track you specified.  For example: assuming a CD with 1 data track and
+   8 music tracks, the command "cd remap 1 9 8 7 6 5 4 3 2" would leave
+   the data alone and play the audio tracks as if they had been placed on
+   the CD in the opposite order.
+
+cd info
+   Reports information such as the number and types of tracks on the current
+   CD, what track (if any) is currently playing, and the playback volume.
+
+
+Variables
+=========
+bgmvolume
+   The background music volume.  Valid values are 0.0 though 1.0.  Changes
+   will normally be made using the options menu.
+
+   Not all CD-ROM players support variable volume.  The 0.0 to 1.0 value
+   translated to a value from 0 to 255 before it is passed to MSCDEX.  How
+   this value is interpreted varies from drive to drive.  The only thing
+   required by the MSCDEX specification is that 0 is off and anything else
+   is on.  Some CD-ROM drives only have on and off so change to bgmvolume
+   will have have no effect on volume once it is on.
+
+
+Messages
+========
+CDAudio_Init: MSCDEX version 2.00 or later required.
+   MSCDEX was either not loaded, or is a version earlier than 2.00.
+
+CDAudio_Init: First CD-ROM drive will be used
+   MSCDEX reported that the system has more than one CD-ROM drive.
+   Quake will always use the first drive in this case.
+
+CDAudio_Init: Unable to allocate low memory.
+   We were unable to allocate the memory needed to communicate with MSCDEX.
+   Although the game can still run, this indicates a severe low memory
+   condition.
+
+CD Audio Initialized
+   Indicates that the CD audio system has successfully initialized.
+
+CDAudio_Play: Bad track number N.
+   We attempted to play a track number that that is outside the range of
+   tracks recorded on the CD currently in the CD-ROM drive.  Probable causes
+   are that a CD other than Quake is in the player, or a custom level has
+   specified an invalid track number.
+
+CDAudio_Play: Can not play data.
+   A valid track was requested to be played, but it was a not an audio track.
+   The probable causes are the same as for a bad track number.
+
+CDAudio_Play: track N failed
+   A valid audio track was going to be played, but the play command to MSCDEX
+   returned an error.
+
+CDAudio: media changed
+   This is simply a notification.  It can only occur if the "-cdmediacheck"
+   option was specified on the command line.
+
+CDAudio: Error - playback stopped N
+   An error occurred while the CD was playing audio.  Playback has been
+   stopped and no further automatic play will be attempted; the game will
+   proceed without music.
+
+CDAudio_Init: No CD in player.
+   MSCDEX reported an error while Quake was attempting to get information
+   about the current CD.  There is either no CD in the player, or it was
+   unable to get the track information.  No automatic CD play will be
+   attempted; the game will proceed without music.
+
+
+==========================================
+==    Network Subsystem Documentation   ==
+==========================================
+
+Overview
+========
+
+Quake is a client/server game.  You are always running over some type of
+network.  In a standalone game, you are using a loopback network; it just
+passes messages back and forth in memory buffers.  This readme is talking
+about real networks and multiplayer deathmatches.  There are three main
+sections: commands, LANs, and Serial.
+
+Most normal configuration can be done via the game menus.
+
+There are two types of Quake servers: dedicated and listen.  A listen server
+is a machine that is used to play the game and also hosts the game for other
+players.  A dedicated server only hosts the game; it runs in text mode and
+does not let anyone play on that machine.  A single player game is really 
+just a 1 player listen server that doesn't listen for network connections.
+
+Dedicated vs Listen.  I'll try to make this simple: it is always better to
+use a dedicated server.  Why? Fairness and playability.  With a listen
+server, the person on the server always has advantages.  They will always be
+the first person into a level, they will always have zero latency, and they
+will get a server update on each and every frame.  On a dedicated server
+everyone gets equal treatment.  Getting into the server is a first come,
+first served proposition; latency is determined by each player's connection;
+and everyone is sent the same number of updates.  It's about as fair as life
+gets.  By the way, a good 486 machine works nicely as dedicated server.
+
+Another suggestion.  Until there is a native Win95 version of Quake, IPX will
+usually provide better gameplay on a local area network.  This is due to the
+delicate balancing act that is required to let a DOS program use the Win95
+TCP/IP stack.
+
+To start a Dedicated Server, you invoke Quake with the "-dedicated"
+command-line parameter.  When the server starts, you can type any command
+that you would normally type in the Quake Console, such as "map e1m1" to
+start the server on a specific map.  This can be done from the command-
+line as well by typing "quake -dedicated +map e1m1".  If a value is entered
+after "-dedicated", that is the amount of players allowed to connect, up
+to a maximum of 16 players. A dedicated server will quit to the OS whenever
+a fraglimit or timelimit is reached.  Example: "quake -dedicated 16" will
+start a 16-player dedicated server.
+
+To start a Listen Server, you invoke Quake with the "-listen" command-
+line parameter, or use the Multiplayer menu in the game.  Starting a listen
+server from the command-line will allow you to handle more than 4 players,
+as 4 is the limit when starting a game from the Multiplayer menu.  If a
+value is used after the "-listen", that is the maximum amount of players
+allowed, up to 16 players.
+
+Command Line Parameters, Commands, and Variables
+================================================
+
+Command line parameters
+-----------------------
+-nolan
+   Disables IPX, TCP/IP, and serial support.
+
+-noudp
+   Disables support for TCP/IP.
+
+-udpport <port#>
+   Specifies a UDP port to be used other than the default of 26000.
+
+-noipx
+   Disables support for IPX.
+
+-ipxport <port#>
+   Specifies a IPX port to be used other than the default of 26000.
+
+-noserial
+   Disable serial support.
+
+-mpath
+   Enables support for code to use Win95's TCP/IP stack.  Do NOT use this
+   under DOS!
+
+-listen [n]
+	Starts Quake ready to be a non-dedicated server for up to <n>
+	players.  If you do not specify a number <n> after -listen it will
+	default to 8.  The maximum allowed value is 16.
+
+-dedicated [n]
+	Starts Quake ready to be a dedicated server for up to <n> players.
+	If you do not specify a number <n> after -listen it will default to 8.
+	The maximum allowed value is 16.  A dedicated Quake server stays in
+	text mode.  This is the Quake console with most commands still
+	available; those that make no sense (like vid_mode) are ommitted.
+
+Console Variables
+-----------------
+
+net_messagetimeout
+   Specifies how long Quake should wait for a message to arrive before
+   deciding the connection has died.  The default is 3 minutes.  For
+   reference, messages usually arrive at the rate of about 20 per second.
+
+hostname
+   This is the name for your server that will show up on an slist
+   (see below).  The default value is "unnamed".
+
+sys_ticrate
+   Only used by dedicated servers.  This determines the rate at which the
+   server will send out updates to the clients.  The default value is 0.05
+   (20 updatesper second).  For servers where bandwidth is limited, using
+   modems or the internet for example, it is advisable to lower this value
+   to 0.1 (10 updates per second).  This will have a very minor effect on
+   responsiveness, but will half to outbound bandwitdh required making the
+   modem players a lot happier.
+
+
+Console commands
+----------------
+
+net_stats
+   This is for debugging. It displays various network statistics.
+
+slist
+   Looks for Quake servers on a local LAN (or over a null modem
+   cable).  This will NOT go outside the local LAN (will not cross
+   routers).
+
+
+LANs
+====
+
+Here are the LANs that are supported by the Quake test
+release.  For each one, you'll be told how to connect to a server
+*if it is not on your local network*.  If it is, you can use the
+"slist" command and connect by hostname.  See the main readme for
+a discussion of the connect command.
+
+IPX
+---
+
+Quake has been run with Novell's ODI IPX stack under DOS, PDIPX with packet
+drivers under DOS, and the Microsoft IPX stack in a Win95 DOS box.  When
+connecting to a server using IPX, you specify its network:nodeaddress (like
+12345678:1234567890AB).  If you are on the same network, you can just specify
+the node address.  If you are doing a connect command from the console, a
+full IPX address must be enclosed in quotes.
+
+For example, the server's IPX address is "00FADE23:00aa00b9b5b2", you would
+enter: connect "00FADE23:00aa00b9b5b2"
+
+Win95 TCP/IP
+------------
+
+Please see the Win95 section of this file for details about playing using
+TCP/IP under Win95.
+
+Kali
+----
+
+To Quake, Kali appears to be IPX.  Once you've got Kali up and running, run
+Quake as if it was on an IPX network.
+
+Beame & Whiteside TCP/IP
+------------------------
+
+This is the only DOS TCP/IP stack supported in the test release.
+It is not shareware...it's what we use on our network (in case you
+were wondering why this particular stack).  This has been "tested"
+extensively over ethernet and you should encounter no problems
+with it.  Their SLIP and PPP have not been tested.  When connecting
+to a server using TCP/IP (UDP actually), you specifiy it's "dot notation"
+address (like 123.45.67.89).  You only need to specify the unique portion
+of the adress.  For example, if your IP address is 123.45.12.34
+and the server's is 123.45.56.78, you could use "connect 56.78".
+
+Playing over the Internet
+-------------------------
+Yes, you can play Quake over the Internet.  How many people can be in
+the game? That depends.  How smooth will the game be?  That depends.
+There are just too many variables (bandwidth, latency, current load,
+etc...) for us to make any kind of promises about Internet play.
+
+
+Serial/Modem
+============
+
+The Quake serial driver supports two COM ports.  Although they are referred
+to as COM1 and COM2, you can configure them to use any normal hardware
+COM port (1 thru 4 on most PCs).  The com ports are used with interrupts,
+so their IRQ may not be used for another purpose (such as a LAN adapter
+or sound card).  The IRQ may not be shared with another device either;
+not even another COM port.  A client can only be connected to one server
+at a time, so multiple ports are really only useful on a server.
+When using modems, the client must originate the call and the server
+must answer.  This holds true even for a two player, non-dedicated
+server configuration.
+
+In the Multiplayer menu, the default modem string is "ATZ".  If your modem
+games are too slow, you can change this string to the appropriate one for
+your modem as listed below in the "Modem Strings" section.
+
+
+The COMx commands
+-----------------
+
+Use the menus for serial play whenever possible.  The console
+interface is only for unusual configurations.  It is much more
+difficult to understand and use correctly.
+
+Those of you who do use the console commands for serial play need to
+know that the menus always use the first Quake COM line (COM1); yes,
+even for COM2.  The names COM1 and COM2 here mean the first and second
+serial ports, not necessarily the PC COM1 and COM2 ports (although those
+are the default configurations).
+
+There are two commands to support serial/modem play for Quake.  They
+are: COM1 and COM2. Entering one of these commands with no arguments
+will display the status of that serial port, similar to this:
+
+Settings for COM1
+enabled:   true
+connected: false
+uart:      16550
+port:      3f8
+irq:       4
+baud:      57600
+CTS:       ignored 
+DSR:       ignored 
+CD:        ignored
+clear:     ATZ
+startup:
+shutdown:  ATH
+
+When used with arguments, these commands change the settings and
+status of the COM ports.  The possible arguments are listed below;
+examples follow.
+
+enable | disable
+   "enable" means that your configuration is complete and you want to use
+   the COM port.  "disable" is used to turn off a COM port, usually to
+   change its settings.  The default (initial) state is disabled.
+
+
+modem | direct
+   Use one of these two to let Quake know if you are using a modem or a
+   direct connection (also called a null modem).  Quake uses this to know
+   if it needs to handles modem initialization strings, dialing sequences,
+   and hangup procedures.
+
+reset
+   This will reset the COM port to its default settings and state.
+
+
+port <n>
+irq <n>
+   These are used to set the I/O Port and IRQ that your serial port uses.
+   The default values are: port=3f8 irq=4 for COM1 and port=2f8 irq=3 for
+   COM2.  Note that the port number is displayed in hexadecimal; to enter
+   it you would use something like "COM2 port 0x2f8"; the "0x" preceding
+   the "2f8" indicates that you are giving the value in hexadecimal
+   otherwise decimal is assumed.
+
+
+baud <n>
+   Sets the baud rate.  Valid values for <n> are: 9600, 14400,
+   28800, 57600, and 115200.  57600 is the default.  Please note that
+   this is the baud rate used for the uart, not your modem.  It is
+   perfectly valid to use 57600 on a COM port that is connected to a
+   28.8 modem.
+
+8250 | 16550
+   Specifies the type of uart chip in your system. Normally this is
+   automatically detected, one of these need only be used if your chip
+   is incorrectly detected.
+
+clear
+startup
+shutdown
+   This allows you to specify the clear, startup, and shutdown strings
+   needed fora modem for playing Quake.  If you've found values that
+   previously workedwith Doom, use them here.  If you are playing over
+   a null modem cable,leave these blank.
+
+-cts | +cts
+-dsr | +dsr
+-cd  | +cd
+   These determine if certain serial control lines should be honored or
+   ignored. The "-" means you want that line ignored, the "+" means to honor
+   it. "cts" is an abbreviation for "clear to send", "dsr" for
+   "data set ready", and "cd" for "carrier detect".  Do notchange these
+   values unless you are absolutely positive you need to. The default is to
+   ignore all 3 lines.
+
+Quake always uses no parity, 8 data bits, and 1 stop bit; these
+values can not be changed.  The baud, port, irq, and uart type can
+not be changed on an enabled port, you must disable it first.
+
+
+Configuration examples
+----------------------
+Example1: You have a machine with two serial ports you are going
+to use as a Quake server.  COM1 will be using a null modem cable and
+COM2 will be connected to a 14.4 modem.  You would use commands similar
+(the startup string would almost certainly be different) to these:
+
+COM1 baud 57600 enable
+COM2 baud 14400 modem startup AT\N0%C0B8 enable
+
+
+Example2: You are going to use your machine to connect to a dial-up
+Quake server with your 28.8 modem connected to COM2.  You would
+use a command something like this:
+
+COM2 baud 57600 modem startup AT\N0%C0B8 enable
+
+Note the baud rate is not the same as the modem speed.  This allows
+the modem-to-uart communications to occur at a higher rate than
+the modem-to-modem communications.
+
+Connecting to a serial Quake server
+-----------------------------------
+
+Connecting to a Quake server over a serial/modem connection is done
+using the "connect" command.  The command "connect 5551212" would try to
+connect to a Quake server at the phone number 555-1212.  Note: your local
+phone company would probably appreciate it if you didn't try this number!
+
+If you are using a null modem cable, you can type "connect #".
+Quake will then attempt to connect to the server.
+
+
+Known problems / workarounds
+============================
+Packet drivers with PDIPX - there is a bug that stops a server running on
+this combination from responding to the slist command.  Use the patched
+version of PDIPX included with Quake to correct this problem.
+
+SLIST sees no servers - Some PCMCIA ethernet cards and PPP drivers will
+not do the UDP broadcasts needed for the SLIST command (search for local
+games from the menu) to function correctly.  In these cases you must
+connect to a Quake game using either its IP address or hostname
+(DNS resolvable hostname, not the hostname variable in Quake).
+
+"BW_OpenSocket failed: 5" - This error is specific to the Beame and
+Whitesdie TCP/IP stack.  This stack uses DOS file handles as it's
+socket handles.  This error occurs when DOS runs out of file handles.
+You need to increase the number specified by "FILES=" in the DOS
+config.sys file.
+
+Severe lag using TCP/IP under Win95:
+	- Occasionaly when you first connect in to a Quake game using Win95
+TCP/IP you will experience severe lag and not be able to control your
+player's actions.  This usually clears up in 10 to 15 seconds.  
+	- There is apparently a strange limbo state for Microsoft's File and
+Print sharing.  This has been seen when it was installed and then later
+removed, but it still appears on the menus.  For some unknown reason
+this causes severe lag for a Quake game.  You need to go back and make
+sure that it is either completely installed or removed.
+
+
+==========================================
+==            Modem Strings             ==
+==========================================
+
+Boca M1440i (internal):
+ATS48=0S37=9S46=136%C0%E0%M0&K0&Q0&R1&C1&D2\G0\N1N0
+
+Boca 14.4k (internal):
+AT&C0N0S37=9&K0W0&Q0S36=3S48=128%C0
+
+Boca 14.4 Fax/Modem
+AT S46=0 S37=9 N0 &Q0 &D2 &K4
+
+Boca 14.4k (external):
+AT &F S0=1 S36=0 &K0 &Q6N0S37=9 &D2
+
+Boca 14.4k:
+AT S46=0 S37=9 N0 &Q0 &D2 &K0 %C0
+
+Cardinal 14.4k v.32bis, v.42bis Fax/Modem:
+AT &F N0 S37=9 &Q0 &D2 \N1
+
+Digicom Systems (DSI) (softmodem):
+AT Z \N0 &D2 &K0 S48=48
+
+Digicom Systems Scout Plus:
+ATZ*E0*N3*M0*S0*F0&D2
+
+Gateway Telepath:
+AT &F S37=9 %C0 &K0 &Q6 \G0
+
+Gateway Telepath 14.4k:
+AT S46=0 S37=9 N0 &Q0 &D2 &K0 %C0
+
+Gateway Telepath I:
+AT S0=1 &N6 &K0 &M0
+
+Gateway Telepath II:
+AT S0=1 S37=9 %C0 &Q0 &K0
+
+Generic v.32bis 14.4k Fax/Modem:
+AT \N0 %C0 B8
+
+Generic 14.4k Fax/Modem:
+AT S46=0 S37=9 N0 &Q0 &D2 %C0 \G0 &K0
+
+GVC 14.4k (internal):
+AT &F B8 \Q0
+
+Hayes 28.8k V.FAST Modem:
+AT &Q6 &K S37=9 N %C0 \N0
+
+Infotel 144I:
+AT&Q0 S37=9 N0 &D2
+
+Infotel 14.4:
+&F0 \N1 &D2 S37=F8
+
+Intel 14.4k:
+AT \N0 %C0 \Q0 B8
+
+Intel 14.4k (internal):
+AT Z B8 Q1 \C0 \N1 %C0 \V "H
+
+Linelink 144e:
+AT &F &D1 &K0 &Q6 S36=3 S46=136 %C0
+19200
+
+Microcom AX:
+&F \N1 \Q0 &D2
+
+Microcom QX/4232bis:
+AT %C0 \N0
+
+Netcomm M7F:
+AT &E &K0 B0 \V0 X4 &D2 \N1 \Q0 #J0 #Q9 %C0
+
+Nokia ECM 4896M Trellis V.32:
+AT Z %C0 /N0
+
+Nuvotel IFX 14.4 (internal):
+&F \N1 &D2 
+
+Practical Peripherals 14400FX v.32bis:
+AT Z S46=0 &Q0 &D2
+
+Practical Peripherals 14400FX v.32bis:
+AT S46=0 &Q0 &K0 &D2
+
+Supra:
+AT &F0 S46=136 %C0
+
+Supra (external):
+AT &K &Q &D \N1
+
+Supra 14.4k v.32bis:
+AT &F S46=136 &Q0 &D2
+
+Supra 14.4k v.32bis:
+AT &K &Q &D \N1
+
+Supra Fax Modem 14.4K v.32 bis
+AT &F %C0 S48=7 Q0 V1 W1
+
+Telepath 14.4k:
+AT &F&M0&K0&N6&H0 S0=1
+
+Twincomm DFi 14.4:
+AT&F &Q0 %C0 S37=9 &D2
+
+UDS V.3223:
+&F \N1 \Q &D2
+
+UDS Fastalk 32BX:
+&F0 \N1 &D2
+
+USR Courier v.32bis:
+ATS0=1 S7=60 E1 Q0 V1 &C1 &D2 &H0 &K0 &M0 &N6 &A3
+
+USR Courier HST/DS 16.8k:
+First reset the modem in a communication program with AT&F&W
+AT X4 B0 &A0 &B0 &H2 &I0 &K0 &M0 &N6a
+
+USR DS v.32bis v.42bis (external):
+AT&m0&n6&a0&r1&h0&k0&i0&s0&b1x1
+
+USR Sporster 9600:
+AT&M0&K0&N6
+
+USR Sportster V.34 28.8 (note: works best at 19200 baud):
+AT &F &M0 &I0 &K0 &B0 &N0
+
+USR Sportster 14.4k Fax/Modem USING ERROR CORRECTION:
+AT S0=1 S7=60 E1 QO V1 &C1 &D2 &K0 &N6 &A3
+
+USR Sportster 14.4k Fax/Modem (internal):
+AT &F&M0&K0&N6&H0
+
+USR Sportster 14.4k (internal):
+AT &F &B1 &H0 &I0 &K0 &M0 &N6 &R1
+
+USR Sportster 14.4k:
+ATS0=1S7=60E1Q0V1&C1&D2&K0&N6&A3
+
+USR Sportster 14.4k:
+AT &F0 &K0 &M0 &N6 &H0 &I0 &B1 &R1
+
+USR Sportster 14,000 Fax Modem:
+AT S0=2 &N6 &K0 &M0 &I0 &H0 &R1 &A0 V1 X4
+
+USR 14.4k:
+AT &F&A0&K0&M0
+
+USR 14.4k
+AT &K0 &H0 &D0 &I0 &R1
+
+USR 14.4k Dual Standard
+ATB0&R1&B1&N6Q0X4&A0&D2&H0&I0&K0&M0M1
+
+USR (model?):
+&F E1 V1 X4 &C1 &D2 &N0             
+
+ViVa 14.4k:
+AT&F&Q6\N0%C0&D2N0S37=9
+
+ViVa modem (internal):
+&F&Q6\N0%C0&D2N0S37=9
+
+Zoltrix model 14/14 VE:
+AT S0=Q0 V1 &C1 &D2 W2 &Q0
+
+Zoom 14.4k VFX:
+AT&Q6S37=9N0%C\N0
+
+Zoom 14.4k VFX:
+AT&Q6S37=11N0%C&K0
+
+Zoom OEM Modem:
+AT&Q6S37=9N0&K0
+
+Zyxel U-1496E:
+AT Z &N4 &K0
+
+
+==========================================
+==         Win95 Documentation          ==
+==========================================
+
+Quake is a DOS application.  However, it runs fine from the MS-DOS prompt
+under Win95, so long as the Properties for the MS-DOS prompt are set up so
+that Quake can run.  (See "Set the MS-DOS Prompt Properties", below, for
+information about setting MS-DOS Prompt Properties.)  Quake will NOT run
+under Windows NT. Following are some steps that can help Quake run better
+under Win95.
+
+
+Have enough memory
+------------------
+
+Quake requires at least 16 Mb of installed memory in order to run under
+Win95.
+
+
+Set the MS-DOS Prompt Properties
+--------------------------------
+
+If Quake won't run, the MS-DOS Prompt Properties may not be set correctly.
+To set the Properties for the MS-DOS prompt, bring up a DOS session, and
+either click on the MS-DOS icon in the upper left corner or press
+Alt-Spacebar, then select Properties from the menu that comes up, and make
+sure the following settings are correct.
+
+In the Program sheet of MS-DOS Prompt Properties, make sure the "Suggest
+MS-DOS mode as necessary" is checked.
+
+In the Memory sheet of MS-DOS Prompt Properties, make sure all five fields
+are "Auto".
+
+In the Screen sheet of MS-DOS Prompt Properties, set "Usage" to Full-screen.
+
+In the Misc sheet of MS-DOS Prompt Properties, uncheck the "Allow screen
+saver" box, and check the "Always suspend" box.
+
+
+Make sure there's enough free disk space
+----------------------------------------
+
+If you get error messages like "can't lock memory" under Win 95, or if you
+get other weird, inexplicable errors, make sure you haven't run out of disk
+space; delete some files if necessary.  You can see how much disk space is
+free by bringing up "My Computer" and clicking on the disk icon; the free
+disk space will be shown at the bottom of the window.
+
+
+Run fullscreen
+--------------
+
+Quake can run in a window under Win95--but it will run very slowly.  You are
+unlikely to get satisfactory performance unless you run Quake fullscreen.
+Quake normally comes up fullscreen under Win95; if you have switched it back
+to windowed mode, you can get that window back to fullscreen by clicking on
+it and then pressing Alt-Enter.
+
+
+Shut down other applications
+----------------------------
+
+Many Win95 apps and DOS apps run even when they're not the foreground
+application.  Such applications contend for system resources such as memory,
+processor cycles, and sound hardware.  If Quake seems to be running choppily,
+if sound is garbled, or if the disk is going all the time, try shutting down
+whatever other applications you have running.  For example, some players
+have reported that Quake does not run as well when the Office shortcut bar
+is running.
+
+
+Restore the palette if it gets garbled
+--------------------------------------
+
+Under Win 95, the palette occasionally gets messed up when switching from
+Quake to the desktop and back again.  You can restore the palette by
+bringing down the console (either press tilde ('~'), or press Esc to bring
+up the menu, select Options, and select Console... from the Options menu),
+and typing bf and pressing the enter key, to generate a background flash,
+which sets the palette.  Press Esc to exit the console.  Alternatively,
+setting the screen brightness, either from the Options menu or via the
+gamma console command, sets the palette.
+
+
+Avoid the system key
+--------------------
+
+Under Win 95, if the system key (the key with the Win 95 flag on it) is
+pressed while Quake is running fullscreen in a VESA mode, Win 95 may be
+unable to switch back from the desktop to Quake, in which case it will
+notify you of this, then terminate the Quake session.  This is a quirk
+of Win 95, and there is no workaround other than not to press that key
+or not to use VESA modes.  (Some people go so far as to remove the system
+key from their keyboard.)  Switching away from Quake with Alt-Enter,
+Ctrl-Esc, Alt-Tab, or Alt-Spacebar all work fine.
+
+
+Give Quake more and/or locked memory
+------------------------------------
+
+By default, Quake tries to allocate 8 Mb of unlocked memory for heap space
+under Win 95.  More memory helps Quake run faster; you can allocate more
+memory for Quake under Win95 by setting the command-line switch
+
+-winmem x
+
+where x is the number of megabytes to allocate for Quake.  If there's enough
+memory in the system, the larger the number, up to about 16, the better the
+performance.  If, however, there isn't enough memory in the system, or many
+other applications are running, the larger number can just cause Quake to
+page to disk a lot, and can actually slow performance considerably.  Also,
+higher numbers can also cause Win 95 to take longer to start Quake and take
+longer to return to the desktop afterward.  If you have 32 Mb or more in your
+machine, -winmem 16 should provide the best performance for Quake.  If you
+have less than 32 Mb, or a lot of applications running, then you will have
+to experiment to find the best amount of memory to allocate for Quake.
+
+You may optionally instruct Quake to lock itself in memory by using the
+command-line switch
+
+-winlock
+
+so it won't get paged out by other applications.  This can avoid hitches when
+parts of Quake get paged into and out of memory, and thus provide a smoother
+playing experience.  On the other hand, it can cause Quake to take longer to
+start, and can make the return to the desktop take longer when Quake ends,
+because Quake has been hogging a lot of memory.  It is even possible, if most
+of the memory in the system is locked by Quake, that it will take many
+minutes to switch back to the desktop while Quake is running, so the system
+will effectively be nearly frozen.  Therefore, use -winlock with caution;
+Quake is not as well-behaved a Win95 citizen when -winlock is specified, and
+does not share resources particularly well.
+
+-winmem can be used in conjunction with -winlock; if -winmem specifies more
+memory than is available to be locked, then Quake will lock as much memory
+as possible.  Being too aggressive about how much memory is locked can
+actually slow Quake performance, because unlocked parts of the system like
+system CD and sound code and data can then be forced to page, so if you do
+lock memory, you will have to experiment to find the sweet spot, unless you
+have 32 Mb or more of memory.
+
+-winlockunlock can be specified as an alternative to -winlock, to tell Quake
+to lock its memory when it starts, then immediately unlock it.  The
+advantages of doing this are: 1) it forces all of Quake's pages into memory,
+so no pages should need to be brought in as Quake runs, making for smoother
+running at the start, and 2) it enables Quake to determine whether the
+specified amount of memory (if -winmem is also specified) is available in the
+machine, so you can be sure Quake won't try to allocate more heap space than
+the the amount of physical memory that's actually available.  Like -winlock,
+-winlockunlock causes Quake to take quite a bit longer to start up, but it
+has the advantage of making Quake a good Win95 citizen if you need to switch
+back to the desktop, or have other apps running.
+
+In general, Quake will run fine without any of the -winxxx switches, but you
+may find that one or more of them--particularly -winmem if you have more than
+16 Mb--helps Quake performance on your machine.
+
+None of this is an issue under DOS itself (as oppsed to a DOS box under
+Win95), because Quake just uses all the memory in the machine under DOS.
+
+By default, Quake tries to allocate 8 Mb of unlocked memory for heap space
+
+
+Watch out for limbo subsystems
+------------------------------
+Microsoft's File and Print sharing and IPX protocol stack have both been
+known to cause strange problems when they are in a limbo state.  The limbo
+state is seems to be an uninstall that did not complete succesfully.  Both
+of these cause poor network play performance. If you are experiencing
+severe lag, check the File and Print services.  If you the warning "IPX
+driver send failue: 04", check the IPX protocol stack.  They need to be
+either completely installed or removed; the problems only occur when they
+get into this strange semi-installed state.
+
+
+==========================================
+==        Key Binding and Aliases       ==
+==========================================
+
+Pressing the tilde key ("~") will bring down the console (pressing the
+tilde key or ESC while in the console will close the console). From the
+console you can adjust your player controls, this is done by "binding"
+keys to commands.  The format for binding keys is as follows:
+
+bind <key> <command>
+
+Where <key> is a valid key control and <command> is a valid quake command.
+
+Example:
+To bind the j key to the 'jump' command, you would type:
+bind j +jump			
+and press enter.
+
+Non-printable keys such as 'page up' and buttons from the mouse/joystick are
+bound in the same manner as printable characters. A list of bindable keys can
+be found at the end of this file.
+
+Example:
+To bind the page up key to the 'jump' command, you would type:
+bind pageup +jump
+and press enter.
+
+To bind the right mouse button to the attack command, you would type:
+bind mouse2 +attack
+and press enter.
+
+The alias command is used to create a reference to a command or list of
+commands.  When aliasing multiple commands, or commands that contain
+multiple words (such as "fraglimit 50"), you must enclose all the commands
+in quotation marks and separate each command with a semi-colon.
+
+Example of an alias that changes some Deathmatch server parameters:
+
+alias net_game "hostname my_server ; fraglimit 15 ; timelimit 15"
+bind INS net_game
+
+Once the server is spawned (you must be the one running the -listen server),
+you just push the Insert key to set the hostname, frag limit and time limit
+of the server. So now the first person to 15 frags, or with the one with the
+most frags in 15 minutes, wins.
+
+Another example would be to change to the Rocket Launcher, fire one rocket,
+and change back to the Double Barrel Shotgun, when you press the "," key:
+
+alias rl_dbsg "impulse 7 ; +attack ; wait ; -attack ; impulse 3"
+bind , rl_dbsg
+
+Aliasing is very powerful, allowing you great flexibility, so you should
+experiment by aliasing different commands in various ways.
+
+A list of common commands can be found in the next section.
+
+
+==========================================
+==    Quake Keys and Common Commands    ==
+==========================================
+
+The following keys can be bound:
+
+A-Z                     0-9
+*F1-F12                 *TAB
+ENTER                   SPACE
+BACKSPACE               UPARROW
+DOWNARROW               LEFTARROW
+RIGHTARROW              ALT
+CTRL                    SHIFT
+INS                     DEL
+PGDN                    PGUP
+HOME                    END
+PAUSE                   SEMICOLON
+
+MOUSE1 (mouse button 1)
+MOUSE2 (mouse button 2)
+MOUSE3 (mouse button 3)
+
+*~ (tilde)
+
+* Can only be bound on the command line or in a .cfg file.
+
+The ESC key cannot be bound. 
+
+
+==========================================
+==         Making a Config File         ==
+==========================================
+
+The commands (bindings and aliases) discussed above can be included into a
+file containing all of your personal configurations, known as a "config"
+file.  This file can then be loaded during game play to enable all your
+personal bindings and settings.
+
+To do this, use your favorite editor to create a new file, such as
+"fragmstr.cfg".  Your .cfg file MUST be located in the quake\id1 directory
+or quake won't find it.  Then after launching Quake, you would type "exec
+fragmstr.cfg" and press enter, from the console.  You can also exec you .cfg
+file from the DOS command prompt by typing "quake +exec fragmstr.cfg".
+When you exec a config file, it is the same as typing all the lines in your
+config file into the console, only Quake does it for you.  Here is an
+example config file (c:\quake\id1\bear.cfg) and the meaning of all the
+bindings, aliases and settings:
+
+-------------------------------cut here-------------------------------------
+name player1            // Sets player name to player1 (lets your opponent
+                        // know who fragged them)
+
+sensitivity 4           // Sets the mouse sensitivity to 4
+
+scr_conspeed 5000       // Sets the console raise/lower speed
+
+lookspring 0            // Sets Mouse Look Spring to 0 (0=keep looking,
+                        // 1=spring back, when mouse button is released)
+
+vid_mode 10             // Sets Video Mode to mode 10 (360X480 resolution)
+
+gamma .8                // Sets Gamma Correction to .8 (<1=Lighter, 1=normal
+                        // and >1=darker)
+
+viewsize 70             // Sets the Screen View size to 70 degrees
+
+bind mouse1 +forward    // Binds the left mouse button to Move Forward
+
+bind mouse3 +attack     // Binds the middle mouse button to Fire
+
+bind mouse2 +mlook      // Binds the right mouse button to Mouse Look
+
+bind HOME "save bear1"  // Binds the Home Key to quick save, saves to
+                        // bear1.sav
+
+bind ENTER +showscores  // Binds the Enter key to show Deathmatch Scores
+
+bind SHIFT +speed       // Binds the Shift key to Run
+
+bind CTRL +jump         // Binds the Control key to Jump
+
+bind ; +mlook           // Binds the ; key to Mouse Look also
+
+bind . +moveleft        // Binds the . key to Strafe Left
+
+bind / +moveright       // Binds the / key to Strafe Right
+
+color 3 4               // Makes Uniform Top green and Pants Red for Net play
+
+alias rl_dbsg "impulse 7 ; +attack ; wait ; -attack ; impulse 3"
+
+bind , rl_dbsg          // Aliases single rocket attack command and binds
+                        // it to the ',' key.
+-------------------------------cut here-------------------------------------
+
+
+==========================================
+==                Demos                 ==
+==========================================
+
+The standard Demos
+------------------
+
+Quake has 3 standard demos that start playing when you first run the game.
+It will cycle through these demos until you start or join a game.
+
+Recording a Demo
+----------------
+"record <demoname> <map> [track]"  This starts up level <map> and begins
+recording a demo into a file name <demoname>.dem.  You can specify the
+optional <track> to choose a background music from the CD, otherwise the
+default selection for that map will be played.
+
+Playing a Demo
+--------------
+"playdemo <demoname>"  This command will open the file <demoname>.dem and
+play the demo.
+
+How to not play the standard demos at startup
+---------------------------------------------
+
+So you've seen the Necropolis demo 10 billion times now and really don't
+ever want to see it again?  Here's how.
+
+The easy way is to start Quake with a "+map" command.  You could do
+"quake +map start" and you'll start on the single player start level.
+Or you could do "quake +map nonsense" and you'll wind up at the Quake
+console since there is no map named nonsense.  You can accomplish the
+same thing with a "+connect" too.   "+connect" by itself will look for
+Quake servers on the local network, "+connect 192.12.34.56" or
+"+connect host.timbuktu.edu" will try to connect the the specified
+Quake server.
+
+There is another way to not show the demos; one that also keeps your
+customizations in a seperate directory from the data files in the
+Quake distribution.
+
+Do this in the quake directory (the directory where you installed Quake;
+where you find "quake.exe" and "the id1" directory).  Create a file named
+"quake.rc".  Its contents should be:
+
+exec default.cfg
+exec config.cfg
+exec autoexec.cfg
+stuffcmds
+menu_main
+
+Create a batch file to run Quake in the quake directory.  "Q.BAT" is a good
+name. It's contents should be:
+
+quake -game . %1 %2 %3 %4 %5 %6 %7 %8 %9
+
+If you normally use the Q95 batch file, just add the "-game ." part to
+that file.
+
+Now you can run "q" and quake will start off with the main menu displayed
+instead of running the demos.
+
+You can also make a seperate subdirectory for this if you'd like.  For
+example, make a directory named "mine" in the quake directory.  Create
+the "quake.rc" file as specified above in this directory.  Use
+"-game mine" instead of "-game ." in your batch file.
+
+Important note:  The directory specified by "-game" is where Quake will
+look for config.cfg, load and save games, and record and play
+demos.
+
+
+==========================================
+==         Reporting Quake Bugs         ==
+==========================================
+
+How to use the bug report:
+
+Where to send bug reports:
+E-mail  : support@idsoftware.com
+FAX     : 214-686-9288
+
+There are two sections of information - primary and secondary.
+
+Primary information contains information such as date, your name, e-mail
+address, etc.  Secondary information is actual bug information. There are
+a few different sections depending on what type of bug you revieced
+(sound, video, etc). Only fill out and include information from the section
+related to the type of bug you received.
+
+If possible, start Quake with the "-condebug" command line parameter
+and try to reproduce the bug. Attach the "qconsole.log" file found in the
+"id1" directory to the end of the bug report. If the bug is sound related,
+while in Quake, execute the SOUNDINFO and SBINFO (DOS only) commands from
+the console.
+
+Please attach a copy of your CONFIG.SYS and AUTOEXEC.BAT file to the end of
+the report.
+
+Bugs submitted properly with this form will get attention.
+Unformatted ones sent to personal accounts will be ignored.
+If you see problems, please take the time to do this.
+
+If you do not have all of the information requested in the form,
+don't worry. Send what you do have.
+
+Please include the version #. THe version # for Quake can be found in the
+lower right hand corner of the console. To bring up the console, press the
+tilde ('~') key. Press tilde ('~') again or ESC to exit.
+
+-------------------------------cut here-------------------------------------
+
+
+============================================================================
+==              Quake Bug Report - Primary information                    ==   
+============================================================================
+
+Date:  
+Name:  
+Phone number:  
+E-mail address:  (please include this, we redirect tons of mail)
+Game Title:  
+Version #: 
+Operating system (i.e., DOS 6.0 or Windows 95):
+Computer type:  
+BIOS date:
+BIOS version:
+Processor type:  
+Processor speed:  
+Do you program at school/work?
+Do you provide tech. support at school/work?
+Please state the problem you encountered:
+Please state how to reproduce the problem:
+
+If program crashed with nasty undecipherable techno-garbage, please
+look for the eight-digit hex number which comes after "eip="
+and write it down here:
+
+
+============================================================================
+==              Quake Bug Report - Secondary information                  ==
+============================================================================
+
+------------------------------ Video Related ------------------------------ 
+
+Video Card Manufacturer:
+Video Card Model:
+Chipset Used:
+BIOS Date:
+(If using UniVBE, The above information can be found by running uvconfig)
+
+Did the problem occur while in a VESA mode?
+
+If so, what is the VESA driver and version?  (eg., UniVBE 5.1a,
+built into board BIOS, or manufacturer provided TSR)
+
+------------------------------ Sound Related ------------------------------
+
+Audio card brand and model:  
+
+If DOS or a DOS box, please run the command "set > set.txt" then
+attach "set.txt" to the end of the report.
+
+----------------------------- Network Related -----------------------------
+
+What type of network connection was established when the error occurred?
+(modem, nullmodem, or network)
+If modem, Modem brand and model:
+
+If network, Network card brand and model:
+            Network protocol/configuration:  
+
+---------------------------------------------------------------------------
+
+
+
+
+
+
+
+                                                                          

@@ -1,0 +1,487 @@
+        COMMERCIAL EXPLOITATION LICENSE AGREEMENT FOR QUAKE
+
+        This Commercial Exploitation License Agreement for QUAKE
+(the "Agreement") is between Id Software, Inc., a Texas
+Corporation, (hereinafter "Id Software") and Licensee (as described
+on the signature page hereof) and is made effective beginning on
+the date of last signature hereto (the "Effective Date"). 
+
+        R E C I T A L S
+
+        WHEREAS, Id Software is the owner and developer of the
+computer software game entitled QUAKE;
+
+        WHEREAS, Id Software desires to license certain
+non-exclusive rights regarding QUAKE to Licensee; and
+
+        WHEREAS, Licensee desires to receive a license for such
+rights. 
+
+        T E R M S    A N D    C O N D I T I O N S
+ 
+        NOW, THEREFORE, for and in consideration of the mutual
+premises contained herein and for other good and valuable
+consideration, the receipt and sufficiency of which is hereby
+acknowledged, the undersigned parties do hereby agree as follows: 
+
+        1.      DEFINITIONS.  As used in this Agreement, the parties
+hereto agree the words set forth below shall have the specified
+meanings: 
+
+        a.      "Authorized Copy" shall mean one (1) copy of the
+                Subject Game actually purchased by Licensee from an
+                Id Software approved retailer; and 
+
+        b.      "Subject Game" shall mean the full registered
+                version of QUAKE on a CD-ROM and shall not mean the
+                shareware or any other version. 
+
+        2.      GRANT OF RIGHTS.  Id Software hereby grants to
+Licensee and Licensee hereby accepts, subject to the provisions and
+conditions hereof, a world-wide (except as otherwise provided
+herein), non-exclusive, non-transferable, and non-assignable
+license to: 
+
+        a.      publicly display an Authorized Copy in exchange for
+                rental payment; 
+
+        b.      run the Authorized Copy so that it will accept
+                network/modem connections in exchange for payments
+                from end-users who also must have actually purchased
+                an Authorized Copy; and 
+
+        c.      otherwise commercially exploit an Authorized Copy,
+                except that Licensee shall not copy, reproduce,
+                manufacture or distribute the Authorized Copy. 
+
+        3.      RESERVATION OF RIGHTS AND PROHIBITIONS.  Id Software
+expressly reserves all rights not granted herein.  Under no
+circumstances shall Licensee copy, reproduce, manufacture or
+distribute (free of charge or otherwise) the Authorized Copy or the
+Subject Game.  Licensee shall not reverse engineer, decompile,
+disassemble, modify or alter the Authorized Copy.  Licensee is not
+receiving any rights hereunder regarding the Trademark or any
+artwork, sound, music or other element of the Subject Game. 
+
+        4.      OWNERSHIP.  Title to and all ownership rights in and
+to the Subject Game, and the QUAKE Trademark (the "Trademark") and
+the copyrights, trademarks, patents and other intellectual property
+rights related thereto shall remain with Id Software which shall have
+the exclusive right to protect the same  by copyright or otherwise.
+Licensee shall have no ownership rights in or to the Subject Game or
+the Trademark and Licensee shall not own any intellectual property
+rights regarding the Authorized Copy, including, without limitation,
+the copyright regarding the Authorized Copy. Licensee acknowledges
+that it only has a limited license to use the Authorized Copy, as
+specified in that certain QUAKE Enduser License contained within the
+Authorized Copy and as specified in this Agreement.
+
+        5.      TERM AND TERMINATION.  
+
+        a.      The term of this Agreement and the license granted
+herein begins on the Effective Date and shall expire on a date one
+(1) calendar year from the Effective Date. 
+
+        b.      Either party may terminate this Agreement, for any
+reason or no reason, on thirty (30) days written notice to the
+other party.  Termination will be effective on the thirtieth (30th)
+day following delivery of the described notice.  Notwithstanding
+anything to the contrary herein, this Agreement shall immediately
+terminate, without the requirement of any notice from Id Software
+to Licensee, upon the occurrence of any of the following:  (a) if
+Licensee shall file a petition in bankruptcy or make an assignment
+for the benefit of creditors, or if any bankruptcy proceeding or
+assignment for benefit of creditors, shall be commenced against
+Licensee and not be dismissed within sixty (60) days after the date
+of its commencement; (b) the insolvency of Licensee; (c) the
+cessation by Licensee of its business; or (d) the cessation by
+Licensee, without the prior written consent of Id Software of the
+distribution, manufacture, and sale responsibilities embodied
+herein.  Further, Id Software may elect to terminate this Agreement
+upon the occurrence of any of the following:  (1) if Licensee's
+business operations are interrupted for forty (40) consecutive
+calendar days; or (2) if each of two Id Software audit inspections
+during any eighteen (18) month period demonstrates an
+understatement by Licensee of Royalty payments due Id Software for
+the six (6) month period immediately preceding each such inspection
+of five percent (5%) or more.  Upon the occurrence of such
+terminating event, and the election of Id Software, if necessary,
+to cause such termination, this Agreement and any and all rights
+thereunder shall terminate without prejudice to any rights or
+claims Id Software may have, and all rights hereunder shall
+thereupon terminate, revert to and be vested in Id Software. 
+
+        6.      EFFECT OF TERMINATION OR EXPIRATION.  Termination or
+expiration of this Agreement, either by Id Software or
+automatically, shall not create any liability against Id Software.
+Upon expiration or earlier termination of this Agreement, Licensee
+shall have no further right to exercise the rights licensed
+hereunder or otherwise acquired in relation to this Agreement. 
+
+        7.      INDEMNIFICATION.  Licensee hereby agrees to
+indemnify, hold harmless and defend Id Software and Id Software's
+predecessors, successors, assigns, officers, directors,
+shareholders, employees, agents, representatives, licensees,
+sublicensees, distributors, attorneys and accountants
+(collectively, the "Id Related Parties") from and against any and
+all damages, claims, losses, causes of action, liabilities,
+lawsuits, judgments and expenses (including, without limitation,
+reasonable attorneys' fees and expenses) arising from, relating to
+or in connection with a breach of this Agreement by Licensee and
+arising from, relating to or in connection with the Licensee's use
+or non-use of the Authorized Copy (collectively, the "Claims").  Id
+Software agrees to notify Licensee of any such Claims within a
+reasonable time after Id Software learns of same.  Licensee, at its
+own expense, shall defend Id Software and the Id Related Parties
+from any and all Claims.  Id Software and the Id Related Parties
+reserve the right to participate in any defense of the Claims with
+counsel of their choice, and at their own expense.  In the event
+Licensee fails to provide a defense, then Licensee shall be
+responsible for paying the attorneys' fees and expenses incurred by
+Id Software and the Id Related Parties regarding the defense of the
+Claims.  Id Software and the Id Related Parties, as applicable,
+agree to reasonably assist in the defense of the Claims.  No
+settlement by Licensee of any Claims shall be valid unless Licensee
+receives the prior written consent of Id Software and the Id
+Related Parties, as applicable, to any such settlement. 
+
+        8.      CONFIDENTIALITY.  It is understood and agreed that
+any proprietary information of Id Software that may from time to
+time be made available or become known to Licensee is to be treated
+as confidential, is to be used solely in connection with Licensee's
+performance under this Agreement, and is to be disclosed only to
+employees of Licensee who have a need for access.  Such proprietary
+information shall include, but not be limited to, trade secrets,
+release information, financial information, personnel information,
+and the like.  Reasonable measures shall be taken by Licensee to
+protect the confidentiality of Id Software's proprietary
+information and any memoranda or papers containing proprietary
+information of Id Software's that Licensee may receive are to be
+returned to Id Software upon request.  Licensee's obligations and
+duties under this paragraph shall survive expiration or earlier
+termination of this Agreement.  Licensee shall obtain from its
+employees an undertaking in a form which may be supplied by Id
+Software, and which is subject to Id Software's prior written
+approval, not to use or disclose to any third party any information
+or knowledge concerning the business of Id Software which may be
+communicated to such employees. 
+
+        9.      LIMITATION OF LIABILITY.  ID SOFTWARE EXPRESSLY
+DISCLAIMS ALL WARRANTIES NOT PROVIDED BY ID SOFTWARE HEREUNDER. 
+UNDER NO CIRCUMSTANCES SHALL ID SOFTWARE BE LIABLE TO LICENSEE FOR
+ACTUAL, SPECIAL, INCIDENTAL, CONSEQUENTIAL OR PUNITIVE DAMAGES OR
+ANY OTHER DAMAGES, WHETHER OR NOT ID SOFTWARE RECEIVES NOTICE OF
+ANY SUCH DAMAGES. 
+
+        10.     COMPLIANCE WITH APPLICABLE LAWS.  In performing
+under this Agreement, Licensee agrees to comply with all applicable
+laws, [including, without limitation, 22 U.S.C., 2778 and 22
+U.S.C. C.F.R. Parts 120-130 (1995)] regulations, ordinances and
+statutes, including, but not limited to, the import/export laws and
+regulations of the United States and its governmental and
+regulatory agencies (including, without limitation, the Bureau of
+Export Administration and the U.S. Department of Commerce) and all
+applicable international treaties and laws.  Further, Licensee
+shall defend, indemnify and hold harmless Id Software from any and
+all sales tax, tariffs and/or duties in connection with Licensee's
+performance hereunder. 
+
+        11.     SPECIFIC UNDERTAKINGS BY LICENSEE.  In addition to
+the obligations of Licensee otherwise set forth in this Agreement,
+during the term of this Agreement, and thereafter where specified,
+Licensee agrees that: 
+
+        a.      It will not attack the title of Id Software to the
+Subject Game or the Trademark and any copyright, patent or
+trademark or other intellectual property right related thereto and
+it will not attack the validity of the license granted hereunder
+during the term hereof or thereafter; and 
+
+        b.      It will promptly inform Id Software of any
+unauthorized use of the Authorized Copy, the Subject Game and the
+Trademark and any portions thereof and reasonably assist Id
+Software in the enforcement of any rights Id Software may have
+against such unauthorized users. 
+
+        12.     FINANCIAL OBLIGATIONS AND ACCOUNTING.
+
+        a.      Payment of Royalties.  Licensee agrees to pay Id
+Software a royalty ("Royalty") at the rate of twelve and one-half
+percent (12.5%) of Net Income.  The term "Net Income" shall mean
+all revenue received by Licensee from the commercial use of the
+Authorized Copy, less only Licensee's actual, documented costs
+relating directly to such use.  A Royalty shall only be due for
+those months in which Licensee's gross revenue from QUAKE
+distribution exceeds U.S. Five Thousand Dollars ($5,000.00) and in
+such months Licensee shall pay a full Royalty on all revenue
+received. 
+
+        b.      Rendition of Statements.  Licensee shall account to
+Id Software with regard to transactions hereunder within forty-five
+(45) days following the conclusion of each calendar quarter. 
+Licensee hereby represents and warrants that such statements of
+account to be prepared shall be true and correct.  The accounts
+shall show in summary form the appropriate calculations relating to
+the computation of Royalties, if any.  The statements shall also
+show the gross revenue received by Licensee per month.  The
+Royalties payable to Id Software hereunder shall be remitted with
+the particular statement indicating such amount to be due.  All
+statements hereunder shall be deemed rendered when deposited,
+postage prepaid, in the United States mail, addressed to Id
+Software at Id Software's address set forth on the signature page
+hereof. 
+
+        c.      Books of Account and Audits.  Licensee shall keep
+books of account relating to the commercial use of the Authorized
+Copy on the basis of generally accepted accounting principles and
+shall maintain such books of account for a period of at least two
+(2) years after the expiration or earlier termination of this
+Agreement; provided, however, that Licensee shall not be required
+to keep such records longer than seven (7) years from their date of
+origination.  Id Software may, upon reasonable notice and at its
+own expense, audit the applicable records at Licensee's office, in
+order to verify statements rendered hereunder.  Any such audit
+shall take place during reasonable business hours and in such
+manner so as not to interfere with Licensee's normal business
+activities.  Id Software agrees that such information inspected
+and/or copied on behalf of Id Software hereunder shall be used only
+for the purpose of determining the accuracy of the statements, and
+shall be revealed only to such officers, directors, employees,
+agents and/or representatives of Id Software as necessary to verify
+the accuracy of the statements.  If in an audit of Licensee's books
+and records it is determined that there is a short fall of ten
+percent (10%) or more in Royalties reported for any calendar
+quarter, in addition to payment of such short fall and interest as
+may be due, as provided herein, Licensee shall reimburse Id
+Software for the full out-of-pocket costs of the audit including
+reasonable travel costs and expenses; provided, however, that the
+amount of reimbursement paid by Licensee shall not exceed U.S.
+Fifteen Thousand Dollars ($15,000.00) for any audit. 
+
+        d.      Payment of the Royalty.  Licensee assumes all risks
+associated with fluctuations in foreign currency exchange rates. 
+Licensee shall pay and agrees to pay all sums due Id Software in
+United States Dollars.  With respect to Royalties due for
+commercial use outside the United States, other currencies shall be
+exchanged at the expense of Licensee into United States Dollars
+using the bid price quoted at the Citibank, N.A. of New York, New
+York, for the purchase of United States Dollars at the close of
+business on the last day of the calendar quarter during which any
+amounts accrue. Payment of the Royalties shall be made in Dallas
+County, Texas. 
+
+        e.      Interest.  If Id Software does not receive the
+applicable Royalty payment on or before the due date of such
+payment, Licensee agrees to pay and shall pay interest on Royalties
+owed to Id Software from such date as specified in the following
+sentence at a rate per annum equal to the Index Rate.  For purposes
+of clarification, the interest will begin to accrue on the first
+(1st) day following the due date of the Royalty payment, unless the
+Royalty payment is paid timely.  The "Index Rate" shall be the
+prime rate as published in The Wall Street Journal's "Money Rates"
+table.  If multiple prime rates are quoted in the table, then the
+highest prime rate will be the Index Rate.  In the event that the
+prime rate is no longer published in the "Money Rates" table, then
+Id Software will choose a substitute Index Rate which is based upon
+comparable information.  The applicable interest rate will be
+determined and take effect on the first day of each month. 
+
+        NOTHING HEREIN SHALL BE CONSTRUED AS A REQUEST OR DEMAND BY
+ID SOFTWARE OF INTEREST AT A RATE HIGHER THAN ALLOWED BY APPLICABLE
+LAW.  IT IS THE INTENT OF THE PARTIES HERETO THAT NO INTEREST BE
+CHARGED HEREUNDER WHICH EXCEEDS THE MAXIMUM RATE ALLOWED BY
+APPLICABLE LAW.  IF THE RATE REFERENCED ABOVE EXCEEDS THE MAXIMUM
+RATE ALLOWED BY APPLICABLE LAW, THEN THE INTEREST RATE MADE
+APPLICABLE HEREIN SHALL BE THE MAXIMUM RATE ALLOWED BY APPLICABLE
+LAW. 
+
+        13.     SUBLICENSE.  Licensee shall not be entitled to
+sublicense any of its rights under this Agreement.   
+
+        14.     GOODWILL.  Licensee recognizes the great value of
+the goodwill associated with the Subject Game and the Trademark,
+and acknowledges that such goodwill, now existing and hereafter
+created, exclusively belongs to Id Software and that the Trademark
+has acquired a secondary meaning in the mind of the public. 
+
+        15.     REMEDIES.  In the event of a breach of this
+Agreement by Id Software, Licensee's sole remedy shall be to
+terminate this Agreement.  In the event of a breach by Licensee of
+this Agreement, Id Software may pursue the remedies to which it is
+entitled under applicable law, including, but not limited to,
+termination of this Agreement.  Licensee agrees that its failure to
+comply with the terms of this Agreement upon expiration or earlier
+termination hereof or Licensee's unauthorized use of the Authorized
+Copy may result in immediate and irreparable damage to Id Software
+for which there is no adequate remedy at law, and in the event of
+such failure by Licensee, Id Software shall be entitled to
+injunctive relief.  Pursuit of any remedy by Id Software shall not
+constitute a waiver of any other right or remedy of Id Software
+under this Agreement or under applicable law.  Termination of this
+Agreement shall not be a pre-condition to Id Software pursuing its
+other remedies for breach. 
+
+        16.     LICENSEE'S WARRANTIES.  Licensee warrants and
+represents that it has full legal rights to enter into this
+Agreement and to perform its obligations hereunder and that it will
+comply, at all times during the terms of this Agreement, with all
+applicable laws, as set forth hereinabove. 
+
+        17.     BANKRUPTCY.  If Licensee's liabilities exceed its
+assets, or if Licensee becomes unable to pay its debts as they
+become due or if Licensee files for voluntary bankruptcy, or is
+placed in bankruptcy which is not dissolved or dismissed after
+thirty (30) days from the petition filing date, or if Licensee
+becomes insolvent, or makes an assignment for the benefit of its
+creditors or an arrangement pursuant to any bankruptcy laws or if
+Licensee discontinues its business or if a receiver is appointed
+for its business, this Agreement shall automatically terminate,
+without notice, and become null and void; provided, however, all
+duties of Licensee upon termination or expiration of this Agreement
+shall continue in full force and effect. 
+
+        18.     ENTIRE AGREEMENT AND ASSIGNMENT.  This Agreement
+constitutes the entire understanding between Licensee and Id
+Software regarding the Subject Game.  Each and every clause of this
+Agreement is severable from the whole and shall survive unless the
+entire Agreement is declared unenforceable.  No prior or present
+agreements or representations shall be binding upon any of the
+parties hereto unless incorporated in this Agreement.  No
+modification or change in this Agreement shall be valid or binding
+upon the parties unless in writing, executed by the parties to be
+bound thereby.  This Agreement shall bind and inure to the benefit
+of Id Software, its successors and assigns, and Id Software may
+assign its rights hereunder, in Id Software's sole discretion. 
+This Agreement is personal to Licensee, and Licensee shall not
+sublicense, assign, transfer, convey nor franchise its rights
+granted hereunder. 
+
+        19.     CHOICE OF LAW, VENUE AND SERVICE OF PROCESS.  This
+Agreement shall be construed in accordance with the laws of the
+State of Texas and applicable U.S. federal law and all claims
+and/or lawsuits in connection with this Agreement must be brought
+in Dallas County, Texas. Licensee hereby agrees that service of
+process by certified mail to the address set forth below, with
+return receipt requested, shall constitute valid service of process
+upon Licensee.  If for any reason Licensee has moved or cannot be
+validly served, then Licensee appoints the Secretary of State of
+the state of Texas to accept service of process on Licensee's 
+behalf. 
+
+        20.     EXCUSED PERFORMANCE.  Neither party shall be deemed
+to be in default of any provision of this Agreement nor be liable
+for any delay, failure in performance or interruption of service,
+resulting directly or indirectly from acts of God, civil or
+military authority, civil disturbance, military action, war,
+strikes, other catastrophes or any other similar cause beyond its
+reasonable control. Written notice to the non-affected party of any
+such condition shall be given by the affected party within ten (10)
+days of the event. 
+
+        21.     DELIVERY OF NOTICES, AND DELIVERY OF PAYMENTS. 
+Unless otherwise directed in writing by the parties, all notices
+given hereunder and all payments made hereunder shall be sent to
+the addresses set forth on the signature page hereof.   All
+notices, requests, consents and other communications under this
+Agreement shall be in writing and shall be deemed to have been
+delivered on the date personally delivered or on the date deposited
+in the United States Postal Service, postage prepaid, by certified
+mail, return receipt requested, or telegraphed and confirmed, or
+delivered by electronic facsimile and confirmed.  Any notice to Id
+Software shall also be sent to its counsel: D. Wade Cloud, Jr.,
+Hiersche, Martens, Hayward, Drakeley & Urbach, P.C., 15303 Dallas
+Parkway, Suite 700, LB 17, Dallas, Texas  75248. 
+
+        22.     NO PARTNERSHIP, ETC.  This Agreement does not
+constitute and shall not be construed as constituting a partnership
+or joint venture between Id Software and Licensee.  Neither party
+shall have any right to obligate or bind the other party in any
+manner whatsoever, and nothing herein contained shall give, or is
+intended to give, any rights of any kind to any third persons. 
+
+        23.     COUNTERPARTS.  This Agreement may be executed in
+several counterparts, each of which will be deemed to be an
+original, and each of which alone and all of which together, shall
+constitute one and the same instrument, but in making proof of this
+Agreement it shall not be necessary to produce or account for each
+copy of any counterpart other than the counterpart signed by the
+party against whom this Agreement is to be enforced.  This
+Agreement may be transmitted by facsimile, and it is the intent of
+the parties for the facsimile of any autograph printed by a
+receiving facsimile machine to be an original signature and for the
+facsimile and any complete photocopy of the Agreement to be deemed
+an original counterpart. 
+
+        24.     MEDIATION.  If a dispute arises out of or relates to
+this Agreement, or a breach of this Agreement, and if the dispute
+cannot be settled through direct discussion, then the parties agree
+to endeavor to settle the dispute in an amicable manner by
+mediation, under the applicable provisions of Section 154.00 et
+seq., Texas Civil Practices and Remedies Code, as supplemented by
+the rules of the Association of Attorney Mediators. 
+
+        25.     SURVIVAL.  The following provisions shall survive
+the expiration or earlier termination of this Agreement: 
+paragraphs 4., 7., 8., and the audit rights of Id Software in
+paragraph 12.c. 
+
+        26.     MISCELLANEOUS.  
+
+        a.      All captions in this Agreement are intended solely
+for the convenience of the parties, and none shall effect the
+meaning or construction of any provision. 
+
+        b.      The terms and conditions of this Agreement have been
+negotiated fully and freely among the parties.  Accordingly, the
+preparation of this Agreement by counsel for a given party will not
+be material to the construction hereof, and the terms of this
+Agreement shall not be strictly construed against such party. 
+
+        By signing in the spaces provided below, the parties have
+agreed to all of the terms and conditions set forth in this
+Agreement. 
+
+
+AGREED:
+
+LICENSEE:       
+
+
+Signed:_______________________________
+Printed Name:_________________________
+Title:________________________________
+Address:______________________________
+______________________________________
+______________________________________
+Telephone #: _________________________
+Fax #:________________________________
+E-Mail Address:_______________________
+Date: ________________________________
+
+
+AGREED:
+
+ID SOFTWARE, INC.
+
+
+Signed:_______________________________
+Printed Name:_________________________
+Title:________________________________
+Address:______________________________
+______________________________________
+______________________________________
+Telephone #: _________________________
+Fax #:________________________________
+E-Mail Address:_______________________
+Date: ________________________________
+
+
+
+June 10, 1996
+
+
+
+COMMERCIAL EXPLOITATION LICENSE AGREEMENT FOR QUAKE
+(DWC:dw:3406.0299:dwc\doc:5017)
+
+

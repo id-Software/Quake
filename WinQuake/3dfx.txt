@@ -1,0 +1,69 @@
+GLQuake Drivers
+
+Graphics Subsystem: Voodoo Graphics or Voodoo Rush
+
+Copyright ( 1997 3Dfx Interactive, Inc. )
+All Rights Reserved
+
+3Dfx Interactive, Inc.
+www: www.3dfx.com
+news: news.3dfx.com  
+
+-----------------------------------------------------------------------
+NOTE: GLQuake requires DirectX support DirectSound.  DirectX can be 
+installed from the media provided with your Voodoo Based 3D Accelerator.
+
+Glide 2.31 or HIGHER runtime drivers *MUST* be installed to use this
+GLQuake driver.  Please download these drivers from your board
+manufacturer OR unsupported drivers from http://www.3dfx.com
+-----------------------------------------------------------------------
+
+Release Notes for GLQuake's mini-GL driver
+
+What's in the distribution?
+---------------------------
+
+This distribution contains GLQuake Drivers for Voodoo Based 3D
+Accelerators.  These drivers were tested on the following boards: 
+
+Voodoo Graphics:
+- Quantum 3D Obsidian 
+- Diamond Monster 3D
+- Orchid Righteous 3D
+- Deltron Realvision Flash 3D
+- Guillemot MaxiGamer 
+- Skywell Magic 3D
+
+Voodoo Rush:
+- Hercules Stringray 128-3D
+- Intergraph Intense 3D Voodoo
+- Jazz Multimedia Adrenaline Rush
+
+NOTE:  The enclosed drivers are not meant to replace any Direct3D or 
+Glide drivers provided by your Voodoo Graphics card manufacturer. 
+Please obtain supported drivers from your board manufacturer.
+
+OEMSR2 and NT users: Do NOT replace OPENGL32.DLL located in your
+Windows\SYSTEM directory.
+
+Requirements
+------------
+
+- Voodoo Graphics or Voodoo Rush Based 3D Accelerator
+- Windows 95 (Windows NT is supported for Voodoo Rush)
+- A PC with a Pentium 90 or higher CPU
+- 16MB of RAM
+- 2D Video card set at 16 bit color
+
+Support and Frequently Asked Questions
+--------------------------------------
+
+GLQuake is currently unsupported.  You may however find answers to 
+questions on various Quake dedicated websites.  3Dfx provides a GLQuake
+newsgroup on news.3dfx.com (Newsgroup name is 3dfx.games.glquake ) to
+discuss GLQuake with other users.  3Dfx also provides a regularly
+updated GLQuake FAQ at: http://www.3dfx.com/game_dev/quake_faq.html
+
+
+Voodoo Graphics and Voodoo Rush are trademarks of 3Dfx Interactive, Inc.  
+All other trademarks are the property of their respective owners.

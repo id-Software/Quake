@@ -1,0 +1,107 @@
+
+README for Linux SVGALib Quake
+------------------------------
+
+Requirements:
+
+- X11R5 later, only tested with XFree86, should work with most X Servers
+- libc 5.2.18 or later (5.0.9 will not work, /lib/libc.so.5.2.18)
+- CD-ROM for CDAudio
+- Soundcard capable of mmap'd buffers.  USSLite 3.5.4 was used to build squake
+  with.  Works fine on SoundBlaster 16 and Gravis Ultrasound MAX.
+- SVGALib supported mouse (usually if it works with X, it'll work with
+  squake).
+- Kernel 2.0.24 or later
+  - untested with 2.1 kernels, your mileage may vary
+
+This is a windowed version that is generic for X11.  It runs in a window
+and can be resized.  You can specify a starting window size with:
+	-width <width>
+	-height <height>
+	-winsize <width> <height>
+Default is 320x200. It works in 16bit modes, but it's slower (twice as many
+bytes to copy).
+
+No other video modes are supported (just runs windowed).  Mouse is read, but
+not "grabbed" by default.  Go to the Options menu and turn on Use Mouse to grab
+the mouse and use it in the game.  If you want to move the mouse out of
+QWCL, you have to turn Use Mouse off.
+
+Full sound support is included.  The default sound rate is 16-bit stereo,
+11KHz.  You can change this in the options section below.
+
+New Command Line Options for Linux SVGAlib Quake
+------------------------------------------------
+
+-mem <mb>
+Specify memory in megabytes to allocate (default is 8MB, which should be fine
+for most needs).
+
+-nostdout
+Don't do any output to stdout
+
+-cddev <device>
+CD device, default is /dev/cdrom
+
+-sndbits <8 or 16>
+Set sound bit sample size.  Default is 16 if supported.
+
+-sndspeed <speed>
+Set sound speed.  Usual values are 8000, 11025, 22051 and 44100.
+Default is 11025.
+
+-sndmono
+Set mono sound
+
+-sndstereo
+Set stereo sound (default if supported)
+
+Installation
+------------
+
+Boot DOS (I know, but you need it to run the Quake install program) and
+install Quake from your Quake CD to a DOS parition.
+
+Boot Linux and make a directory for Quake.  Copy everything from the DOS Quake
+directory into it.  i.e.:
+	(cd /dos/quake; tar cf - .) | (cd ~/quake; tar xf -)
+
+Quake for X11 does not need to be setuid root.  Sound can fail if /dev/dsp is
+not mode 666.
+
+Quake may segfault if it tries to initialize your sound card and their isn't
+one.  Same with the CDROM.  If it dies, try it with -nosound and/or
+-nocdaudio.  If you have a sound card it died on and you know it is
+supported by USSLite (the driver that comes with the Linux kernel), let me
+know and I'll take a look at it.
+
+It should work with SCSI CDROMs, but is untested.
+
+Full TCP/IP network support is in, including listen and dedicated server
+modes.
+
+All of the options described in TECHINFO.TXT and MANUAL.TXT from the Quake
+distribution will work, 'cept for stuff with vid modes and stuff.
+
+End Notes
+---------
+
+Linux Quake is *NOT* an officially supported product.  Mail about it
+will be deleted.  Do not email id about this product.  If you are having
+technical difficultly, you can email me, but make sure you have the correct
+kernel, libc, svgalib and other software versions before you email me.
+
+Dave 'Zoid' Kirsch
+zoid@idsoftware.com
+Official Quake Unix Port Administrator
+
+Acks
+----
+
+Greg Alexander <galexand@sietch.bloomington.in.us> for initial work in SVGALib
+support.
+Dave Taylor <ddt@crack.com> for basic Linux support.
+id Software for Quake and making me port it. :)
+
+Lots of people on #linux, #quake for testing.
+

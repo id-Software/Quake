@@ -1,0 +1,167 @@
+
+NEW NOTE FOR 1.08:
+Joysticks are disabled by defualt now, due to problems on some systems without joysticks installed.  Type "joystick 1" at the console, and everything will behave as documented here.  This will be saved in your config file, so you will only have to do it once.
+
+Description of Windows 95 Quake DirectInput support
+By:  FPgaming, Inc. (www.fpgaming.com) -- Creators of the Assassin 3D
+File:  JOYSTICK.TXT
+Created:  02/21/97
+(This may be more information than you ever wanted to know.)
+
+The joystick support with Windows 95 Quake has been significantly enhanced.  Standard joysticks, digital joysticks and new advanced controllers like the FPgaming Assassin 3D, the Logitech WingMan Warrior and the SpaceTec IMC SpaceOrb are all supported.
+
+To make it work, just verify that your joystick or game controller is selected in the Joystick control panel applet and has been calibrated and tested, then launch Windows 95 Quake (WinQuake.exe or glquake.exe).  For standard and new digital joysticks, WinQuake will detect the joystick and automatically configure it.  For advanced controllers, you will additionally need to run a config file (or run it from your autoexec.cfg) prior to the device operating.  This will set the advanced features for your particular device.  This config file should be obtained from your game controller company.  The config files for the comman game controllers are included below.  If you don't want your joystick or game controller enabled, add '-nojoy' to your command-line.
+
+
+Standard Joystick Support
+The standard joystick support has been enhanced to provide the following:
+1. proportional movement (the farther you move the stick, the faster you move) 
+2. support for up to 32 buttons (JOY1-JOY4 and AUX5-AUX32)
+3. sensitivity setting for each control (allows tuning and inverting the control direction)
+4. dead-zone setting for each control
+
+The default joystick setting is for joystick left/right movement to control turning and for joystick forward/backward movement to control moving forward/backward.  For optional strafing, add the 'sidestep' feature to one of your buttons (via the Customize menu).  For optional looking, add the  'mouse look' feature to one of your buttons (also via the Customize menu).  
+
+Additionally, there are several features that you can set from the Options menu.  'Always Run' allows you change your maximum speed from walking to running.  'Invert Mouse' allows you to change the direction the joystick has to move to when looking up and down.  'Lookspring' enables automatic look-forward-when-moving.  And, 'Lookstrafe' automatically enables strafing when the 'mouse look' button is pressed.
+
+The following variables control your sensititivity settings:
+	joyforwardsensitivity - controls the ramp-up speed for moving forward and backward
+	joysidesensitivity - controls the ramp-up speed for moving side to side
+	joypitchsensitivity - controls the speed that you look up and down
+	joyyawsensitivity - controls the speed that you look left to right
+You can set the sensitivity settings to negative numbers.  This inverts the direction of movement for the control.  The default sensitivity settings are 1 (or -1).  There is no limit on the range; whatever feels good.
+
+The following variables control your threshold settings:
+	joyforwardthreshold - controls the dead-zone for moving forward and backward
+	joysidethreshold - controls the dead-zone for moving side to side
+	joypitchthreshold - controls the dead-zone for looking up and down
+	joyyawthreshold - controls the dead-zone for looking left and right
+The threshold settings allow you to control your dead-zone (or no-movement zone).  The default threshold settings are .15 (meaning 15% of the full-range).  The range of the threshold settings is from 0 to 1.  Troublesome analog joysticks may need a larger number (like .2).  Premium joysticks can use a smaller number (like .1).
+
+The joystick sensitivity settings and the threshold settings are not saved after you quit your game as inadvertant settings can really hose your control.  If you want to keep any changes, add them into your autoexec.cfg file.
+
+If your joystick has a POV hat, the buttons are mapped to AUX29-AUX32.  So, you get 8 buttons with the Logitech WingMan Extreme and 12 buttons with the Microsoft SideWinder 3D Pro, etc.
+
+
+Advanced Controller Support
+The following features have been added:
+1. support for all 6 axes (X, Y, Z, R, U, V)
+2. mapping of any axis to any control (Forward, Look, Side, Turn)
+3. proportional movement for all controls
+4. sensitivity setting for any control (allows tuning and inverting the control direction)
+5. threshold setting for any control (allows dead-zone setting)
+6. support for absolute controls (like joysticks) and relative controls (like trackballs and spinners)
+7. support for up to 32 buttons (JOY1-JOY4 and AUX5-AUX32)
+
+To make an advanced controller operate, you will need to get a config file from your game controller company.  This file is typically placed in your quake\id1 directory and then it is called within your autoexec.cfg file.  For example, if your config file is named gamectrl.cfg, place that file within your quake\id1 directory and add 'exec gamectrl.cfg' in your autoexec.cfg file.  If you don't have an autoexec.cfg file, you can create one and just place this one line in it.
+
+******************************************************************************
+NOTE:  The information below is for game controller companies to integrate their device and for anyone wanting to create a custom setup.
+
+In addition to the above new variables, there are six more for axis mapping.  These are:
+	joyadvaxisx - controls mapping of DirectInput axis X (typically joystick left and right)
+	joyadvaxisy - controls mapping of DirectInput axis Y (typically joystick forward and backward)
+	joyadvaxisz - controls mapping of DirectInput axis Z (typically joystick throttle)
+	joyadvaxisr - controls mapping of DirectInput axis R (typically joystick rudder)
+	joyadvaxisu - controls mapping of DirectInput axis U (custom axis - Assassin 3D trackball left and right, WingMan Warrior SpinControl and SpaceOrb roll)
+	joyadvaxisv - controls mapping of DirectInput axis V (custom axis - Assassin 3D trackball forward and backward and SpaceOrb yaw)
+Each joyadvaxis variable can be set to the following controls:
+	0 = Axis not used
+	1 = Axis is for forward and backward movement
+	2 = Axis is for looking up and down (pitch)
+	3 = Axis is for side to side movement
+	4 = Axis is for turning left and right (yaw)
+Additionally, each axis can be designated as an absolute axis (like a joystick) or a relative axis (like the FPgaming trackball or the WingMan Warrior SpinControl).  Absolute axes are defined as having a stopping position whereas relative axes don't have a stopping position and just go around and around.  To designate an axis as a relative axis, add 16 to the above control number.  For example, to set the Assassin 3D's axis U to be looking left and right, type 'joyadvaxisu 20'.  As another example, to make your rudder pedals contol turning left and right, type 'joyadvaxisr 4'.  It's a bit complicated, but only needs to be done once.
+
+The advanced axes variables will not have any effect until joyadvanced is set to 1.0.  Additionally, any changes to the to the axes will not take effect until the joyadvancedupdate command is executed.  So, the procedure for creating an advanced mapping is:
+1.  set 'joyadvanced 1'
+2.  make any desired mapping changes
+3.  make any desired sensitivity changes
+4.  make any desired threshold changes
+3.  call 'joyadvancedupdate'
+
+Here is the config file for the FPgaming Assassin 3D:
+// ADVA3D.CFG
+// Revision 1.0 -- refer to www.fpgaming.com for updates
+joyname "FPgaming Assassin 3D"
+joyadvanced 1
+joyadvaxisx 3
+joyadvaxisy 1
+joyadvaxisz 0
+joyadvaxisr 0
+joyadvaxisu 20
+joyadvaxisv 18
+joyforwardsensitivity -1.0
+joysidesensitivity 1.0
+joypitchsensitivity -0.25
+joyyawsensitivity -0.5
+joyforwardthreshold 0.15
+joysidethreshold 0.15
+joyyawthreshold 0.0
+joypitchthreshold 0.0
++mlook
+joyadvancedupdate
+
+Here is a config file for the Logitech WingMan Warrior:
+// ADVWW.CFG
+// Revision 0.1 -- refer to www.logitech.com for updates
+joyname "Logitech WingMan Warrior"
+joyadvanced 1.0
+joywwhack1 1.0
+joywwhack2 1.0
+joyadvaxisx 3
+joyadvaxisy 1
+joyadvaxisz 0
+joyadvaxisr 0
+joyadvaxisu 20
+joyadvaxisv 0
+joyforwardsensitivity -1.0
+joysidesensitivity 1.0
+joypitchsensitivity 0.0
+joyyawsensitivity -0.6
+joyforwardthreshold 0.15
+joysidethreshold 0.15
+joypitchthreshold 0.0
+joyyawthreshold 0.0
+joyadvancedupdate
+
+Here is a config file for the SpaceTec IMC SpaceOrb:
+// ADVSPORB.CFG
+// Revision 0.1 -- refer to www.spacetec.com for updates
+joyname "SpaceTec IMC SpaceOrb"
+joyadvanced 1.0
+joyadvaxisx 3
+joyadvaxisy 1
+joyadvaxisz 0
+joyadvaxisr 2
+joyadvaxisu 0
+joyadvaxisv 4
+joyforwardsensitivity -1.0
+joysidesensitivity 1.0
+joypitchsensitivity -0.5
+joyyawsensitivity 1
+joyforwardthreshold 0.1
+joysidethreshold 0.1
+joypitchthreshold 0.1
+joyyawthreshold 0.1
++mlook
+joyadvancedupdate
+
+Here is a config file for making your joystick operate looking around and strafing, your rudder pedals control turning left and right and throttle control moving forward and backward:
+joyname "Joystick, Rudder & Throttle"
+joyadvanced 1.0
+joyadvaxisx 3
+joyadvaxisy 2
+joyadvaxisz 1
+joyadvaxisr 4
+joyadvaxisu 0
+joyadvaxisv 0
+joyforwardsensitivity -1.0
+joysidesensitivity -1.0
+joypitchsensitivity 1.0
+joyyawsensitivity -1.0
+joyforwardthreshold 0.15
+joysidethreshold 0.15
+joyyawthreshold 0.15
+joypitchthreshold 0.15
+joyadvancedupdate

@@ -1,0 +1,157 @@
+README for Linux Quake
+----------------------
+
+This README convers all versions of Quake for Linux:
+	- SVGALib Quake (squake)
+	- GLQuake (glquake, glquake.glx and glquake.3dfxgl)
+	- X11 Quake (quake.x11)
+
+Requirements for SVGALib Quake:
+
+- SVGALib 1.20 or later (/lib/libvga.so.1.2.10)
+- libc 5.2.18 or later (5.0.9 will not work, /lib/libc.so.5.2.18)
+  or glibc (libc6) for the glibc version
+- CD-ROM for CDAudio
+- Soundcard capable of mmap'd buffers.  USSLite 3.5.4 was used to build squake
+  with.  Works fine on SoundBlaster 16 and Gravis Ultrasound MAX.
+- SVGALib supported mouse (usually if it works with X, it'll work with
+  squake).
+- Kernel 2.0.24 or later
+  - untested with 2.1 kernels, your mileage may vary
+
+Requirements for GLQuake:
+
+- 3DFX based card for the GLQuake version, VooDoo, VooDoo Rush or VooDoo2
+at this writing.  In order to use 3DFX hardware, you must have 3DFX's
+GLIDE drivers installed.  RPMs for these drivers are available at:
+http://glide.xxedgexx.com/3DfxRPMS.html
+- For the glX version, an OpenGL implementation that includes hardware
+glX support.
+- CD-ROM for CDAudio
+- Soundcard capable of mmap'd buffers.  USSLite 3.5.4 was used to build squake
+  with.  Works fine on SoundBlaster 16 and Gravis Ultrasound MAX.
+- SVGALib compatible mouse for glquake or X11 for glquake.glx
+- Kernel 2.0.24 or later
+  - untested with 2.1 kernels, your mileage may vary
+
+Requirements for X11 Quake:
+
+- X11R5 later, only tested with XFree86, should work with most X Servers
+- libc 5.2.18 or later (5.0.9 will not work, /lib/libc.so.5.2.18)
+  or glibc (libc6) for the glibc version
+- CD-ROM for CDAudio
+- Soundcard capable of mmap'd buffers.  USSLite 3.5.4 was used to build squake
+  with.  Works fine on SoundBlaster 16 and Gravis Ultrasound MAX.
+- SVGALib supported mouse (usually if it works with X, it'll work with
+  squake).
+- Kernel 2.0.24 or later
+  - untested with 2.1 kernels, your mileage may vary
+
+Additional notes for SVGALib Quake
+----------------------------------
+
+SVGALib may not detect a 3-button mouse properly (it
+will only use two buttons).  Check your /etc/vga/libvga.config
+and set it up for your mouse type.
+
+Additional notes for GLQuake
+----------------------------
+
+There are three different ways to execute GLQuake:
+
+1. The binary "glquake" requires Mesa 3-D 2.5 or later installed and compiled
+with 3DFX support (fxMesa..() function interface).  It also requires
+svgalib 1.3.0 or later for keyboard/mouse input.  This binary is a console
+application.  Mesa 3-D requires GLIDE to be installed.
+
+2. The shell script "glquake.3dfxgl" runs the "glquake" binary after
+preloading the lib3dfxgl.so library.  This is a port of 3DFX's Win32
+OpenGL MCD (Mini Client Driver) to Linux.  It is faster than Mesa 3-D
+since it was written specifically with supporting GLQuake in mind.
+lib3dfxgl.so requires that GLIDE be installed.
+
+3. The binary "glquake.glx" is linked against standard OpenGL libraries.
+It should run on many different hardward OpenGL implementations under
+Linux and X11.  This binary is an X11 application and must be run under
+X11.  It will work with Mesa 3-D as a standard glX based OpenGL 
+applications.  If the Mesa 3-D library is compiled with 3DFX support,
+you can have Mesa 3-D support 3DFX hardware under X11 by setting the
+enviroment variable "MESA_GLX_FX" to "fullscreen" for fullscreen mode
+and "window" for windowed mode, eg. "export MESA_GLX_FX=fullscreen" for sh 
+or "setenv MESA_GLX_FX fullscreen" for csh.
+
+For glquake, you must also have SVGALib or later installed (1.3.0 or later
+prefered).  GLQuake uses SVGALib for mouse and keyboard handling.
+
+If you have gpm and/or selection running, you will have to terminate them
+before running GLQuake since they will not give up the mouse when GLQuake
+attempts to run.  You can kill gpm by typing 'killall gpm' as root.
+
+You must run GLQuake as root or setuid root since it needs to access things 
+such as sound, keyboard, mouse and the 3DFX video.  Future versions may not 
+require root permissions.
+
+Additional notes for X11 Quake
+------------------------------
+
+This is a windowed version that is generic for X11.  It runs in a window
+and can be resized.  You can specify a starting window size with:
+	-width <width>
+	-height <height>
+	-winsize <width> <height>
+Default is 320x200. It works in 16bit modes, but it's slower (twice as many
+bytes to copy).
+
+No other video modes are supported (just runs windowed).  Mouse is read, but
+not "grabbed" by default.  Go to the Options menu and turn on Use Mouse to grab
+the mouse and use it in the game (or type "_windowed_mouse 1" at the console).
+
+Command Line Options for Linux Quake
+------------------------------------
+
+-mem <mb>
+Specify memory in megabytes to allocate (default is 8MB, which should be fine
+for most needs).
+
+-nostdout
+Don't do any output to stdout
+
+-mdev <device> (SVGALib based versions only)
+Mouse device, default is /dev/mouse
+
+-mrate <speed> (SVGALib based versions only)
+Mouse baud rate, default is 1200
+
+-cddev <device>
+CD device, default is /dev/cdrom
+
+-mode <modenum>
+Use indicated video mode
+
+-nokdb
+Don't initialize keyboard
+
+-sndbits <8 or 16>
+Set sound bit sample size.  Default is 16 if supported.
+
+-sndspeed <speed>
+Set sound speed.  Usual values are 8000, 11025, 22051 and 44100.
+Default is 11025.
+
+-sndmono
+Set mono sound
+
+-sndstereo
+Set stereo sound (default if supported)
+
+End Notes
+---------
+
+Linux Quake is *NOT* an officially supported product.  Mail about it
+will be deleted.  Do not email id about this product.  If you are having
+technical difficultly, you can email me, but make sure you have the correct
+kernel, libc, svgalib and other software versions before you email me.
+
+Dave 'Zoid' Kirsch
+zoid@idsoftware.com
+Official Quake Unix Port Administrator

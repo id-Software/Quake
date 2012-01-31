@@ -1,0 +1,48 @@
+
+
+movecmd_t	movecmd;
+
+
+input from 
+
+packet sender
+	wake up on alarms or input signal
+	if on input signal, set skipnextalrm
+	else
+		if skipnextalarm
+			skipnextalarm = false;
+			continue;
+	lock packet
+	get current movecmd
+	send message
+	unlock packet
+
+packet receiver
+	wake up only on packet arrival
+	identify the packet source
+	calculate exact latency
+	save the packet off
+
+
+
+
+	// cause timer messages to be issued
+	SetTimer (mainwindow, 1, 50, NULL);
+
+	// cause packet received messages to be issued
+	WSAAsyncSelect ( net_socket, mainwindow, WM_USER, FD_READ );	
+
+	if (!GetMessage (&msg, NULL, 0, 0))
+	{
+		TranslateMessage (&msg);
+		DispatchMessage (&msg);
+		while (PeekMessage (&msg, NULL, 0, 0, PM_NOREMOVE))
+		{
+			if (!GetMessage (&msg, NULL, 0, 0))
+				break;
+			TranslateMessage (&msg);
+   			DispatchMessage (&msg);
+		}
+		PrepareToBlock ();
+	}
+

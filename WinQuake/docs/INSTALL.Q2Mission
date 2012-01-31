@@ -1,0 +1,39 @@
+INSTALL for Linux Quake2 Mission Packs
+--------------------------------------
+
+Installation
+------------
+
+Mount the Quake2 Mission Pack CD as one would usually mount a CDROM, this can 
+be accomplished by using the command:
+
+		mount /dev/cdrom /mnt
+
+As root.  Once the CD is mounted, run the setup script on the CD as root.
+
+		$ su
+		Password:
+		# mount /dev/cdrom /mnt
+		# /bin/sh /mnt/setup
+
+The script will ask some questions about what options you want to install
+and automatically install the software into /usr/local/games/quake2.
+
+After Installation
+------------------
+
+To run Quake2 Mission Pack #1: The Reckoning add the following option when
+executing Quake2:
+
+	./quake2 +set game xatrix
+
+To run Quake2 Mission Pack #2: Ground Zero add the following:
+
+	./quake2 +set game rogue
+
+Requirements
+------------
+
+The Quake2 Mission Packs require a previous installation of Quake2.
+
+

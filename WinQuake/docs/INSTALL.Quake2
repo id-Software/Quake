@@ -1,0 +1,218 @@
+INSTALL for Linux Quake2
+------------------------
+
+Quake2 for Linux supports the following video subsystems:
+
+- SVGALib Console Graphics (ref_soft.so)
+	- Requires SVGALib 1.2.0 or later
+- X11 Window Graphics (ref_softx.so)
+	- X11R5 or later, XShm shared memory extension supported
+- 3DFX fxMesa with Mesa 3-D or 3DFX Miniport (ref_gl.so)
+	- Mesa 3-D 2.6 or later, specifically compiled for 3DFX support
+	  Mesa 3-D 2.6 compiled with 3DFX support is provided with this archive.
+- Generic glX (X11) based OpenGL (ref_glx.so)
+	- Requires a glX based hardware accelerated OpenGL implementation.
+	  Mesa 3-D 2.6 supports this on 3DFX hardware.
+
+Also included is a specific 3DFX mini-OpenGL implementation for running Quake2
+on 3DFX hardware.
+
+Installation
+------------
+
+Mount the Quake2 CD as one would usually mount a CDROM, this can be 
+accomplished by using the command:
+
+		mount /dev/cdrom /mnt
+
+As root.  Once the CD is mounted, run the setup script on the CD as root.
+
+		$ su
+		Password:
+		# mount /dev/cdrom /mnt
+		# /bin/sh /mnt/setup
+
+The script will ask some questions about what options you want to install
+and automatically install the software into /usr/local/games/quake2.
+
+Make sure you have the appropirate hardware, drivers and libraries installed
+for the renderer you are going to play on.
+
+Quake2 for Linux supports the following renderers:
+
+- ref_soft
+  Software rendering under SVGALib (console only).  SVGALib 1.2.10 or later
+  is required.  Note that SVGALib 1.2.11 supports the ability to run a
+  SVGALib application under X11 as it will automatically allocate a new
+  console.  The default mode is 320x240 (ModeX) since that is the lowest
+  resolution supported by Quake2.  If SVGALib supports your video card, higher
+  resolution modes such as 640x480 and 800x600 are also supported.
+
+  Please note that you may need to configure your mouse for SVGALib in
+  /etc/vga/libvga.config (or /etc/libvga.config).
+
+- ref_softx
+  Software rendering under X11.  This uses the MITSHM Extension and should
+  work will virtually all Linux X Servers.  **NOTE: Do not resize the window
+  under X11.  You must use the Video menu to change resolution/window size.
+
+  By default, the mouse will not be 'tied' to the Quake2 window.  To cause
+  Quake2 to grab the mouse, select 'Windowed Mouse' from the video menu,
+  or type '_windowed_mouse 0' at the console.  Do the reverse to release it.
+  You can bind keys to grab and release the mouse in the console, like so:
+    bind i "_windowed_mouse 1"  
+    bind o "_windowed_mouse 0"  
+  Then "i" will grab the mouse and "o" will release it.
+
+- ref_gl
+  This render can be run with two different OpenGL drivers:  Mesa 3-D
+  ontop of Linux GLIDE, or 3DFX's mini-OpenGL Quake driver. 
+  For Mesa 3-D, the necessary libMesaGL.so.2.6 is included with this archive.  
+  You must copy it to /usr/lib or /usr/local/lib and run ldconfig (as root)
+  in order to use it.  You can do this as follows:
+    tar cf - lib*GL* | (cd /usr/lib; tar xf -)
+  You should use tar to keep the symlinks intact. Once you copy them over
+  run ldconfig.
+  You must also download and install the Linux GLIDE drivers at
+  http://www.3dfx.com/software/download_glidel.html
+  And install them as instructed.
+  RPMs for GLIDE are available at :
+     http://glide.xxedgexx.com/3DfxRPMS.html
+  With version 3.20, the GL library is entirely runtime loaded.  This means
+  you can specify what shared object to load for GL display.
+  To use Mesa 3-D GL (console), run quake with:
+  	 ./quake2 +set vid_ref gl +set gl_driver libMesaGL.so.2
+  To use the 3DFX OpenGL Miniport, run the included quake2.3dfxgl:
+     ./quake2 +set vid_ref gl +set gl_driver lib3dfxgl.so
+  The gl_driver cvar indicates the name of the library to load for GL
+  functions.  It can be in any directory listed in /etc/ld.so.conf
+  or in /etc/quake2.conf
+
+  **NOTE:  There is a problem on libc5 systems where a vid_restart (causing
+  a reload of the video system) will crash.  There doesn't seem to be a 
+  solution to this yet.  It looks to be some sort of ld.so dynamic loading
+  interaction with SVGALib and ref_gl.so.  A work around is to start in
+  software mode (./quake2 +set vid_ref soft), then use the menu to set your
+  mode and a vid_restart will work when going from software to GL.  Exit
+  out then and save your video mode settings.
+  This problem does not occur on libc6 (glibc) based systems; vid_restart
+  works fine on there.
+
+- ref_glx
+  ref_glx should run on many different hardward OpenGL implementations under
+  Linux and X11.  This binary is an X11 application and must be run under
+  X11.  It will work with Mesa 3-D as a standard glX based OpenGL 
+  applications.  If the Mesa 3-D library is compiled with 3DFX support,
+  you can have Mesa 3-D support 3DFX hardware under X11 by setting the
+  enviroment variable "MESA_GLX_FX" to "fullscreen" for fullscreen mode
+  and "window" for windowed mode, eg. "export MESA_GLX_FX=fullscreen" for sh 
+  or "setenv MESA_GLX_FX fullscreen" for csh.
+
+  As with ref_gl, the "gl_driver" cvar indicates the shared library to load
+  for OpenGL functions (the glX functions must provided in that library
+  as well).
+
+Permissions
+-----------
+
+Quake2 requires root permissions to use the software (SVGALib) and GL (MesaGL
+w/3dfx) renders.  In order to make this secure, some special considerations
+must be made.
+
+Quake2 should get setuid root:
+	chown root quake2
+	chmod 4711 quake2
+
+And the ref_soft.so and ref_gl.so files must owned by root.
+
+The file /etc/quake2.conf must be installed.  This file contains a single
+line with the path of where the ref shared libraries can be found.
+A sample one is included that lists /usr/games/quake2 as the default
+path.  The libraries are only loaded out of the directory listed in
+/etc/quake2.conf for security considerations.
+
+Special permissions are not required for the softx renderer, but quake2 may
+still need to be setuid root to open the sound device (quake2 will give up
+setuid root permissions before loading softx).
+
+NOTE:  If you use a setuid quake2 binary and run it as a normal user, it
+will NOT be able to switch renderers on the fly because root permissions
+are given up after the renderer is loaded.  You can switch renderers on the
+fly if you run quake2 as root (su or log in as root).
+
+NOTE:  When the quake2 binary is run in dedicated server mode
+(+set dedicated 1), no special permissions are required and 
+/etc/quake2.conf is not read since no renderer is loaded.
+
+----
+
+The first time you run Quake2, it will use ref_soft or ref_softx based
+on whether a DISPLAY environment variable exists.
+
+To force the loading of a specific renderer at load time, use the following
+command lines:
+
+	./quake2 +set vid_ref soft
+	./quake2 +set vid_ref softx
+	./quake2 +set vid_ref gl
+	./quake2 +set vid_ref glx
+
+Linux Specific Cvars
+--------------------
+
+To set this, use +set on the command line, i.e.:
+	./quake2 +set cd_dev /dev/hdc +set sndmono 1
+
+nocdaudio (defaults to 0)
+  Do not enable cd audio if not zero
+
+sndbits (defaults to 16)
+  Set sound bit sample size.
+
+sndspeed (defaults to 0)
+  Set sound speed.  Usual values are 8000, 11025, 22051 and 44100.
+  If set to zero, causes the sound driver to attempt speeds in the following
+  order:  11025, 22051, 44100, 8000.
+
+sndchannels (defaults to 2)
+  Indicates stereo or mono sound.  Defaults to 2 (stereo). Use 1 for mono.
+
+nostdout (defaults to 0)
+  Whether to output console msgs to standard out.  Non-zero is cease output.
+
+Dedicated server
+----------------
+
+To run Linux Quake2 as a dedicated server, just run it as follows:
+
+  ./quake2 +set dedicated 1
+
+You can also set dmflags, timelimit, etc. in a config file, like so:
+  set timelimit 20
+  set fraglimit 25
+  set dmflags 532
+  map fact3
+
+Then exec that config file on load, like so:
+
+  ./quake2 +set dedicated 1 +exec server.cfg
+
+If you use a config file, you must put a 'map' command in it or the
+server won't load a map.
+
+To run a dedicated server in the background, use this;
+
+	nohup ./quake2 +set dedicated 1 +exec server.cfg &
+
+A better way is to run Quake2 on a tty via screen.  screen can be found
+at ftp://prep.ai.mit.edu/pub/gnu/screen-3.7.4.tar.gz, but it comes with
+most modern Linux installations now.
+
+-----------------------------------------------------------------------------
+
+Linux Quake2 is an unsupported product.  Usage of this product is bound by 
+the legal notice found on the distribution Quake2 CDROM.
+
+/// Zoid
+zoid@idsoftware.com
+

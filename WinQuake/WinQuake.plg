@@ -1,0 +1,595 @@
+<html>
+<body>
+<pre>
+<h1>Build Log</h1>
+<h3>
+--------------------Configuration: winquake - Win32 Release--------------------
+</h3>
+<h3>Command Lines</h3>
+Creating temporary file "C:\TEMP\RSP74A.bat" with contents
+[
+@echo off
+cl /EP > .\Release\worlda.spp .\worlda.s
+gas2masm\debug\gas2masm < .\Release\worlda.spp >                                                                                                                                                                                                    .\Release\worlda.asm
+ml /c /Cp /coff /Fo.\Release\worlda.obj /Zm /Zi                                                                                                                                                                                                    .\Release\worlda.asm
+del .\Release\worlda.spp
+]
+Creating command line "C:\TEMP\RSP74A.bat"
+Creating temporary file "C:\TEMP\RSP74B.bat" with contents
+[
+@echo off
+cl /EP > .\Release\sys_wina.spp .\sys_wina.s
+gas2masm\debug\gas2masm < .\Release\sys_wina.spp >                                                                                                                                                                                                    .\Release\sys_wina.asm
+ml /c /Cp /coff /Fo.\Release\sys_wina.obj /Zm /Zi                                                                                                                                                                                                    .\Release\sys_wina.asm
+del .\Release\sys_wina.spp
+]
+Creating command line "C:\TEMP\RSP74B.bat"
+Creating temporary file "C:\TEMP\RSP74C.bat" with contents
+[
+@echo off
+cl /EP > .\Release\surf8.spp .\surf8.s
+gas2masm\debug\gas2masm < .\Release\surf8.spp >                                                                                                                                                                                                    .\Release\surf8.asm
+ml /c /Cp /coff /Fo.\Release\surf8.obj /Zm /Zi                                                                                                                                                                                                    .\Release\surf8.asm
+del .\Release\surf8.spp
+]
+Creating command line "C:\TEMP\RSP74C.bat"
+Creating temporary file "C:\TEMP\RSP74D.bat" with contents
+[
+@echo off
+cl /EP > .\Release\surf16.spp .\surf16.s
+gas2masm\debug\gas2masm < .\Release\surf16.spp >                                                                                                                                                                                                    .\Release\surf16.asm
+ml /c /Cp /coff /Fo.\Release\surf16.obj /Zm /Zi                                                                                                                                                                                                    .\Release\surf16.asm
+del .\Release\surf16.spp
+]
+Creating command line "C:\TEMP\RSP74D.bat"
+Creating temporary file "C:\TEMP\RSP74E.bat" with contents
+[
+@echo off
+cl /EP > .\Release\snd_mixa.spp .\snd_mixa.s
+gas2masm\debug\gas2masm < .\Release\snd_mixa.spp >                                                                                                                                                                                                    .\Release\snd_mixa.asm
+ml /c /Cp /coff /Fo.\Release\snd_mixa.obj /Zm /Zi                                                                                                                                                                                                    .\Release\snd_mixa.asm
+del .\Release\snd_mixa.spp
+]
+Creating command line "C:\TEMP\RSP74E.bat"
+Creating temporary file "C:\TEMP\RSP74F.bat" with contents
+[
+@echo off
+cl /EP > .\Release\r_varsa.spp .\r_varsa.s
+gas2masm\debug\gas2masm < .\Release\r_varsa.spp >                                                                                                                                                                                                    .\Release\r_varsa.asm
+ml /c /Cp /coff /Fo.\Release\r_varsa.obj /Zm /Zi                                                                                                                                                                                                    .\Release\r_varsa.asm
+del .\Release\r_varsa.spp
+]
+Creating command line "C:\TEMP\RSP74F.bat"
+Creating temporary file "C:\TEMP\RSP750.bat" with contents
+[
+@echo off
+cl /EP > .\Release\r_edgea.spp .\r_edgea.s
+gas2masm\debug\gas2masm < .\Release\r_edgea.spp >                                                                                                                                                                                                    .\Release\r_edgea.asm
+ml /c /Cp /coff /Fo.\Release\r_edgea.obj /Zm /Zi                                                                                                                                                                                                    .\Release\r_edgea.asm
+del .\Release\r_edgea.spp
+]
+Creating command line "C:\TEMP\RSP750.bat"
+Creating temporary file "C:\TEMP\RSP751.bat" with contents
+[
+@echo off
+cl /EP > .\Release\r_drawa.spp .\r_drawa.s
+gas2masm\debug\gas2masm < .\Release\r_drawa.spp >                                                                                                                                                                                                    .\Release\r_drawa.asm
+ml /c /Cp /coff /Fo.\Release\r_drawa.obj /Zm /Zi                                                                                                                                                                                                    .\Release\r_drawa.asm
+del .\Release\r_drawa.spp
+]
+Creating command line "C:\TEMP\RSP751.bat"
+Creating temporary file "C:\TEMP\RSP752.bat" with contents
+[
+@echo off
+cl /EP > .\Release\r_aliasa.spp .\r_aliasa.s
+gas2masm\debug\gas2masm < .\Release\r_aliasa.spp >                                                                                                                                                                                                    .\Release\r_aliasa.asm
+ml /c /Cp /coff /Fo.\Release\r_aliasa.obj /Zm /Zi                                                                                                                                                                                                    .\Release\r_aliasa.asm
+del .\Release\r_aliasa.spp
+]
+Creating command line "C:\TEMP\RSP752.bat"
+Creating temporary file "C:\TEMP\RSP753.bat" with contents
+[
+@echo off
+cl /EP > .\Release\r_aclipa.spp .\r_aclipa.s
+gas2masm\debug\gas2masm < .\Release\r_aclipa.spp >                                                                                                                                                                                                    .\Release\r_aclipa.asm
+ml /c /Cp /coff /Fo.\Release\r_aclipa.obj /Zm /Zi                                                                                                                                                                                                    .\Release\r_aclipa.asm
+del .\Release\r_aclipa.spp
+]
+Creating command line "C:\TEMP\RSP753.bat"
+Creating temporary file "C:\TEMP\RSP754.bat" with contents
+[
+@echo off
+cl /EP > .\Release\math.spp .\math.s
+gas2masm\debug\gas2masm < .\Release\math.spp >                                                                                                                                                                                                    .\Release\math.asm
+ml /c /Cp /coff /Fo.\Release\math.obj /Zm /Zi                                                                                                                                                                                                    .\Release\math.asm
+del .\Release\math.spp
+]
+Creating command line "C:\TEMP\RSP754.bat"
+Creating temporary file "C:\TEMP\RSP755.bat" with contents
+[
+@echo off
+cl /EP > .\Release\d_varsa.spp .\d_varsa.s
+gas2masm\debug\gas2masm < .\Release\d_varsa.spp >                                                                                                                                                                                                    .\Release\d_varsa.asm
+ml /c /Cp /coff /Fo.\Release\d_varsa.obj /Zm /Zi                                                                                                                                                                                                    .\Release\d_varsa.asm
+del .\Release\d_varsa.spp
+]
+Creating command line "C:\TEMP\RSP755.bat"
+Creating temporary file "C:\TEMP\RSP756.bat" with contents
+[
+@echo off
+cl /EP > .\Release\d_spr8.spp .\d_spr8.s
+gas2masm\debug\gas2masm < .\Release\d_spr8.spp >                                                                                                                                                                                                    .\Release\d_spr8.asm
+ml /c /Cp /coff /Fo.\Release\d_spr8.obj /Zm /Zi                                                                                                                                                                                                    .\Release\d_spr8.asm
+del .\Release\d_spr8.spp
+]
+Creating command line "C:\TEMP\RSP756.bat"
+Creating temporary file "C:\TEMP\RSP757.bat" with contents
+[
+@echo off
+cl /EP > .\Release\d_scana.spp .\d_scana.s
+gas2masm\debug\gas2masm < .\Release\d_scana.spp >                                                                                                                                                                                                    .\Release\d_scana.asm
+ml /c /Cp /coff /Fo.\Release\d_scana.obj /Zm /Zi                                                                                                                                                                                                    .\Release\d_scana.asm
+del .\Release\d_scana.spp
+]
+Creating command line "C:\TEMP\RSP757.bat"
+Creating temporary file "C:\TEMP\RSP758.bat" with contents
+[
+@echo off
+cl /EP > .\Release\d_polysa.spp .\d_polysa.s
+gas2masm\debug\gas2masm < .\Release\d_polysa.spp >                                                                                                                                                                                                    .\Release\d_polysa.asm
+ml /c /Cp /coff /Fo.\Release\d_polysa.obj /Zm /Zi                                                                                                                                                                                                    .\Release\d_polysa.asm
+del .\Release\d_polysa.spp
+]
+Creating command line "C:\TEMP\RSP758.bat"
+Creating temporary file "C:\TEMP\RSP759.bat" with contents
+[
+@echo off
+cl /EP > .\Release\d_parta.spp .\d_parta.s
+gas2masm\debug\gas2masm < .\Release\d_parta.spp >                                                                                                                                                                                                    .\Release\d_parta.asm
+ml /c /Cp /coff /Fo.\Release\d_parta.obj /Zm /Zi                                                                                                                                                                                                    .\Release\d_parta.asm
+del .\Release\d_parta.spp
+]
+Creating command line "C:\TEMP\RSP759.bat"
+Creating temporary file "C:\TEMP\RSP75A.bat" with contents
+[
+@echo off
+cl /EP > .\Release\d_draw16.spp .\d_draw16.s
+gas2masm\debug\gas2masm < .\Release\d_draw16.spp >                                                                                                                                                                                                    .\Release\d_draw16.asm
+ml /c /Cp /coff /Fo.\Release\d_draw16.obj /Zm /Zi                                                                                                                                                                                                    .\Release\d_draw16.asm
+del .\Release\d_draw16.spp
+]
+Creating command line "C:\TEMP\RSP75A.bat"
+Creating temporary file "C:\TEMP\RSP75B.bat" with contents
+[
+@echo off
+cl /EP > .\Release\d_draw.spp .\d_draw.s
+gas2masm\debug\gas2masm < .\Release\d_draw.spp >                                                                                                                                                                                                    .\Release\d_draw.asm
+ml /c /Cp /coff /Fo.\Release\d_draw.obj /Zm /Zi                                                                                                                                                                                                    .\Release\d_draw.asm
+del .\Release\d_draw.spp
+]
+Creating command line "C:\TEMP\RSP75B.bat"
+Creating command line "rc.exe /l 0x409 /fo".\Release/winquake.res" /d "NDEBUG" "D:\Work\quake source\WinQuake\winquake.rc"" 
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+worlda.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\worlda.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+sys_wina.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\sys_wina.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+surf8.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\surf8.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+surf16.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\surf16.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+snd_mixa.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\snd_mixa.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+r_varsa.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\r_varsa.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+r_edgea.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\r_edgea.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+r_drawa.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\r_drawa.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+r_aliasa.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\r_aliasa.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+r_aclipa.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\r_aclipa.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+math.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\math.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+d_varsa.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\d_varsa.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+d_spr8.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\d_spr8.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+d_scana.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\d_scana.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+d_polysa.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\d_polysa.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+d_parta.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\d_parta.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+d_draw16.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\d_draw16.asm
+mycoolbuild
+Microsoft (R) 32-bit C/C++ Optimizing Compiler Version 12.00.8168 for 80x86
+Copyright (C) Microsoft Corp 1984-1998. All rights reserved.
+
+d_draw.s
+Microsoft (R) Macro Assembler Version 6.11
+Copyright (C) Microsoft Corp 1981-1993.  All rights reserved.
+
+ Assembling: .\Release\d_draw.asm
+Creating temporary file "C:\TEMP\RSP75C.tmp" with contents
+[
+/nologo /G5 /ML /GX /Ox /Ot /Ow /I ".\scitech\include" /I ".\dxsdk\sdk\inc" /D "WIN32" /D "NDEBUG" /D "_WINDOWS" /FR".\Release/" /Fp".\Release/WinQuake.pch" /YX /Fo".\Release/" /Fd".\Release/" /FD /c 
+"D:\Work\quake source\WinQuake\cd_win.c"
+"D:\Work\quake source\WinQuake\chase.c"
+"D:\Work\quake source\WinQuake\cl_demo.c"
+"D:\Work\quake source\WinQuake\cl_input.c"
+"D:\Work\quake source\WinQuake\cl_main.c"
+"D:\Work\quake source\WinQuake\cl_parse.c"
+"D:\Work\quake source\WinQuake\cl_tent.c"
+"D:\Work\quake source\WinQuake\cmd.c"
+"D:\Work\quake source\WinQuake\common.c"
+"D:\Work\quake source\WinQuake\conproc.c"
+"D:\Work\quake source\WinQuake\console.c"
+"D:\Work\quake source\WinQuake\crc.c"
+"D:\Work\quake source\WinQuake\cvar.c"
+"D:\Work\quake source\WinQuake\d_edge.c"
+"D:\Work\quake source\WinQuake\d_fill.c"
+"D:\Work\quake source\WinQuake\d_init.c"
+"D:\Work\quake source\WinQuake\d_modech.c"
+"D:\Work\quake source\WinQuake\d_part.c"
+"D:\Work\quake source\WinQuake\d_polyse.c"
+"D:\Work\quake source\WinQuake\d_scan.c"
+"D:\Work\quake source\WinQuake\d_sky.c"
+"D:\Work\quake source\WinQuake\d_sprite.c"
+"D:\Work\quake source\WinQuake\d_surf.c"
+"D:\Work\quake source\WinQuake\d_vars.c"
+"D:\Work\quake source\WinQuake\d_zpoint.c"
+"D:\Work\quake source\WinQuake\draw.c"
+"D:\Work\quake source\WinQuake\host.c"
+"D:\Work\quake source\WinQuake\host_cmd.c"
+"D:\Work\quake source\WinQuake\in_win.c"
+"D:\Work\quake source\WinQuake\keys.c"
+"D:\Work\quake source\WinQuake\mathlib.c"
+"D:\Work\quake source\WinQuake\menu.c"
+"D:\Work\quake source\WinQuake\model.c"
+"D:\Work\quake source\WinQuake\net_dgrm.c"
+"D:\Work\quake source\WinQuake\net_loop.c"
+"D:\Work\quake source\WinQuake\net_main.c"
+"D:\Work\quake source\WinQuake\net_vcr.c"
+"D:\Work\quake source\WinQuake\net_win.c"
+"D:\Work\quake source\WinQuake\net_wins.c"
+"D:\Work\quake source\WinQuake\net_wipx.c"
+"D:\Work\quake source\WinQuake\pr_cmds.c"
+"D:\Work\quake source\WinQuake\pr_edict.c"
+"D:\Work\quake source\WinQuake\pr_exec.c"
+"D:\Work\quake source\WinQuake\r_aclip.c"
+"D:\Work\quake source\WinQuake\r_alias.c"
+"D:\Work\quake source\WinQuake\r_bsp.c"
+"D:\Work\quake source\WinQuake\r_draw.c"
+"D:\Work\quake source\WinQuake\r_edge.c"
+"D:\Work\quake source\WinQuake\r_efrag.c"
+"D:\Work\quake source\WinQuake\r_light.c"
+"D:\Work\quake source\WinQuake\r_main.c"
+"D:\Work\quake source\WinQuake\r_misc.c"
+"D:\Work\quake source\WinQuake\r_part.c"
+"D:\Work\quake source\WinQuake\r_sky.c"
+"D:\Work\quake source\WinQuake\r_sprite.c"
+"D:\Work\quake source\WinQuake\r_surf.c"
+"D:\Work\quake source\WinQuake\r_vars.c"
+"D:\Work\quake source\WinQuake\sbar.c"
+"D:\Work\quake source\WinQuake\screen.c"
+"D:\Work\quake source\WinQuake\snd_dma.c"
+"D:\Work\quake source\WinQuake\snd_mem.c"
+"D:\Work\quake source\WinQuake\snd_mix.c"
+"D:\Work\quake source\WinQuake\snd_win.c"
+"D:\Work\quake source\WinQuake\sv_main.c"
+"D:\Work\quake source\WinQuake\sv_move.c"
+"D:\Work\quake source\WinQuake\sv_phys.c"
+"D:\Work\quake source\WinQuake\sv_user.c"
+"D:\Work\quake source\WinQuake\sys_win.c"
+"D:\Work\quake source\WinQuake\vid_win.c"
+"D:\Work\quake source\WinQuake\view.c"
+"D:\Work\quake source\WinQuake\wad.c"
+"D:\Work\quake source\WinQuake\world.c"
+"D:\Work\quake source\WinQuake\zone.c"
+]
+Creating command line "cl.exe @C:\TEMP\RSP75C.tmp" 
+Creating temporary file "C:\TEMP\RSP75D.tmp" with contents
+[
+.\dxsdk\sdk\lib\dxguid.lib .\scitech\lib\win32\vc\mgllt.lib winmm.lib wsock32.lib opengl32.lib glu32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:windows /profile /machine:I386 /out:".\Release/WinQuake.exe" 
+".\Release\cd_win.obj"
+".\Release\chase.obj"
+".\Release\cl_demo.obj"
+".\Release\cl_input.obj"
+".\Release\cl_main.obj"
+".\Release\cl_parse.obj"
+".\Release\cl_tent.obj"
+".\Release\cmd.obj"
+".\Release\common.obj"
+".\Release\conproc.obj"
+".\Release\console.obj"
+".\Release\crc.obj"
+".\Release\cvar.obj"
+".\Release\d_edge.obj"
+".\Release\d_fill.obj"
+".\Release\d_init.obj"
+".\Release\d_modech.obj"
+".\Release\d_part.obj"
+".\Release\d_polyse.obj"
+".\Release\d_scan.obj"
+".\Release\d_sky.obj"
+".\Release\d_sprite.obj"
+".\Release\d_surf.obj"
+".\Release\d_vars.obj"
+".\Release\d_zpoint.obj"
+".\Release\draw.obj"
+".\Release\host.obj"
+".\Release\host_cmd.obj"
+".\Release\in_win.obj"
+".\Release\keys.obj"
+".\Release\mathlib.obj"
+".\Release\menu.obj"
+".\Release\model.obj"
+".\Release\net_dgrm.obj"
+".\Release\net_loop.obj"
+".\Release\net_main.obj"
+".\Release\net_vcr.obj"
+".\Release\net_win.obj"
+".\Release\net_wins.obj"
+".\Release\net_wipx.obj"
+".\Release\pr_cmds.obj"
+".\Release\pr_edict.obj"
+".\Release\pr_exec.obj"
+".\Release\r_aclip.obj"
+".\Release\r_alias.obj"
+".\Release\r_bsp.obj"
+".\Release\r_draw.obj"
+".\Release\r_edge.obj"
+".\Release\r_efrag.obj"
+".\Release\r_light.obj"
+".\Release\r_main.obj"
+".\Release\r_misc.obj"
+".\Release\r_part.obj"
+".\Release\r_sky.obj"
+".\Release\r_sprite.obj"
+".\Release\r_surf.obj"
+".\Release\r_vars.obj"
+".\Release\sbar.obj"
+".\Release\screen.obj"
+".\Release\snd_dma.obj"
+".\Release\snd_mem.obj"
+".\Release\snd_mix.obj"
+".\Release\snd_win.obj"
+".\Release\sv_main.obj"
+".\Release\sv_move.obj"
+".\Release\sv_phys.obj"
+".\Release\sv_user.obj"
+".\Release\sys_win.obj"
+".\Release\vid_win.obj"
+".\Release\view.obj"
+".\Release\wad.obj"
+".\Release\world.obj"
+".\Release\zone.obj"
+".\Release\winquake.res"
+".\Release\d_draw.obj"
+".\Release\d_draw16.obj"
+".\Release\d_parta.obj"
+".\Release\d_polysa.obj"
+".\Release\d_scana.obj"
+".\Release\d_spr8.obj"
+".\Release\d_varsa.obj"
+".\Release\math.obj"
+".\Release\r_aclipa.obj"
+".\Release\r_aliasa.obj"
+".\Release\r_drawa.obj"
+".\Release\r_edgea.obj"
+".\Release\r_varsa.obj"
+".\Release\snd_mixa.obj"
+".\Release\surf16.obj"
+".\Release\surf8.obj"
+".\Release\sys_wina.obj"
+".\Release\worlda.obj"
+]
+Creating command line "link.exe @C:\TEMP\RSP75D.tmp"
+<h3>Output Window</h3>
+Compiling resources...
+Compiling...
+cd_win.c
+chase.c
+cl_demo.c
+cl_input.c
+cl_main.c
+cl_parse.c
+cl_tent.c
+cmd.c
+common.c
+conproc.c
+console.c
+crc.c
+cvar.c
+d_edge.c
+d_fill.c
+d_init.c
+d_modech.c
+d_part.c
+d_polyse.c
+d_scan.c
+d_sky.c
+d_sprite.c
+d_surf.c
+d_vars.c
+d_zpoint.c
+draw.c
+host.c
+host_cmd.c
+in_win.c
+keys.c
+D:\Work\quake source\WinQuake\in_win.c(883) : warning C4715: 'RawValuePointer' : not all control paths return a value
+mathlib.c
+menu.c
+model.c
+net_dgrm.c
+net_loop.c
+net_main.c
+net_vcr.c
+net_win.c
+net_wins.c
+net_wipx.c
+pr_cmds.c
+pr_edict.c
+pr_exec.c
+r_aclip.c
+r_alias.c
+r_bsp.c
+r_draw.c
+r_edge.c
+r_efrag.c
+r_light.c
+r_main.c
+r_misc.c
+r_part.c
+r_sky.c
+r_sprite.c
+r_surf.c
+r_vars.c
+sbar.c
+screen.c
+snd_dma.c
+snd_mem.c
+snd_mix.c
+snd_win.c
+sv_main.c
+sv_move.c
+sv_phys.c
+sv_user.c
+sys_win.c
+vid_win.c
+view.c
+D:\Work\quake source\WinQuake\vid_win.c(348) : warning C4715: 'VID_Suspend' : not all control paths return a value
+wad.c
+world.c
+zone.c
+Linking...
+
+
+
+<h3>Results</h3>
+WinQuake.exe - 0 error(s), 2 warning(s)
+</pre>
+</body>
+</html>

@@ -1,0 +1,109 @@
+OBJS= \
+	cl_demo.o \
+	cl_ents.o \
+	cl_input.o \
+	cl_main.o \
+	cl_parse.o \
+	cl_pred.o \
+	cl_tent.o \
+	cl_cam.o \
+	cmd.o \
+	common.o \
+	console.o \
+	crc.o \
+	cvar.o \
+	d_edge.o \
+	d_fill.o \
+	d_init.o \
+	d_modech.o \
+	d_part.o \
+	d_polyse.o \
+	d_scan.o \
+	d_sky.o \
+	d_sprite.o \
+	d_surf.o \
+	d_vars.o \
+	d_zpoint.o \
+	draw.o \
+	keys.o \
+	mathlib.o \
+	md4.o \
+	menu.o \
+	model.o \
+	net_chan.o \
+	net_udp.o \
+	nonintel.o \
+	pmove.o \
+	pmovetst.o \
+	r_aclip.o \
+	r_alias.o \
+	r_bsp.o \
+	r_draw.o \
+	r_edge.o \
+	r_efrag.o \
+	r_light.o \
+	r_main.o \
+	r_misc.o \
+	r_part.o \
+	r_sky.o \
+	r_sprite.o \
+	r_surf.o \
+	r_vars.o \
+	sbar.o \
+	screen.o \
+	skin.o \
+	snd_dma.o \
+	snd_mem.o \
+	snd_mix.o \
+	view.o \
+	wad.o \
+	zone.o \
+	cd_linux.o \
+	sys_linux.o \
+	vid_svgalib.o \
+	snd_linux.o
+
+ASMOBJS= \
+	d_copy.o \
+	d_draw.o \
+	d_draw16.o \
+	d_parta.o \
+	d_polysa.o \
+	d_scana.o \
+	d_spr8.o \
+	d_varsa.o \
+	math.o \
+	r_aclipa.o \
+	r_aliasa.o \
+	r_drawa.o \
+	r_edgea.o \
+	r_varsa.o \
+	snd_mixa.o \
+	surf16.o \
+	surf8.o \
+	sys_dosa.o
+
+#CFLAGS=-O3 -Wall -fomit-frame-pointer -fno-strength-reduce -funroll-loops
+#CFLAGS=-mpentium -O3 -Wall -fomit-frame-pointer -fno-strength-reduce
+CFLAGS=-V2.7.2.1 -bi486-linux/ -O6 -Wall -fomit-frame-pointer -fno-strength-reduce
+#CFLAGS=-V2.7.2.1 -bi486-linux/ -O2 -g -Wall
+
+LDFLAGS = 
+
+LIBS = -lm -lvga
+TARGET = qwcl
+
+%.o : %.s
+	$(CC) $(CFLAGS) -DELF -x assembler-with-cpp -c $<
+
+#$(TARGET) : $(OBJS)
+#	$(CC) $(LDFLAGS) -o $(TARGET) $(OBJS) $(LIBS)
+
+$(TARGET) : $(ASMOBJS) $(OBJS) 
+	$(CC) $(LDFLAGS) -o $(TARGET) $(ASMOBJS) $(OBJS) $(LIBS)
+
+clean:
+	-rm $(OBJS)
+	
+clobber: clean
+	-rm $(TARGET)

@@ -1,0 +1,279 @@
+GLQuake Drivers for Voodoo Graphics Based 3D Accelerators
+Preliminary Release 2
+
+Copyright ( 1997 3Dfx Interactive, Inc. )
+All Rights Reserved
+
+3Dfx Interactive, Inc.
+www: www.3dfx.com
+news: news.3dfx.com  
+
+-----------------------------------------------------------------------
+NOTE: GLQuake requires DirectX 2.0 or DirectX 3.0
+(Needed for DirectSound support)
+
+DirectX 2.0 or DirectX 3.0 can be installed from the media provided
+with your Voodoo Based 3D Accelerator.
+-----------------------------------------------------------------------
+
+
+
+Release Notes for GLQuake Preliminary Release 2 (Quake Version 1.07)
+
+-----------------------------------------------------------------------
+What's in the distribution?
+-----------------------------------------------------------------------
+This distribution contains GLQuake Drivers for Voodoo Graphics Based 3D
+Accelerators.  These drivers were tested on the following boards: 
+
+- Diamond Monster 3D
+- Orchid Righteous 3D
+- 3Dfx Interactive reference boards
+
+NOTE:  The enclosed drivers are not meant to replace any Direct3D or 
+Glide drivers provided by your Voodoo Graphics card manufacturer. 
+Please obtain supported drivers from:
+
+- Diamond supported drivers can be obtained from www.diamondmm.com
+- Orchid supported drivers can be obtained from www.orchid.com
+
+
+Included Files
+--------------
+
+OPENGL32.DLL - QuakeGL Interface to Voodoo Graphics
+FXMEMMAP.VXD - Voodoo Graphics VXD
+GLQUAKE.EXE  - ID Software provided GLQUAKE.EXE
+README.TXT   - ID Software provided README.TXT
+READ3DFX.TXT - This File
+
+All enclosed files MUST reside in your Quake directory and not in the
+Windows\SYSTEM directory.  
+
+OEMSR2 users: Do NOT replace OPENGL32.DLL located in your
+Windows\SYSTEM directory.
+
+
+
+-----------------------------------------------------------------------
+Installation 
+-----------------------------------------------------------------------
+
+Requirements
+------------
+
+- Voodoo Graphics Based 3D Accelerator
+- Windows 95
+- A PC with a Pentium 90 or higher CPU
+- 16MB of RAM
+- 2D Video card set at 16 bit or higher color
+
+Installation
+------------
+
+Adding GLQuake Driver Support
+-----------------------------
+1) Install the FULL Version (Not the Shareware version!) of Quake.
+
+2) Copy the GLQUAKE.EXE and other associated files from the GLQuake
+   ZIP file to your Quake Directory.  (Use Windows Explorer)
+
+3) Copy the enclosed OPENGL32.DLL file to your Quake Directory.
+   (Use Windows Explorer)   NOTE: DO NOT COPY OPENGL32.DLL to your
+   Windows\SYSTEM directory
+
+4) Create a Desktop Shortcut for GLQuake:  Using the right mouse button
+   drag the GLQUAKE.EXE file from Windows Explorer to the Desktop.
+         When prompted choose "Create Shortcut"
+
+5) Create an autoexec.cfg file in the ID1\ directory of your quake
+   installation if you do not already have one.  Add the line
+
+   gl_playermip "2"
+
+   to the file.
+
+6) Start GLQuake by running the shortcut. 
+
+
+Troubleshooting and Frequently Asked Questions
+----------------------------------------------
+
+1. Will GLQuake work with shareware Quake?
+
+No, the full registered version of Quake is required.  
+
+
+
+2. Do I need any other drivers to run GLQuake on Voodoo Graphics?
+
+Just make sure that the FXMEMMAP.VXD file is in your Windows\SYSTEM 
+directory and that DirectX 2.0, DirectX 3.0 or DirectX 3.0a are
+installed as GLQuake uses DirectSound. The latest version of DirectX
+can be obtained from:
+	http://www.microsoft.com/mediadev/download/isdk.htm
+
+
+
+3. I installed GLQuake and try to run the GLQUAKE.EXE file but I get a 
+"no RGB fullscreen modes available"  How do I get GLQuake to run?
+
+Make sure that your 2D video card is set to 16bit color (65K colors,
+not 16 colors). In addition, do not start GLQuake from a full screen
+MS-DOS prompt.
+
+
+
+4. GLQuake comes up for a little while then drops me back to the
+Windows 95 desktop, what's wrong?
+
+Your Virtual Memory settings on your system should be increased.  Open
+Control Panel, System - click on the Performance tab and then click on
+Virtual Memory.  Adjust the settings so that the minimum swap file size
+is 80MB.   You may also want to delete all the mesh files - do this by
+deleting the quake\ID1\glquake directory.
+
+
+
+5. Why does GLQuake try to connect to my Internet connection whenever
+it starts?
+
+GLQuake uses Windows networking. Auto-Dial is likely enabled in your
+Internet Control Panel or in Internet Explorer Options.  Single
+Player users: To disable Network use in GLQuake and prevent the
+network connection screen from coming up, add "-nolan" to the
+GLQUAKE.EXE command line, example:
+	GLQUAKE.EXE -nolan
+
+
+
+
+6. I have a three button mouse, but I can't use or set the middle 
+button in GLQuake, what's wrong?
+
+To use a three button mouse with GLQuake, your Windows mouse driver
+must support three buttons.  Use the Logitech PS/2, Serial or Bus
+driver instead of the Microsoft or Standard PS/2, Serial or Bus driver.
+Also, make certain that your Mouse control panel sets the middle button
+to "middle" and not "double click".
+
+
+
+7. Mouse input seems jumpy, how do I fix that?
+
+From the console (hit the ~ tilde key), enter m_filter 1 <enter>
+This option can be added to the AUTOEXEC.CFG file (in the \ID1
+directory).  You may also add this option to the GLQUAKE.EXE command
+line, example:
+	GLQUAKE.EXE +m_filter 1
+
+
+
+8. While playing GLQuake the sound stutters, how do I fix it?
+
+If your sound card does not support DirectSound, you may encounter
+stuttering sound during game play.  Try adding the following value to
+the CONFIG.CFG file (in the quake\ID1 directory):
+		 _snd_mixahead ".14"
+
+
+
+9. When I hit ALT-TAB or the Windows start button to switch to another
+application why do I return to a 640x480 display?
+
+GLQuake by default needs to keep the 2D display at 640x480 while it is
+running. To return the display to your normal setting you must exit
+GLQuake.  To prevent this, add the following to the GLQUAKE.EXE command
+line options "+_windowed_mouse 1" and "-window"   example:
+	GLQUAKE.EXE +_windowed_mouse 1 -window
+
+
+
+10. GLQuake multiplayer can't find other games or won't connect.
+
+GLQuake uses Windows 95 Networking.  Verify that the correct networking
+components are installed and that you can connect to the other machine
+using File and print sharing or TCP/IP ping.  If you are using IPX also
+make certain that the frame type is the same on all the systems.
+
+
+
+11. GLQuake multiplayer slows down alot, how do I fix it?
+
+Add gl_playermip 2 to the AUTOEXEC.CFG file (in the \ID1 directory)
+You may however add "+gl_playermip 2" to the GLQUAKE.EXE command line,
+example:
+	GLQUAKE.EXE +gl_playermip 2
+
+
+
+12. Does the Activision(r) Scourge of Armagon add-on (Mission Pack 1)
+work with GLQuake?
+
+Yes, start GLQUAKE.EXE with a "-hipnotic" switch.   Example:
+	GLQUAKE.EXE -hipnotic
+
+
+
+13. Do other 3rd party quake levels work with GLQuake?
+
+Not all 3rd party levels have been tested, some may not work properly
+or optimally.
+
+
+
+14. Will GLQuake use a Voodoo Graphics accelerator under Windows NT?
+
+The 3Dfx GLQuake drivers currently only work under Windows 95.  
+
+
+
+15. After installing GLQuake the OpenGL screen savers in Windows 95
+(OEMSR2) don't work. What's wrong?
+
+The OpenGL Windows 95 screen savers in OEMSR2 will fail if you copied
+the OPENGL32.DLL file that comes with GLQuake to your Windows\SYSTEM
+directory.  The 3Dfx OPENGL32.DLL file only works with Quake. It will
+not run with other OpenGL applications.  If you copied the 3Dfx 
+OPENGL32.DLL to your Windows\SYSTEM directory and need to restore the
+Microsoft provided OPENGL32.DLL, follow these steps:
+
+	OEMSR2 Users
+	------------
+	1) Insert your Windows 95 CD into your CD-ROM drive
+	2) Open a MS-DOS prompt, (Click Start, Programs, MS-DOS Prompt)
+	3) Switch to the Windows\SYSTEM directory, ie:
+		C: <enter>
+		CD\Windows\system <enter>
+	4) At the command prompt, enter:
+		EXTRACT /A E:\WIN95 opengl32.dll <enter>
+		(Substitute E:\ for your CD-ROM drive letter)
+	
+	Standard Windows 95 Users
+	-------------------------
+	1) Download and reinstall OpenGL for Windows 95 from the source
+	you previously used.
+		
+
+
+16. How do I get support for GLQuake
+
+GLQuake is currently unsupported.  You may however find answers to 
+questions on various Quake dedicated websites.  3Dfx provides a GLQuake
+newsgroup on news.3dfx.com (Newsgroup name is 3dfx.games.glquake ) to
+discuss GLQuake with other users.  3Dfx also provides a regularly
+updated GLQuake FAQ at: http://www.3dfx.com/game_dev/quake_faq.html
+
+
+
+16. How do I send a bug report?
+
+If your problem is not resolved in this document or our updated FAQ
+(please see #15) and your bug is related to visual quality, performance
+or stability send an email to quake_bugs@3dfx.com   - Describe your
+system configuration  (CPU Type, CPU Speed, 2D Video Card type, Amount
+of Memory, Virtual Memory Size..etc.) and how to recreate the bug.  
+
+
+Voodoo Graphics is a trademark of 3Dfx Interactive, Inc.  All other
+trademarks are the property of their respective owners.

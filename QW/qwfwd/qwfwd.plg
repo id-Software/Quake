@@ -1,0 +1,32 @@
+<html>
+<body>
+<pre>
+<h1>Build Log</h1>
+<h3>
+--------------------Configuration: QWFwd - Win32 Release--------------------
+</h3>
+<h3>Command Lines</h3>
+Creating temporary file "C:\TEMP\RSP775.tmp" with contents
+[
+/nologo /ML /W3 /GX /O2 /D "WIN32" /D "NDEBUG" /D "_CONSOLE" /D "_MBCS" /Fp"Release/qwfwd.pch" /YX /Fo"Release/" /Fd"Release/" /FD /c 
+"D:\Work\quake source\QW\qwfwd\qwfwd.c"
+]
+Creating command line "cl.exe @C:\TEMP\RSP775.tmp" 
+Creating temporary file "C:\TEMP\RSP776.tmp" with contents
+[
+wsock32.lib kernel32.lib user32.lib gdi32.lib winspool.lib comdlg32.lib advapi32.lib shell32.lib ole32.lib oleaut32.lib uuid.lib odbc32.lib odbccp32.lib /nologo /subsystem:console /incremental:no /pdb:"Release/qwfwd.pdb" /machine:I386 /out:"Release/qwfwd.exe" 
+".\Release\qwfwd.obj"
+]
+Creating command line "link.exe @C:\TEMP\RSP776.tmp"
+<h3>Output Window</h3>
+Compiling...
+qwfwd.c
+Linking...
+
+
+
+<h3>Results</h3>
+qwfwd.exe - 0 error(s), 0 warning(s)
+</pre>
+</body>
+</html>

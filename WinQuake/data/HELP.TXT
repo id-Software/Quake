@@ -1,0 +1,119 @@
+TECH SUPPORT
+Any of the information listed below could change. Check the id software
+Web Site, at www.idsoftware.com, for updates.
+
+A. Tech Support Options
+id Software does charge for technical support, but we strive to offer
+this service at the lowest cost possible. Because volume on the support
+lines dictate costs, we periodically adjust our rates for Voice Tech
+Support. Check our web site for current pricing.
+
+Paying for Voice or Automated Support
+1 -- You can get Voice Support using a major credit card for a one-time
+shot.  The system asks for your credit card number and expiration date,
+then pre-authorizes your credit card for the tech support call. You will
+only be billed for the number of minutes actually used.
+
+2 -- You can assign yourself a rechargeable PIN account. The system prompts
+you for your credit card information, and assigns you a PIN account number.
+You can use the PIN to access Voice Support, Automated Support and the
+Game Hints Line. Once your account runs out, you can charge it up again.
+
+3 -- You may also charge up a PIN account using the number 1 (900) call-2-id.
+Then call back at 1(800)ID-GAMES (1(800)434-3627), and use your new PIN to
+receive all the support and hints you wish.
+
+4 -- id Software's Game Hints Line is accessible either using a PIN account
+via 1 (800) ID-GAMES (see above), or by calling 1 (900) CALL2-ID, which
+places the call on your phone bill.
+
+	1. Voice Support
+		Telephone -- 1 (800) id-games
+
+		Lines Open from 12 noon to 10pm Central Time, 7 Days a
+                week ($1.75 per minute). Closed some holidays
+
+                Please have the following information handy.
+			1.  Game title and version number. (The version
+                            number can be found on the end text screen.)
+			2.  Your operating system, processor, processor
+                            speed and amount of RAM.
+			3.  If you are having a sound, video or modem
+                            problem, we need to know the device brand name
+                            and model.
+
+	2. Automated Support
+		Telephone -- 1 (800) id-games 
+
+                Lines Open 24 hours a day, 365 days a year, or 366 days
+                in Leap years ($0.25 per minute)
+
+                Please have pencil and paper handy.
+
+	3. E-mail Support
+		Just send your e-mail to support@idsoftware.com
+
+                We will do our best to respond within 48 hours after
+                receiving your e-mail.
+
+                When sending e-mail, cut and paste the following into your
+                e-mail message and fill in the blanks:
+
+Date:  
+Name:  
+Phone number:  
+E-mail address:  (please include this, we redirect tons of mail)
+Game Title:  
+Version #:  
+Operating system (eg., DOS 6.0 or Windows 95):
+Computer type:  
+Processor type:  
+Processor speed:  
+Video card brand and model:  (only if video problem)
+Audio card brand and model:  (only if audio problem)
+Modem brand and model:  (only if modem problem)
+Network card brand and model:  (only if netgame problem)
+Network configuration (eg., NET.CFG file):  (only if netgame problem)
+Drivers, protocol stacks, and versions:  (eg., lsl v2.14, exp16odi
+v2.33, and ipxodi v3.01)  (only if netgame problem)
+If there were any error messages or fault information, report them
+here:
+Please state the problem you encountered:
+Please state how to reproduce the problem:
+
+	4. Web Support
+		Found at www.idsoftware.com
+
+		Our web support pages provide the same information that's
+                available via Automated Support, except it's free!
+
+	5. News Sites
+		For information, FAQ, or announcements:
+			rec.games.computer.quake.announce 
+		For editing and hecking Quake-related files:
+			rec.games.computer.quake.editing
+		For general Quake discussion:
+			 rec.games.computer.quake.misc
+
+	6. Game Hints Line
+		Telephone -- 1 (800) id-games or 1 (900) call-2-id
+
+                Lines Open 24 hours a day, 365 days a year, or 366 days
+                in Leap years ($0.85 per minute)
+                You must be 18 years of age or have parental permission
+                to call 1 (900) call-2-id.
+
+B. In Europe
+        The help lines in Europe are open 7:30am - 5:00pm GMT,
+        Monday - Friday.
+
+English:	+44 01923 209145
+German:		+44 (0)1923 209151
+French:		+44 (0)1923 209148
+
+C. Problems
+	If you have an unfavorable experience using our services, please
+        send e-mail to 911@idsoftware.com.  We would also like to hear
+        from you if you have something positive to share with us.  Kindly
+        include your full name, address, phone number, and the problem
+        encountered or information you'd like to tell us about.
