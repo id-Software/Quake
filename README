@@ -1,7 +1,10 @@
 A brief readme added by Wyatt Ward.
 
-I added this readme and some updated Makefiles, as well as tweaking a few of
+Best viewed in a monospace font, like Courier, Courier New, or what I use
+for my terminal and nano, 9-point WenQuanYi Micro Hei Mono. I don't know
+why it's called that but the font looks really good.
 
+I added this readme and some updated Makefiles, as well as tweaking a few of
 Quake's source files, to make it work properly on a modern Linux system.
 
 
@@ -12,41 +15,59 @@ https://github.com/id-Software/Quake
 A good how-to for arguments and troubleshooting and such is here:
 http://www.linuxdoc.org/HOWTO/Quake-HOWTO-1.html
 
+=================================================
+:    WHAT THIS IS / GENERAL BACKGROUND INFO	:
+=================================================
+
+
 The how-to did not mention a few problems, which I created fixes for. These
-
 include the mouse not working to allow input and no input whatsoever (not even
-
 the keyboard) working in fullscreen. I also fixed a buffer overflow caused by
-
 the sheer number of OpenGL extensions that modern systems support (the game
-
 tries to print them to the console, and in doing so causes a buffer overflow
-
 because the string containing all of the extensions is larger than the game
-
 expected). The only noticeable difference my tweaks have caused (besides the
-
 fact that you now can play the game) is that this string of OpenGL extensions
-
 is no longer printed to the terminal (which I doubt most people care about,
-
 anyway). I promise I made no tweaks to functionality or controls that would
-
 make it differ from the original.
+
+=================================================
+:	COMPILING QUAKE FOR LINUX		:
+=================================================
 
 
 With that out of the way here is how to compile it:
-
 For the OpenGL GLX version (the high-quality version most sane people want),
-
 go to the directory 'WinQuake' and type
 
     $ make build_release
 
+The makefile named 'Makefile.linuxi386' is the original one from id, which
+does not work anymore. The GLX and X11 makefiles are derived from this one,
+but do successfully build. Use them instead! 
+
+The file 'Makefile.Linuxi386.glx' should be the same as the normal 'Makefile'.
+
+	++++++++++++
+	| X11 Port |
+	++++++++++++
+
+For the X11 version, the only version I even tried to port and which works
+well, is simpler to build, has fewer dependencies, and has fewer hardcoded
+paths, but is lower quality graphics-wise, do
+
+    $ make -f Makefile.Linuxi386.X11 build_release
+
+=================================================
+:	POTENTIAL BUILD PROBLEMS		: 
+=================================================
+	+++++++++++++
+	| Libraries |
+	+++++++++++++
+
 If you are missing libraries, headers or whatnot, it will let you know about
-
 it quite loudly. You will need a few headers from the linux kernel; if you
-
 use ubuntu or an ubuntu variant, the headers should be under something like
 
 /usr/src/linux-headers-3.5.0-44/arch/x86/include
@@ -55,25 +76,57 @@ and
 
 /usr/src/linux-headers-3.5.0-44-generic/include
 
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+	$	YOU DO NOT HAVE TO COMPILE THE KERNEL.		$
+	$	YOU DO NOT HAVE TO COMPILE THE KERNEL.		$
+	$	YOU DO NOT HAVE TO COMPILE THE KERNEL.		$
+	~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+		...Although if you do, enable OSS while you are at it.
+			This can be worked around if you don't compile.
+		All we need is the source files. We have no reason to
+		compile it unless that's something you would normally do
+		anyway.
+
 These will have to be edited in the makefile if you have a different version
-
 or architecture of the kernel than I did. Search one of the above strings to
-
 find where I included them. Replace them appropriately with your kernel
-
 versions. If you don't have sources, they are obtainable from most package
-
 managers, including apt. A few other paths may have to be changed in the
+Makefile that I hardcoded, but you can figure those out I think.
 
-Makefile that I hardcoded, but you can figure those out I think. Good luck!
+(Look for 'wyatt' in the makefile; those paths are hardcoded, but there
+may be more. I honestly don't remember. I only know that when I got the
+source, id had hardcoded paths in the makefile and i simply changed the
+paths to fit my environment.)
 
+Good luck!
+
+___________________________________________________________________________
+
+
+=================================================
+:	 PROBLEMS AFTER SUCCESSFUL COMPILE	:
+=================================================
 
 After building, it will be in the directory 'releasei386'.
-
 You will need to copy the directory 'id1' from a quake CD-ROM
-
 and place it in the 'bin' directory that your compiled game is in.
 
--Wyatt Ward, 2013-01-05 23:02 EST
+=================================================
+:	SOUND PROBLEMS				:
+=================================================
+
+This game uses OSS; Most modern linux systems (unless you built your own
+kernel) do not supply this. To fix, install 'aoss' (ALSA OSS wrapper) and
+run the game using
+
+    $ aoss ./glquake.glx <parameters>
+
+to make it see a fake OSS. The alternative (which will disable sounds but
+does not require any more package installations) is to pass '-nosound' to
+the game when invoking.
+
+
+-Wyatt Ward, 2013-01-06 16:04 EST
 
 
