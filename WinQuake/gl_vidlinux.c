@@ -308,8 +308,8 @@ void GL_Init (void)
 	gl_version = glGetString (GL_VERSION);
 	Con_Printf ("GL_VERSION: %s\n", gl_version);
 	gl_extensions = glGetString (GL_EXTENSIONS);
-	Con_Printf ("GL_EXTENSIONS: %s\n", gl_extensions);
-
+	//Con_Printf ("GL_EXTENSIONS: %s\n", gl_extensions);
+	Con_Printf ("The printing of the GL_EXTENSIONS string was causing a buffer overflow since the string is so huge. Not going to print, but kind of fixed it.");
 //	Con_Printf ("%s %s\n", gl_renderer, gl_version);
 
 	CheckMultiTextureExtensions ();

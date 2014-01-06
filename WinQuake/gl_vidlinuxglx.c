@@ -579,7 +579,8 @@ void GL_Init (void)
 	gl_version = glGetString (GL_VERSION);
 	Con_Printf ("GL_VERSION: %s\n", gl_version);
 	gl_extensions = glGetString (GL_EXTENSIONS);
-	Con_Printf ("GL_EXTENSIONS: %s\n", gl_extensions);
+	Con_Printf ("Printing GL_EXTENSIONS string was causing buffer overflow. Kind of fixed by not printing it at all.");
+	//Con_Printf ("GL_EXTENSIONS: %s\n", gl_extensions);
 
 //	Con_Printf ("%s %s\n", gl_renderer, gl_version);
 
@@ -870,7 +871,7 @@ void VID_Init(unsigned char *palette)
 		// Move the viewport to top left
 		XF86VidModeSetViewPort(dpy, scrnum, 0, 0);
 	}
-
+	mouse_avail = true;
 	XFlush(dpy);
 
 	ctx = glXCreateContext(dpy, visinfo, NULL, True);

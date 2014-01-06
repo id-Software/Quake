@@ -86,7 +86,7 @@ void Sys_Printf (char *fmt, ...)
 void Sys_Printf (char *fmt, ...)
 {
 	va_list		argptr;
-	char		text[1024];
+	char		text[16384];
 	unsigned char		*p;
 
 	va_start (argptr,fmt);
