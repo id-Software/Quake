@@ -6,7 +6,9 @@ why it's called that but the font looks really good.
 
 I added this readme and some updated Makefiles, as well as tweaking a few of
 Quake's source files, to make it work properly on a modern Linux system.
-
+I did _not_ change any parts of the game to make it look all pretty, or
+to bring new improvements in graphics to the game. I only changed what was
+_absolutely essential_ to run the game.
 
 The original, unmodified source can be found here:
 https://github.com/id-Software/Quake
@@ -35,7 +37,17 @@ make it differ from the original.
 =================================================
 :	COMPILING QUAKE FOR LINUX		:
 =================================================
+	++++++++++++++
+	| DISCLAIMER |
+	++++++++++++++
 
+	I have only built this on 32-bit Linux Mint 14.
+	It should work on 64 bit, but will have to be
+	Compiled with 32-bit libraries and binaries. I
+	think this is merely due to some assembly used,
+	and some changes to update the assembly to the
+	x86_64 architecture could make this work in 64
+	bit OSes natively.
 
 With that out of the way here is how to compile it:
 For the OpenGL GLX version (the high-quality version most sane people want),
@@ -105,20 +117,26 @@ ___________________________________________________________________________
 
 
 =================================================
-:	 PROBLEMS AFTER SUCCESSFUL COMPILE	:
+:	 PROBLEMS RUNNING THE GAME		:
 =================================================
 
 After building, it will be in the directory 'releasei386'.
 You will need to copy the directory 'id1' from a quake CD-ROM
 and place it in the 'bin' directory that your compiled game is in.
 
+I have yet to have this problem in Linux, but in windows, I have had
+blank (white) textures and a flickering display. To fix these, you can
+add the parameters '-no8bit' '+gl_ztrick 0' to the launching parameters.
+Note that 'gl_ztrick' _should_ have a "+" sign preceeding it instead of
+a "-".
+
 =================================================
 :	SOUND PROBLEMS				:
 =================================================
 
-This game uses OSS; Most modern linux systems (unless you built your own
-kernel) do not supply this. To fix, install 'aoss' (ALSA OSS wrapper) and
-run the game using
+This game uses OSS on Linux; Most modern computers running linux (e.g.
+Ubuntu, unless you built your own kernel) do not supply this. To fix,
+install 'aoss' (ALSA OSS wrapper) and run the game using
 
     $ aoss ./glquake.glx <parameters>
 
@@ -126,7 +144,12 @@ to make it see a fake OSS. The alternative (which will disable sounds but
 does not require any more package installations) is to pass '-nosound' to
 the game when invoking.
 
+I have not had luck getting sound in Linux Quake. I may need to have the
+CD-ROM in the drive, but I lost mine years ago and only have the
+installed version of the game on a old PC's hard disk. I cannot test why
+sound isn't working, but I can tell you Quake complains about not seeing
+a CD-ROM. I cannot answer questions about sound support.
 
--Wyatt Ward, 2013-01-06 16:04 EST
-
+-Wyatt Ward, 2014-01-06 16:04 EST
+	Last Edited: 2014-01-14 9:25 EST
 
