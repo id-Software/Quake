@@ -1,7 +1,0 @@
-
-new server auth design;
-- server includes 32bit random token S
-- master sees new server, request auth with MD5(M|S).  m is 32bit master key
-- server sends register MD5( MD5(M|S) | S )
-- master validates registration with server
-- M value changes for each server randomly
