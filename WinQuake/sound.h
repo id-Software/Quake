@@ -115,7 +115,13 @@ channel_t *SND_PickChannel(int entnum, int entchannel);
 void SND_Spatialize(channel_t *ch);
 
 // initializes cycling through a DMA buffer and returns information on it
+#if defined(USE_SDL2)
+/* Probably the easiest way to retrofit quakespasm's SDL2 audio code into
+   Id Quake. */
+qboolean SNDDMA_Init(dma_t *dma);
+#else
 qboolean SNDDMA_Init(void);
+#endif
 
 // gets the current DMA position
 int SNDDMA_GetDMAPos(void);

@@ -6,6 +6,21 @@
 # ELF only
 #
 
+# wyatt: sdl2 audio, mostly borrowed from quakespasm with some tweaks for
+# otherwise-vanilla Quake.
+# _comment out_ USE_SDL2 definitions to disable (falls back to OSS DMA sound).
+# non-1 values might work for SDL 1.x support, but this is currently
+# untested (though likely to work).
+USE_SDL2=1
+
+ifeq ($(USE_SDL2),1)
+SDL_CONFIG ?= sdl2-config
+else
+SDL_CONFIG ?= sdl-config
+endif
+SDL_CFLAGS := $(shell $(SDL_CONFIG) --cflags) -DUSE_SDL2
+SDL_LIBS   := $(shell $(SDL_CONFIG) --libs)
+
 BASEVERSION=1.09
 VERSION=$(BASEVERSION)$(GLIBC)
 
@@ -22,7 +37,8 @@ ARCH=i386
 endif
 NOARCH=noarch
 
-MOUNT_DIR=/home/wyatt/development/q1source/WinQuake
+# Edit this path, or you probably will run into trouble.
+MOUNT_DIR=/home/wyatt/development/Quake-LinuxUpdate/WinQuake
 MASTER_DIR=/grog/Projects/QuakeMaster
 MESA_DIR=/usr/local/src/Mesa-2.6
 
@@ -32,25 +48,33 @@ BUILD_RELEASE_DIR=release$(ARCH)$(GLIBC)
 EGCS=/usr/bin/gcc
 CC=$(EGCS)
 
-BASE_CFLAGS=-Dstricmp=strcasecmp
-RELEASE_CFLAGS=$(BASE_CFLAGS) -g -mtune=corei7 -O3 -march=corei7
+# GCC 10 seems to require -no-pie to function properly. It _definitely_
+# does require -fcommon. -m32 is because I am building on a 64-bit machine
+# and this game still has some i386 (32-bit) assembly that I haven't replaced
+# or otherwise added alternative, portable code for.
+# Hopefully, I'll be able to run this game on PowerPC some day.
+BASE_CFLAGS=-Dstricmp=strcasecmp -m32 -fcommon -no-pie
+# might have to change these, too, if you are on another architecture or
+# cross-compiling (don't use 'native'):
+RELEASE_CFLAGS=$(BASE_CFLAGS) -g -mtune=native -O3 -march=native
+# note that powerpc uses -mcpu instead of -march, if I ever do port it.
 DEBUG_CFLAGS=$(BASE_CFLAGS) -g
-LDFLAGS=-lm
+LDFLAGS=-lm -m32
 SVGALDFLAGS=-lvga
-XLDFLAGS=-L/usr/X11R6/lib -lX11 -lXext -lXxf86dga
+XLDFLAGS=-L/usr/X11R6/lib -lX11 -lXext /usr/lib/i386-linux-gnu/libXxf86dga.so.1.0.0
 XCFLAGS=-DX11
 
-#MESAGLLDFLAGS=-L/usr/X11/lib -L/usr/local/lib -L$(MESA_DIR)/lib -lMesaGL -lglide2x -lX11 -lXext -ldl
-MESAGLLDFLAGS=-L/usr/X11/lib -L/usr/local/lib -L$(MESA_DIR)/lib -lMesaGL -lX11 -lXext -ldl
-GLLDFLAGS=-L/usr/X11/lib -L/usr/local/lib -lGL -lX11 -lXext -ldl -lXxf86dga -lXxf86vm -lm
-GLCFLAGS=-DGLQUAKE -I$(MESA_DIR)/include -I/usr/src/linux-headers-3.5.0-44-generic/include -I/usr/src/linux-headers-3.5.0-44/arch/x86/include -I/usr/include/glide
+MESAGLLDFLAGS=-L/usr/lib/X11 -L/usr/local/lib -L$(MESA_DIR)/lib -lMesaGL -lglide2x -lX11 -lXext -ldl
+TDFXGLLDFLAGS=-L$(TDFXGL_DIR)/release$(ARCH)$(GLIBC) -l3dfxgl -lglide2x -ldl
+GLLDFLAGS=-L/usr/X11/lib -L/usr/local/lib -lGL -lX11 -lXext -ldl /usr/lib/i386-linux-gnu/libXxf86dga.so.1.0.0 /usr/lib/i386-linux-gnu/libXxf86vm.so.1.0.0 -lm
+GLCFLAGS=-DGLQUAKE -I$(MESA_DIR)/include -I/usr/include/glide
 
 DO_CC=$(CC) $(CFLAGS) -o $@ -c $<
 DO_DEBUG_CC=$(CC) $(DEBUG_CFLAGS) -o $@ -c $<
-DO_GL_CC=$(CC) $(CFLAGS) $(GLCFLAGS) -o $@ -c $<
-DO_GL_DEBUG_CC=$(CC) $(DEBUG_CFLAGS) $(GLCFLAGS) -o $@ -c $<
-DO_X11_CC=$(CC) $(CFLAGS) $(XCFLAGS) -o $@ -c $<
-DO_X11_DEBUG_CC=$(CC) $(DEBUG_CFLAGS) $(XCFLAGS) -o $@ -c $<
+DO_GL_CC=$(CC) $(CFLAGS) $(GLCFLAGS) $(SDL_CFLAGS) -o $@ -c $<
+DO_GL_DEBUG_CC=$(CC) $(DEBUG_CFLAGS) $(GLCFLAGS) $(SDL_CFLAGS) -o $@ -c $<
+DO_X11_CC=$(CC) $(CFLAGS) $(XCFLAGS) $(SDL_CFLAGS) -o $@ -c $<
+DO_X11_DEBUG_CC=$(CC) $(DEBUG_CFLAGS) $(XCFLAGS) $(SDL_CFLAGS) -o $@ -c $<
 DO_O_CC=$(CC) -O $(CFLAGS) -o $@ -c $<
 DO_AS=$(CC) $(CFLAGS) -DELF -x assembler-with-cpp -o $@ -c $<
 DO_GL_AS=$(CC) $(CFLAGS) $(GLCFLAGS) -DELF -x assembler-with-cpp -o $@ -c $<
@@ -59,7 +83,11 @@ DO_GL_AS=$(CC) $(CFLAGS) $(GLCFLAGS) -DELF -x assembler-with-cpp -o $@ -c $<
 # SETUP AND BUILD
 #############################################################################
 
-TARGETS=$(BUILDDIR)/bin/glquake.glx
+# GLQuake build:
+# TARGETS=$(BUILDDIR)/bin/glquake.glx
+
+# X11 Quake (software-rendered) build:
+TARGETS=$(BUILDDIR)/bin/quake.x11
 
 build_debug:
 	@-mkdir $(BUILD_DEBUG_DIR) \
@@ -86,6 +114,8 @@ targets: $(TARGETS)
 #############################################################################
 # X11 Quake
 #############################################################################
+# REPLACED snd_linux.o with snd_sdl.o from quakespasm
+#	$(BUILDDIR)/x11/snd_linux.o \
 
 X11_OBJS = \
 	$(BUILDDIR)/x11/cl_demo.o \
@@ -158,7 +188,6 @@ X11_OBJS = \
 	$(BUILDDIR)/x11/snd_dma.o \
 	$(BUILDDIR)/x11/snd_mem.o \
 	$(BUILDDIR)/x11/snd_mix.o \
-	$(BUILDDIR)/x11/snd_linux.o \
 	\
 	$(BUILDDIR)/x11/d_draw.o \
 	$(BUILDDIR)/x11/d_draw16.o \
@@ -179,8 +208,18 @@ X11_OBJS = \
 	$(BUILDDIR)/x11/snd_mixa.o \
 	$(BUILDDIR)/x11/sys_dosa.o
 
+ifeq ($(USE_SDL2),1)
+# sdl sound
+X11_OBJS := $(X11_OBJS) \
+	$(BUILDDIR)/x11/snd_sdl.o
+else
+# OSS sound
+X11_OBJS := $(X11_OBJS) \
+	$(BUILDDIR)/x11/snd_linux.o
+endif
+
 $(BUILDDIR)/bin/quake.x11 : $(X11_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(X11_OBJS) $(XLDFLAGS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(X11_OBJS) $(XLDFLAGS) $(SDL_LIBS) $(LDFLAGS)
 
 ####
 
@@ -397,6 +436,9 @@ $(BUILDDIR)/x11/snd_mix.o :  $(MOUNT_DIR)/snd_mix.c
 $(BUILDDIR)/x11/snd_linux.o :$(MOUNT_DIR)/snd_linux.c
 	$(DO_X11_CC)
 
+$(BUILDDIR)/x11/snd_sdl.o :$(MOUNT_DIR)/snd_sdl.c
+	$(DO_X11_CC)
+
 #####
 
 $(BUILDDIR)/x11/d_copy.o :   $(MOUNT_DIR)/d_copy.s
@@ -514,25 +556,34 @@ GLQUAKE_OBJS= \
 	$(BUILDDIR)/glquake/snd_dma.o \
 	$(BUILDDIR)/glquake/snd_mem.o \
 	$(BUILDDIR)/glquake/snd_mix.o \
-	$(BUILDDIR)/glquake/snd_linux.o \
 	\
 	$(BUILDDIR)/glquake/math.o \
 	$(BUILDDIR)/glquake/worlda.o \
 	$(BUILDDIR)/glquake/snd_mixa.o \
 	$(BUILDDIR)/glquake/sys_dosa.o
 
+ifeq ($(USE_SDL2),1)
+# sdl sound
+GLQUAKE_OBJS := $(GLQUAKE_OBJS) \
+	$(BUILDDIR)/glquake/snd_sdl.o
+else
+# OSS sound
+GLQUAKE_OBJS := $(GLQUAkE_OBJS) \
+	$(BUILDDIR)/glquake/snd_linux.o
+endif
+
 GLSVGA_OBJS=$(BUILDDIR)/glquake/gl_vidlinux.o
 
 GLX_OBJS=$(BUILDDIR)/glquake/gl_vidlinuxglx.o
 
 $(BUILDDIR)/bin/glquake : $(GLQUAKE_OBJS) $(GLSVGA_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(GLQUAKE_OBJS) $(GLSVGA_OBJS) $(MESAGLLDFLAGS) $(SVGALDFLAGS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(GLQUAKE_OBJS) $(GLSVGA_OBJS) $(MESAGLLDFLAGS) $(SVGALDFLAGS) $(SDL_LIBS) $(LDFLAGS)
 
 $(BUILDDIR)/bin/glquake.glx : $(GLQUAKE_OBJS) $(GLX_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(GLQUAKE_OBJS) $(GLX_OBJS) $(GLLDFLAGS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(GLQUAKE_OBJS) $(GLX_OBJS) $(GLLDFLAGS) $(SDL_LIBS) $(LDFLAGS)
 
 $(BUILDDIR)/bin/glquake.3dfxgl : $(GLQUAKE_OBJS) $(GLSVGA_OBJS)
-	$(CC) $(CFLAGS) -o $@ $(GLQUAKE_OBJS) $(GLSVGA_OBJS) $(TDFXGLLDFLAGS) $(SVGALDFLAGS) $(LDFLAGS)
+	$(CC) $(CFLAGS) -o $@ $(GLQUAKE_OBJS) $(GLSVGA_OBJS) $(TDFXGLLDFLAGS) $(SVGALDFLAGS) $(SDL_LIBS) $(LDFLAGS)
 
 $(BUILDDIR)/glquake/cl_demo.o :      $(MOUNT_DIR)/cl_demo.c
 	$(DO_GL_CC)

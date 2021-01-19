@@ -53,6 +53,12 @@ Cvars are restricted from having the same names as commands to keep this
 interface from being ambiguous.
 */
 
+/* for sdl */
+#if defined(USE_SDL2)
+#define CVAR_NONE 0
+#endif
+/* sdl end */
+
 typedef struct cvar_s
 {
 	char	*name;

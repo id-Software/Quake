@@ -74,6 +74,11 @@ cvar_t volume = {"volume", "0.7", true};
 cvar_t nosound = {"nosound", "0"};
 cvar_t precache = {"precache", "1"};
 cvar_t loadas8bit = {"loadas8bit", "0"};
+/* for sdl */
+#if defined(USE_SDL2)
+cvar_t sndspeed = {"sndspeed", "11025", CVAR_NONE};
+cvar_t snd_mixspeed = {"snd_mixspeed", "44100", CVAR_NONE};
+#endif
 cvar_t bgmbuffer = {"bgmbuffer", "4096"};
 cvar_t ambient_level = {"ambient_level", "0.3"};
 cvar_t ambient_fade = {"ambient_fade", "100"};
@@ -143,8 +148,14 @@ void S_Startup (void)
 
 	if (!fakedma)
 	{
+#if defined(USE_SDL2)
+		/* Since I borrowed a lot of the SDL2 code from Quakespasm, I
+		   found this to be the easiest way to retrofit it: */
+		rc = SNDDMA_Init(&sn);
+#else
+		/* in the original code from Id, no argument is used here: */
 		rc = SNDDMA_Init();
-
+#endif
 		if (!rc)
 		{
 #ifndef	_WIN32
