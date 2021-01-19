@@ -38,7 +38,9 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 #define	CYCLE	128
 
 // !!! if this is changed, it must be changed in r_shared.h too !!!
-#define	MAXHEIGHT	1024
+// wyatt
+// define	MAXHEIGHT	1024
+#define	MAXHEIGHT	2048
 
 // !!! if this is changed, it must be changed in quakedef.h too !!!
 #define CACHE_SIZE	32		// used to align key data structures
