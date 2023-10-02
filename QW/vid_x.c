@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #define _BSD
 
+typedef unsigned short PIXEL;
 
 #include <ctype.h>
 #include <sys/time.h>
@@ -48,6 +49,7 @@ float old_windowed_mouse;
 // not used
 int		VGA_width, VGA_height, VGA_rowbytes, VGA_bufferrowbytes, VGA_planar;
 byte	*VGA_pagebase;
+
 
 qboolean        mouse_avail;
 int             mouse_buttons=3;
@@ -110,10 +112,7 @@ void (*vid_menudrawfn)(void);
 void (*vid_menukeyfn)(int key);
 void VID_MenuKey (int key);
 
-typedef unsigned short PIXEL16;
-typedef unsigned long PIXEL24;
-static PIXEL16 st2d_8to16table[256];
-static PIXEL24 st2d_8to24table[256];
+static PIXEL st2d_8to16table[256];
 static int shiftmask_fl=0;
 static long r_shift,g_shift,b_shift;
 static unsigned long r_mask,g_mask,b_mask;
@@ -130,36 +129,9 @@ void shiftmask_init()
     shiftmask_fl=1;
 }
 
-PIXEL16 xlib_rgb16(int r,int g,int b)
+PIXEL xlib_rgb(int r,int g,int b)
 {
-    PIXEL16 p;
-    if(shiftmask_fl==0) shiftmask_init();
-    p=0;
-
-    if(r_shift>0) {
-        p=(r<<(r_shift))&r_mask;
-    } else if(r_shift<0) {
-        p=(r>>(-r_shift))&r_mask;
-    } else p|=(r&r_mask);
-
-    if(g_shift>0) {
-        p|=(g<<(g_shift))&g_mask;
-    } else if(g_shift<0) {
-        p|=(g>>(-g_shift))&g_mask;
-    } else p|=(g&g_mask);
-
-    if(b_shift>0) {
-        p|=(b<<(b_shift))&b_mask;
-    } else if(b_shift<0) {
-        p|=(b>>(-b_shift))&b_mask;
-    } else p|=(b&b_mask);
-
-    return p;
-}
-
-PIXEL24 xlib_rgb24(int r,int g,int b)
-{
-    PIXEL24 p;
+    PIXEL p;
     if(shiftmask_fl==0) shiftmask_init();
     p=0;
 
@@ -188,71 +160,16 @@ void st2_fixup( XImage *framebuf, int x, int y, int width, int height)
 {
 	int xi,yi;
 	unsigned char *src;
-	PIXEL16 *dest;
-	register int count, n;
+	PIXEL *dest;
 
 	if( (x<0)||(y<0) )return;
 
 	for (yi = y; yi < (y+height); yi++) {
 		src = &framebuf->data [yi * framebuf->bytes_per_line];
-
-		// Duff's Device
-		count = width;
-		n = (count + 7) / 8;
-		dest = ((PIXEL16 *)src) + x+width - 1;
-		src += x+width - 1;
-
-		switch (count % 8) {
-		case 0:	do {	*dest-- = st2d_8to16table[*src--];
-		case 7:			*dest-- = st2d_8to16table[*src--];
-		case 6:			*dest-- = st2d_8to16table[*src--];
-		case 5:			*dest-- = st2d_8to16table[*src--];
-		case 4:			*dest-- = st2d_8to16table[*src--];
-		case 3:			*dest-- = st2d_8to16table[*src--];
-		case 2:			*dest-- = st2d_8to16table[*src--];
-		case 1:			*dest-- = st2d_8to16table[*src--];
-				} while (--n > 0);
+		dest = (PIXEL*)src;
+		for(xi = (x+width-1); xi >= x; xi--) {
+			dest[xi] = st2d_8to16table[src[xi]];
 		}
-
-//		for(xi = (x+width-1); xi >= x; xi--) {
-//			dest[xi] = st2d_8to16table[src[xi]];
-//		}
-	}
-}
-
-void st3_fixup( XImage *framebuf, int x, int y, int width, int height)
-{
-	int xi,yi;
-	unsigned char *src;
-	PIXEL24 *dest;
-	register int count, n;
-
-	if( (x<0)||(y<0) )return;
-
-	for (yi = y; yi < (y+height); yi++) {
-		src = &framebuf->data [yi * framebuf->bytes_per_line];
-
-		// Duff's Device
-		count = width;
-		n = (count + 7) / 8;
-		dest = ((PIXEL24 *)src) + x+width - 1;
-		src += x+width - 1;
-
-		switch (count % 8) {
-		case 0:	do {	*dest-- = st2d_8to24table[*src--];
-		case 7:			*dest-- = st2d_8to24table[*src--];
-		case 6:			*dest-- = st2d_8to24table[*src--];
-		case 5:			*dest-- = st2d_8to24table[*src--];
-		case 4:			*dest-- = st2d_8to24table[*src--];
-		case 3:			*dest-- = st2d_8to24table[*src--];
-		case 2:			*dest-- = st2d_8to24table[*src--];
-		case 1:			*dest-- = st2d_8to24table[*src--];
-				} while (--n > 0);
-		}
-
-//		for(xi = (x+width-1); xi >= x; xi--) {
-//			dest[xi] = st2d_8to16table[src[xi]];
-//		}
 	}
 }
 
@@ -450,6 +367,8 @@ void	VID_Init (unsigned char *palette)
    XVisualInfo template;
    int num_visuals;
    int template_mask;
+
+	S_Init();
    
    ignorenext=0;
    vid.width = 320;
@@ -598,17 +517,20 @@ void	VID_Init (unsigned char *palette)
 
 		if (x_visinfo->class != TrueColor)
 			XFreeColormap(x_disp, tmpcmap);
+
 	}
 
 	if (x_visinfo->depth == 8)
 	{
-		// create and upload the palette
+
+	// create and upload the palette
 		if (x_visinfo->class == PseudoColor)
 		{
 			x_cmap = XCreateColormap(x_disp, x_win, x_vis, AllocAll);
 			VID_SetPalette(palette);
 			XSetWindowColormap(x_disp, x_win, x_cmap);
 		}
+
 	}
 
 // inviso cursor
@@ -688,10 +610,9 @@ void VID_SetPalette(unsigned char *palette)
 	int i;
 	XColor colors[256];
 
-	for(i=0;i<256;i++) {
-		st2d_8to16table[i]= xlib_rgb16(palette[i*3], palette[i*3+1],palette[i*3+2]);
-		st2d_8to24table[i]= xlib_rgb24(palette[i*3], palette[i*3+1],palette[i*3+2]);
-	}
+	for(i=0;i<256;i++)
+		st2d_8to16table[i]= xlib_rgb(palette[i*3],
+			palette[i*3+1],palette[i*3+2]);
 
 	if (x_visinfo->class == PseudoColor && x_visinfo->depth == 8)
 	{
@@ -960,7 +881,6 @@ void GetEvent(void)
 
 void	VID_Update (vrect_t *rects)
 {
-	vrect_t full;
 
 // if the window changes dimension, skip this frame
 
@@ -986,25 +906,13 @@ void	VID_Update (vrect_t *rects)
 		return;
 	}
 
-	// force full update if not 8bit
-	if (x_visinfo->depth != 8) {
-		extern int scr_fullupdate;
-
-		scr_fullupdate = 0;
-	}
-
-
 	if (doShm)
 	{
 
 		while (rects)
 		{
-			if (x_visinfo->depth == 16)
+			if (x_visinfo->depth != 8)
 				st2_fixup( x_framebuffer[current_framebuffer], 
-					rects->x, rects->y, rects->width,
-					rects->height);
-			else if (x_visinfo->depth == 24)
-				st3_fixup( x_framebuffer[current_framebuffer], 
 					rects->x, rects->y, rects->width,
 					rects->height);
 			if (!XShmPutImage(x_disp, x_win, x_gc,
@@ -1024,12 +932,8 @@ void	VID_Update (vrect_t *rects)
 	{
 		while (rects)
 		{
-			if (x_visinfo->depth == 16)
+			if (x_visinfo->depth != 8)
 				st2_fixup( x_framebuffer[current_framebuffer], 
-					rects->x, rects->y, rects->width,
-					rects->height);
-			else if (x_visinfo->depth == 24)
-				st3_fixup( x_framebuffer[current_framebuffer], 
 					rects->x, rects->y, rects->width,
 					rects->height);
 			XPutImage(x_disp, x_win, x_gc, x_framebuffer[0], rects->x,
