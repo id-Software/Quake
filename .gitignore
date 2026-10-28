@@ -1,0 +1,47 @@
+# --- Quake game data -------------------------------------------------------
+# The Quake data files are still copyrighted by id Software and must never be
+# committed. Players supply their own copy (Steam, GOG, original CD, etc.).
+id1/
+hipnotic/
+rogue/
+dopa/
+mg1/
+*.pak
+*.PAK
+*.pk3
+
+# Files the engine writes into a game directory at runtime
+*.sav
+*.dem
+config.cfg
+autoexec.cfg
+qconsole.log
+
+# --- Build output ----------------------------------------------------------
+build/
+build-*/
+out/
+*.o
+*.obj
+*.a
+*.so
+*.d
+/foreshock
+
+# Flatpak build output
+.flatpak-builder/
+flatpak-build/
+repo/
+*.flatpak
+
+# --- Tooling and editors ---------------------------------------------------
+compile_commands.json
+.cache/
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+core
+core.*
+vgcore.*
