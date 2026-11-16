@@ -2507,7 +2507,7 @@ static int validate_ui(enum xb_ui kind)
     float width, height, s, probe_limit;
     long region_pixels;
     int px, py, xmax, ymax, found, result, reads;
-    if (kind < XB_UI_HUD || kind > XB_UI_CONSOLE) {
+    if (kind != XB_UI_HUD && kind != XB_UI_MENU && kind != XB_UI_CONSOLE) {
         fail_kind(XB_FAILURE_UNSUPPORTED, "unknown native UI workload");
         return 0;
     }
