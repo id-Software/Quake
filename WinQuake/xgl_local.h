@@ -85,5 +85,7 @@ void R_DrawParticles(void);
 void R_ReadPointFile_f(void);
 void R_StoreEfrags(efrag_t **ppefrag);
 void V_CalcBlend(void);
+int XGL_CheckPackDirectory(const char *path, int count, unsigned short crc);
+void XGL_SharewareDiagnostics(void);
 
 #endif

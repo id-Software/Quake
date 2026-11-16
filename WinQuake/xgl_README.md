@@ -44,6 +44,15 @@ containing `id1/pak0.pak`:
 ./xglquake -winsize 320 240 +timedemo demo1
 ```
 
+Official Quake 1.00, 1.01 and 1.06 shareware PAK directories are recognized.
+For a data directory elsewhere, use `-basedir /path/to/quake`, where that
+directory contains `id1/pak0.pak`. Do not use `-game id1` or `-path` to select
+the standard shareware data: the engine treats those options as modified
+game paths. Startup reports the file count and directory CRC of each PAK
+to help identify incompatible, repacked or extra files. Recognition of these
+older official PAK versions is specific to the XGL target; registration and
+modified-game checks remain enabled.
+
 Use a local display with the Sun ZX's 24-bit TrueColor visual and DGA access.
 The renderer requires hardware RGB, Z buffering, shading and two buffers.
 `-display`, `-visualid`, `-width`, `-height`, `-winsize` and `-nomouse` select
@@ -103,8 +112,8 @@ the CPU material limit reports an error rather than silently dropping assets.
 
 ## Development-host checks
 
-CPU texture/mesh and native UI/entity submission tests need no SDK or game
-data. They run against controlled engine/backend mocks:
+Shareware recognition, CPU texture/mesh and native UI/entity submission tests
+need no SDK or game data. They run against controlled engine/backend mocks:
 
 ```sh
 make -f Makefile.XGL check
@@ -128,7 +137,7 @@ To use real X11 development headers instead, add
 The generated executable is linked only, never executed; native API
 placeholders abort if called. This catches unresolved engine symbols and
 accidental OpenGL dependencies. The check also compares modified existing
-engine files against `HEAD` under software and `GLQUAKE` preprocessing to
+shared engine files against `HEAD` under software and `GLQUAKE` preprocessing to
 verify that their existing paths remain unchanged. Temporary artifacts and
 the compiler log are reported by the script.
 

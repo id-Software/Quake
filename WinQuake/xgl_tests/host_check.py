@@ -28,6 +28,7 @@ def check_existing_paths(directory, compiler, includes, output, log):
                   cwd=directory.parent, log=log).splitlines()
     changed = [path for path in changed
                if pathlib.PurePosixPath(path).parent == pathlib.PurePosixPath("WinQuake")
+               and not pathlib.PurePosixPath(path).name.startswith("xgl_")
                and pathlib.PurePosixPath(path).suffix in (".c", ".h")]
     if not changed:
         print("Existing-source preprocessing: no modified C/header files to compare.")

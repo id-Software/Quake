@@ -1027,6 +1027,10 @@ void COM_CheckRegistered (void)
 	Sys_Error ("This dedicated server requires a full registered copy of Quake");
 #endif
 		Con_Printf ("Playing shareware version.\n");
+#ifdef XGLQUAKE
+		if (com_modified)
+			XGL_SharewareDiagnostics ();
+#endif
 		if (com_modified)
 			Sys_Error ("You must have the registered version to use modified games");
 		return;
@@ -1656,7 +1660,11 @@ pack_t *COM_LoadPackFile (char *packfile)
 	CRC_Init (&crc);
 	for (i=0 ; i<header.dirlen ; i++)
 		CRC_ProcessByte (&crc, ((byte *)info)[i]);
+#ifdef XGLQUAKE
+	if (!XGL_CheckPackDirectory (packfile, numpackfiles, crc))
+#else
 	if (crc != PAK0_CRC)
+#endif
 		com_modified = true;
 
 // parse the directory

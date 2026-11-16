@@ -27,7 +27,7 @@ COMMON_SOURCES = chase.c cl_demo.c cl_input.c cl_main.c cl_parse.c cl_tent.c \
     cd_null.c sys_sun.c snd_dma.c snd_mem.c snd_mix.c snd_sun.c
 XGL_SOURCES = xgl_model.c xgl_mesh.c xgl_texture.c xgl_rmain.c xgl_world.c \
     xgl_light.c xgl_draw.c xgl_vid.c xgl_backend.c xgl_screen.c \
-    xgl_effects.c xgl_entities.c
+    xgl_effects.c xgl_entities.c xgl_filesystem.c
 SOURCES = $(COMMON_SOURCES) $(XGL_SOURCES)
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 HEADERS = $(wildcard *.h)
@@ -60,13 +60,20 @@ host-check:
 # CPU/adapter regression tests; modern host only, no SDK or game data needed.
 check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
        $(TEST_BUILD_DIR)/test_draw $(TEST_BUILD_DIR)/test_entities \
-       $(TEST_BUILD_DIR)/test_world $(TEST_BUILD_DIR)/test_input
+       $(TEST_BUILD_DIR)/test_world $(TEST_BUILD_DIR)/test_input \
+       $(TEST_BUILD_DIR)/test_filesystem
 	./$(TEST_BUILD_DIR)/test_texture
 	./$(TEST_BUILD_DIR)/test_mesh
 	./$(TEST_BUILD_DIR)/test_draw
 	./$(TEST_BUILD_DIR)/test_entities
 	./$(TEST_BUILD_DIR)/test_world
 	./$(TEST_BUILD_DIR)/test_input
+	./$(TEST_BUILD_DIR)/test_filesystem
+
+$(TEST_BUILD_DIR)/test_filesystem: xgl_tests/test_filesystem.c xgl_filesystem.c common.c crc.c $(HEADERS)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -DXGLQUAKE -I. -ffunction-sections -fdata-sections \
+	    -o $@ xgl_tests/test_filesystem.c xgl_filesystem.c crc.c -Wl,--gc-sections -lm
 
 $(TEST_BUILD_DIR)/test_texture: xgl_tests/test_texture.c xgl_texture.c $(HEADERS)
 	@mkdir -p $(TEST_BUILD_DIR)
