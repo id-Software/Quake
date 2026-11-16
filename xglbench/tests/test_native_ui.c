@@ -17,7 +17,11 @@ static mock_ui_context contexts[8];
 static int system_token, world_token, raster_token, font_token;
 static int creations, destructions, main_flushes, ui_flushes;
 static int quad_calls, quad_count, text_calls, extent_calls, main_state_changes;
-static int missing_font, create_error, text_error, empty_extent, wide_font, completion_error;
+static int missing_font, create_error, text_error, empty_extent, completion_error;
+/* Deliberately varied metrics exercise fitting without claiming Roman_M or
+ * the native SDK uses one particular cap-height/ink-height ratio. */
+static double metric_width_scale, metric_height_scale, probe_width;
+static int fixed_metrics;
 static int main_complete, ui_pending;
 static const char *error_message;
 typedef struct {
@@ -25,7 +29,7 @@ typedef struct {
     Xgl_color color;
 } mock_paint;
 static mock_paint paints[2][128];
-static int paint_counts[2], validation_mode, blank_text, omit_geometry, pinned_buffer;
+static int paint_counts[2], validation_mode, blank_text, blank_fitted_text, omit_geometry, pinned_buffer;
 static int readback_error, pixel_reads, depth_zero_clears, main_actions, new_frames;
 static Xgl_usgn32 draw_buffer;
 static Xgl_color main_background, buffer_background[2];
@@ -260,16 +264,18 @@ void xgl_multi_simple_polygon(Xgl_ctx context, Xgl_facet_flags flags,
 static void mock_text_bounds(mock_ui_context *ui, const char *string,
                               Xgl_bounds_f2d *bounds)
 {
-    double width;
+    double width, height;
     const char *p;
+    height = fixed_metrics ? 9.0 : ui->text_height;
     width = 0;
     for (p = string; *p; ++p)
-        width += ui->text_height * (*p == 'W' ? .8 : (*p == 'i' ? .22 : .55));
-    if (wide_font) width *= 10;
-    bounds->xmin = (float)(-.1 * ui->text_height);
+        width += height * (*p == 'W' ? .8 : (*p == 'i' ? .22 : .55));
+    width *= metric_width_scale;
+    if (probe_width > 0 && strcmp(string, "H") == 0) width = probe_width;
+    bounds->xmin = (float)(-.1 * height * metric_width_scale);
     bounds->xmax = empty_extent ? bounds->xmin : (float)(width + bounds->xmin);
-    bounds->ymin = (float)(-.2 * ui->text_height);
-    bounds->ymax = (float)(.8 * ui->text_height);
+    bounds->ymin = (float)(-.2 * height * metric_height_scale);
+    bounds->ymax = (float)(.8 * height * metric_height_scale);
 }
 
 void xgl_stroke_text_extent(Xgl_ctx context, void *string,
@@ -298,7 +304,7 @@ void xgl_stroke_text(Xgl_ctx context, void *string, void *origin, void *directio
     mock_text_bounds(ui, (char *)string, &bounds);
     assert(point->x + bounds.xmin >= 0 && point->x + bounds.xmax <= b.width);
     assert(point->y - bounds.ymax >= 0 && point->y - bounds.ymin <= b.height);
-    if (!blank_text)
+    if (!blank_text && !(blank_fitted_text && ui->text_height == b.ui_char_height))
         paint_region(point->x + bounds.xmin, point->x + bounds.xmax,
                      point->y - bounds.ymax, point->y - bounds.ymin, ui->text_color);
     ++text_calls;
@@ -310,6 +316,7 @@ Xgl_boolean xgl_context_get_pixel(Xgl_ctx context, Xgl_pt_i2d *point, Xgl_color 
     int i;
     mock_paint *paint;
     assert(validation_mode && context == b.ctx && !ui_pending);
+    assert(point->x >= 0 && point->x < b.width && point->y >= 0 && point->y < b.height);
     ++pixel_reads;
     *color = buffer_background[draw_buffer];
     for (i = 0; i < paint_counts[draw_buffer]; ++i) {
@@ -346,7 +353,9 @@ static void reset_mock(void)
     b.texture_switch = TRUE;
     creations = destructions = main_flushes = ui_flushes = 0;
     quad_calls = quad_count = text_calls = extent_calls = main_state_changes = 0;
-    missing_font = create_error = text_error = empty_extent = wide_font = 0;
+    missing_font = create_error = text_error = empty_extent = fixed_metrics = 0;
+    metric_width_scale = metric_height_scale = 1.0;
+    probe_width = 0;
     completion_error = 0;
     main_complete = ui_pending = 0;
     error_message = NULL;
@@ -359,7 +368,7 @@ static void reset_mock(void)
     main_background.rgb.b = .34f;
     main_depth.z_buffer.z_value = .75f;
     draw_buffer = 1;
-    validation_mode = blank_text = omit_geometry = pinned_buffer = 0;
+    validation_mode = blank_text = blank_fitted_text = omit_geometry = pinned_buffer = 0;
     readback_error = pixel_reads = depth_zero_clears = main_actions = 0;
     new_frames = 0;
 }
@@ -392,6 +401,53 @@ static void test_ui_submission(void)
     }
 }
 
+static void assert_layout_bounds(const Xgl_bounds_f2d *bounds, float width)
+{
+    assert(bounds->xmin < 0 && bounds->ymin < 0 && bounds->ymax > 0);
+    assert(bounds->xmax - bounds->xmin <= width + .00001f);
+    assert(bounds->ymax - bounds->ymin <= 13.0f * b.ui_scale + .00001f);
+}
+
+static void test_ui_measured_font_fitting(void)
+{
+    static const double metric_scales[3][2] = {{3.0,1.0}, {1.0,2.0}, {2.5,1.8}};
+    int size, scenario, i, value, mode, cached_extents;
+    for (size = 1; size <= 2; ++size) {
+        for (scenario = 0; scenario < 3; ++scenario) {
+            reset_mock();
+            b.width = 320 * size;
+            b.height = 240 * size;
+            validation_mode = 1;
+            metric_width_scale = metric_scales[scenario][0];
+            metric_height_scale = metric_scales[scenario][1];
+            assert(ensure_ui());
+            assert(b.ui_ready && b.ui_char_height > 0 && b.ui_char_height < 9.0f * size);
+            assert(((mock_ui_context *)b.ui_ctx)->text_height == b.ui_char_height);
+            for (i = 0; i < 3; ++i)
+                for (value = 0; value <= 100; ++value)
+                    assert_layout_bounds(&b.ui_hud_bounds[i][value], 96.0f * b.ui_scale);
+            for (i = 0; i < 8; ++i)
+                assert_layout_bounds(&b.ui_menu_bounds[i],
+                    (i == 0 ? 200.0f : (i == 7 ? 70.0f : 188.0f)) * b.ui_scale);
+            for (i = 0; i < 12; ++i)
+                assert_layout_bounds(&b.ui_console_bounds[i], 304.0f * b.ui_scale);
+            assert_layout_bounds(&b.ui_footer_bounds, 304.0f * b.ui_scale);
+            cached_extents = extent_calls;
+            assert(cached_extents > 0 && cached_extents < 10000);
+            /* Sizing is setup work. Changing values still use the final
+             * cached extents and keep bearing-correct ink inside the UI. */
+            for (mode = XB_UI_HUD; mode <= XB_UI_CONSOLE; ++mode) {
+                assert(validate_ui((enum xb_ui)mode));
+                assert(b.ui_checked[mode]);
+                assert(xb_backend_ui((enum xb_ui)mode, 0));
+                assert(xb_backend_ui((enum xb_ui)mode, 37));
+                assert(xb_backend_ui((enum xb_ui)mode, 100));
+            }
+            assert(extent_calls == cached_extents && !b.errors);
+        }
+    }
+}
+
 static void test_ui_failures(void)
 {
     reset_mock();
@@ -415,10 +471,24 @@ static void test_ui_failures(void)
     assert(xb_backend_failure() == XB_FAILURE_VALIDATION && !b.ui_ready);
     assert(quad_calls == 0 && text_calls == 0);
     reset_mock();
-    wide_font = 1;
+    fixed_metrics = 1;
+    metric_width_scale = metric_height_scale = 4.0;
+    assert(!ensure_ui());
+    assert(!b.ui_ready && xb_backend_failure() == XB_FAILURE_VALIDATION);
+    assert(quad_calls == 0 && text_calls == 0 && extent_calls < 10000);
+    assert(strstr(b.error, "measured 198x36, allowed 96x13") != NULL);
+    assert(strstr(b.error, "HEALTH") != NULL && strstr(b.error, "Roman_M") != NULL);
+    reset_mock();
     assert(ensure_ui());
+    /* Keep the runtime guard: a stale or corrupt cached measurement must
+     * still reject submission and identify the string and actual limits. */
+    b.ui_hud_bounds[0][100].xmax = b.ui_hud_bounds[0][100].xmin + 97.0f;
     assert(!xb_backend_ui(XB_UI_HUD, 0));
-    assert(xb_backend_failure() == XB_FAILURE_VALIDATION && quad_calls == 0 && text_calls == 0);
+    assert(xb_backend_failure() == XB_FAILURE_VALIDATION);
+    assert(strstr(b.error, "HEALTH 100") != NULL);
+    assert(strstr(b.error, "measured 97x9, allowed 96x13") != NULL);
+    assert(strstr(b.error, "bounds x[") != NULL && strstr(b.error, "Roman_M") != NULL);
+    assert(quad_calls == 0 && text_calls == 0);
     reset_mock();
     b.width = 128;
     b.height = 64;
@@ -519,12 +589,70 @@ static void test_ui_readback_gate(void)
     }
 }
 
+static void test_fitted_font_ink_gate(void)
+{
+    int size;
+    for (size = 1; size <= 2; ++size) {
+        reset_mock();
+        b.width = 320 * size;
+        b.height = 240 * size;
+        validation_mode = 1;
+        metric_height_scale = 2.0;
+        assert(ensure_ui());
+        assert(b.ui_char_height != 10.0f);
+        /* A successful fixed-height H does not establish that the fitted
+         * font size produces ink. Geometry remains visible in this fault. */
+        blank_fitted_text = 1;
+        assert(!validate_ui(XB_UI_HUD));
+        assert(!b.ui_checked[XB_UI_HUD] && xb_backend_failure() == XB_FAILURE_VALIDATION);
+        assert(pixel_reads > 0 && pixel_reads < 4096);
+        assert(strstr(b.error, "no white ink") != NULL);
+        assert(strstr(b.error, "exhausted") == NULL);
+        assert_validation_restored();
+        blank_fitted_text = 0;
+        b.errors = 0;
+        b.failure = XB_FAILURE_NONE;
+        b.error[0] = '\0';
+        assert(validate_ui(XB_UI_HUD));
+        assert(b.ui_checked[XB_UI_HUD]);
+        assert_validation_restored();
+        reset_mock();
+        b.width = 320 * size;
+        b.height = 240 * size;
+        validation_mode = 1;
+        probe_width = 64 * size;
+        assert(validate_ui(XB_UI_HUD));
+        assert_validation_restored();
+        reset_mock();
+        b.width = 320 * size;
+        b.height = 240 * size;
+        validation_mode = 1;
+        probe_width = 65 * size;
+        assert(!validate_ui(XB_UI_HUD));
+        assert(!b.ui_checked[XB_UI_HUD] && xb_backend_failure() == XB_FAILURE_VALIDATION);
+        assert(strstr(b.error, "extent") != NULL && pixel_reads == 0);
+        assert_validation_restored();
+    }
+    reset_mock();
+    b.width = 1280;
+    b.height = 960;
+    validation_mode = 1;
+    probe_width = 256;
+    blank_fitted_text = 1;
+    assert(!validate_ui(XB_UI_HUD));
+    assert(!b.ui_checked[XB_UI_HUD] && xb_backend_failure() == XB_FAILURE_VALIDATION);
+    assert(pixel_reads == 4096 && strstr(b.error, "4096 samples") != NULL);
+    assert_validation_restored();
+}
+
 int main(void)
 {
     test_ui_submission();
+    test_ui_measured_font_fitting();
     test_ui_failures();
     test_ui_completion_retry();
     test_ui_readback_gate();
+    test_fitted_font_ink_gate();
     reset_mock();
     puts("native text/geometry UI submission tests passed (no graphics/SDK validation)");
     return 0;

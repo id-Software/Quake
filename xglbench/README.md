@@ -68,7 +68,7 @@ requires builds and readback checks against those installed SDKs/runtimes.
 
 ## Run
 
-Version 0.9 defaults to the **quick** profile at **320x240**, with a one-minute
+Version 0.9.1 defaults to the **quick** profile at **320x240**, with a one-minute
 elapsed-time limit:
 
 ```sh
@@ -110,10 +110,11 @@ described there.
 Keep both standard output and standard error when collecting a hardware run,
 as in the examples above. XGL error details and setup-stage diagnostics are
 written to standard error. After rebuilding, first check native text and UI
-readback and a small complete-frame group before repeating the long profile:
+readback at both standard resolutions and a small complete-frame group
+before repeating the full long profile:
 
 ```sh
-./xglbench -test ui/ -winsize 320 240 -csv zx-ui.csv >zx-ui.txt 2>&1
+./xglbench -long -test ui/ -csv zx-ui.csv >zx-ui.txt 2>&1
 ./xglbench -test texture-map/facet-flat/frame/depth-0 -winsize 320 240 >zx-frame.txt 2>&1
 ```
 
@@ -370,7 +371,10 @@ The HUD includes changing health, armor and ammunition values, inventory
 labels and a geometric crosshair. The menu contains six choices, a moving
 selection indicator and a slider. The console contains a title, ten lines
 and a prompt. Layout uses a centered logical 320x240 space, scaled to fit
-the drawable, with a 56-unit HUD panel and nine-unit stroke height.
+the drawable, with a 56-unit HUD panel. Font fitting starts with a nine-unit
+stroke-height request, then uses measured string bounds to fit the available
+width and line height. Requested character height is not assumed to equal
+the full visible height of the installed font.
 Native UI requires at least a 320x200 drawable; smaller explicitly
 requested windows skip UI-dependent cases instead of dropping content.
 
@@ -382,8 +386,14 @@ overlay, and the overlay must finish before the single buffer swap. All
 required ordering and completion costs are part of the measurement.
 
 Font setup, cached text metrics and correctness checks occur before timing.
-Dynamic UI formatting,
-submission and completion are included in `render_ms` and `total_ms`;
+Every required string, including the changing HUD values, must fit after
+measurement. Fitting preserves the complete labels and runs before timing;
+the selected metrics are cached for rendering. An unfit font still rejects
+the case, with the string and measured/available dimensions in the diagnostic.
+The ink readback check uses the fitted height, so an invisible small font
+cannot pass merely because its measured bounds fit.
+Dynamic UI formatting, submission and completion are included in `render_ms`
+and `total_ms`;
 `prepare_ms` continues to describe scene geometry and lighting preparation.
 Font availability and visible output must be validated on the workstation.
 The existence of a stroke-text API alone does not establish text acceleration

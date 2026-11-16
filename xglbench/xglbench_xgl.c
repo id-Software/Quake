@@ -1919,6 +1919,7 @@ static int ui_complete(void)
 static int ui_measure(const char *text, Xgl_bounds_f2d *bounds)
 {
     Xgl_pt_f2d concatenate;
+    char message[384];
     memset(bounds, 0, sizeof(*bounds));
     memset(&concatenate, 0, sizeof(concatenate));
     xgl_stroke_text_extent(b.ui_ctx, (void *)text, bounds, &concatenate);
@@ -1926,10 +1927,78 @@ static int ui_measure(const char *text, Xgl_bounds_f2d *bounds)
     if (!(bounds->xmax > bounds->xmin && bounds->ymax > bounds->ymin &&
           bounds->xmax - bounds->xmin < 10000 && bounds->ymax - bounds->ymin < 10000 &&
           concatenate.x > 0 && concatenate.x < 10000)) {
-        fail_kind(XB_FAILURE_VALIDATION, "native stroke font returned empty or invalid text extents");
+        sprintf(message, "native stroke font returned empty or invalid text extents for \"%.48s\": "
+                "x[%.5g,%.5g] y[%.5g,%.5g], advance %.5g",
+                text, (double)bounds->xmin, (double)bounds->xmax,
+                (double)bounds->ymin, (double)bounds->ymax,
+                (double)concatenate.x);
+        fail_kind(XB_FAILURE_VALIDATION, message);
         return 0;
     }
     return 1;
+}
+
+typedef struct {
+    double usage;
+    float largest_height, allowed_width;
+    Xgl_bounds_f2d bounds;
+    char text[80];
+} xb_ui_fit;
+
+static int ui_measure_slot(const char *text, Xgl_bounds_f2d *bounds,
+                           float logical_width, xb_ui_fit *fit)
+{
+    double usage, vertical;
+    float height;
+    if (!ui_measure(text, bounds)) return 0;
+    height = bounds->ymax - bounds->ymin;
+    if (height > fit->largest_height) fit->largest_height = height;
+    usage = (bounds->xmax - bounds->xmin) / (logical_width * b.ui_scale);
+    vertical = height / (13.0f * b.ui_scale);
+    if (vertical > usage) usage = vertical;
+    if (usage > fit->usage) {
+        fit->usage = usage;
+        fit->allowed_width = logical_width * b.ui_scale;
+        fit->bounds = *bounds;
+        copy_text(fit->text, sizeof(fit->text), text);
+    }
+    return 1;
+}
+
+static int ui_measure_layout(xb_ui_fit *fit)
+{
+    char text[80];
+    int i, value;
+    memset(fit, 0, sizeof(*fit));
+    /* Measure every possible changing value, including proportional digit
+     * widths. Every retry replaces the whole cache at one selected height. */
+    for (i = 0; i < 3; ++i) {
+        for (value = 0; value <= 100; ++value) {
+            if (xb_cancel_requested()) return 0;
+            sprintf(text, "%s %3d", i == 0 ? "HEALTH" : (i == 1 ? "ARMOR" : "AMMO"), value);
+            if (!ui_measure_slot(text, &b.ui_hud_bounds[i][value], 96, fit)) return 0;
+        }
+    }
+    for (i = 0; i < 8; ++i)
+        if (!ui_measure_slot(ui_menu_text[i], &b.ui_menu_bounds[i],
+                             i == 0 ? 200.0f : (i == 7 ? 70.0f : 188.0f), fit)) return 0;
+    for (i = 0; i < 12; ++i)
+        if (!ui_measure_slot(ui_console_text[i], &b.ui_console_bounds[i], 304, fit)) return 0;
+    return ui_measure_slot(ui_footer, &b.ui_footer_bounds, 304, fit);
+}
+
+static void ui_fit_error(const char *text, const Xgl_bounds_f2d *bounds,
+                         float width, const char *detail)
+{
+    char message[512];
+    sprintf(message, "native UI font fit %.32s: \"%.40s\" measured %.5gx%.5g, allowed %.5gx%.5g; "
+            "bounds x[%.5g,%.5g] y[%.5g,%.5g]; font %.24s height %.5g",
+            detail, text, (double)(bounds->xmax - bounds->xmin),
+            (double)(bounds->ymax - bounds->ymin), (double)width,
+            (double)(13.0f * b.ui_scale), (double)bounds->xmin, (double)bounds->xmax,
+            (double)bounds->ymin, (double)bounds->ymax,
+            b.ui_font_name, (double)b.ui_char_height);
+    fail_kind(XB_FAILURE_VALIDATION, message);
 }
 
 static int ensure_ui(void)
@@ -1939,9 +2008,9 @@ static int ensure_ui(void)
     Xgl_color white;
     Xgl_pt_f2d up;
     char *name, *directory;
-    char text[80];
-    double scale;
-    int i, value;
+    xb_ui_fit fit;
+    double scale, next_height;
+    int attempt;
     if (b.errors || xb_cancel_requested()) return 0;
     if (b.width < 320 || b.height < 200) {
         fail_kind(XB_FAILURE_UNSUPPORTED, "native UI requires at least a 320x200 drawable");
@@ -2001,29 +2070,39 @@ static int ensure_ui(void)
     xgl_object_get(b.system, XGL_SYS_ST_SFONT_DIRECTORY, &directory);
     if (b.errors) return 0;
     copy_text(b.ui_font_directory, sizeof(b.ui_font_directory), directory);
-    xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, (double)b.ui_char_height, 0);
-    if (b.errors) return 0;
-    /* Every possible changing HUD value has a cached extent. Runtime work is
-     * string formatting and submission, not repeated font/layout inquiries. */
-    for (i = 0; i < 3; ++i) {
-        for (value = 0; value <= 100; ++value) {
-            if (xb_cancel_requested()) return 0;
-            sprintf(text, "%s %3d", i == 0 ? "HEALTH" : (i == 1 ? "ARMOR" : "AMMO"), value);
-            if (!ui_measure(text, &b.ui_hud_bounds[i][value])) return 0;
+    /* Requested character height need not equal the installed font's ink
+     * height. Fit measured extents to the real slots, preserving every
+     * character and the font's aspect ratio. Remeasure after each change;
+     * a driver/font that ignores the requested height must fail boundedly. */
+    for (attempt = 0; attempt < 6; ++attempt) {
+        xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, (double)b.ui_char_height, 0);
+        if (b.errors || !ui_measure_layout(&fit)) return 0;
+        if (fit.usage <= 1.0) break;
+        fprintf(stdout, "Native UI fit adjustment: requested height %.3f; \"%s\" "
+                "measured %.3fx%.3f, allowed %.3fx%.3f\n",
+                (double)b.ui_char_height, fit.text,
+                (double)(fit.bounds.xmax - fit.bounds.xmin),
+                (double)(fit.bounds.ymax - fit.bounds.ymin),
+                (double)fit.allowed_width, (double)(13.0f * b.ui_scale));
+        next_height = (double)b.ui_char_height * .96 / fit.usage;
+        if (attempt == 5 || !(next_height >= .25 * scale)) {
+            ui_fit_error(fit.text, &fit.bounds, fit.allowed_width, "did not converge");
+            return 0;
         }
+        b.ui_char_height = (float)next_height;
     }
-    for (i = 0; i < 8; ++i)
-        if (!ui_measure(ui_menu_text[i], &b.ui_menu_bounds[i])) return 0;
-    for (i = 0; i < 12; ++i)
-        if (!ui_measure(ui_console_text[i], &b.ui_console_bounds[i])) return 0;
-    if (!ui_measure(ui_footer, &b.ui_footer_bounds)) return 0;
-    xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, 10.0, 0);
-    if (b.errors || !ui_measure("H", &b.ui_probe_bounds)) return 0;
-    xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, (double)b.ui_char_height, 0);
-    if (b.errors) return 0;
+    /* The ink gate must use the selected UI height: a separately enlarged
+     * glyph could conceal a font that becomes invisible after fitting. */
+    if (!ui_measure("H", &b.ui_probe_bounds)) return 0;
     b.ui_ready = 1;
     fprintf(stdout, "Native UI font: %s; directory: %s; stroke height %.2f; layout scale %.3f\n",
             b.ui_font_name, b.ui_font_directory, (double)b.ui_char_height, (double)b.ui_scale);
+    fprintf(stdout, "Native UI fit: %d measurement pass(es); largest ink height %.3f; "
+            "limiting \"%s\" %.3fx%.3f in %.3fx%.3f\n",
+            attempt + 1, (double)fit.largest_height, fit.text,
+            (double)(fit.bounds.xmax - fit.bounds.xmin),
+            (double)(fit.bounds.ymax - fit.bounds.ymin),
+            (double)fit.allowed_width, (double)(13.0f * b.ui_scale));
     return 1;
 }
 
@@ -2058,10 +2137,13 @@ static int ui_line(xb_ui_packet *packet, const char *text, const Xgl_bounds_f2d 
                    float left, float top, float width)
 {
     int index;
-    if (packet->lines >= XB_UI_LINES ||
-        bounds->xmax - bounds->xmin > width ||
+    if (packet->lines >= XB_UI_LINES) {
+        fail_kind(XB_FAILURE_VALIDATION, "native UI text packet capacity exceeded");
+        return 0;
+    }
+    if (bounds->xmax - bounds->xmin > width ||
         bounds->ymax - bounds->ymin > 13.0f * b.ui_scale) {
-        fail_kind(XB_FAILURE_VALIDATION, "native font does not fit the UI layout");
+        ui_fit_error(text, bounds, width, "exceeds cached slot");
         return 0;
     }
     index = packet->lines++;
@@ -2422,8 +2504,9 @@ static int validate_ui(enum xb_ui kind)
     xb_rgb expected, sample;
     enum xb_failure saved_failure;
     char previous_error[256], context[96];
-    float width, height, s;
-    int px, py, xmax, ymax, found, result;
+    float width, height, s, probe_limit;
+    long region_pixels;
+    int px, py, xmax, ymax, found, result, reads;
     if (kind < XB_UI_HUD || kind > XB_UI_CONSOLE) {
         fail_kind(XB_FAILURE_UNSUPPORTED, "unknown native UI workload");
         return 0;
@@ -2432,10 +2515,23 @@ static int validate_ui(enum xb_ui kind)
     if (b.ui_checked[kind]) return 1;
     width = b.ui_probe_bounds.xmax - b.ui_probe_bounds.xmin;
     height = b.ui_probe_bounds.ymax - b.ui_probe_bounds.ymin;
-    if (!(width > 0 && width <= 32 && height > 0 && height <= 32)) {
-        fail_kind(XB_FAILURE_VALIDATION, "native stroke font exceeds bounded ink probe extent");
+    probe_limit = 64.0f * b.ui_scale;
+    if (!(width > 0 && width <= probe_limit && height > 0 && height <= probe_limit)) {
+        char message[192];
+        sprintf(message, "native stroke font ink probe at selected height %.5g has "
+                "extent %.5gx%.5g outside %.5gx%.5g layout-scaled scan",
+                (double)b.ui_char_height, (double)width, (double)height,
+                (double)probe_limit, (double)probe_limit);
+        fail_kind(XB_FAILURE_VALIDATION, message);
         return 0;
     }
+    xmax = 8 + (int)ceil((double)width);
+    ymax = 8 + (int)ceil((double)height);
+    if (xmax >= b.width || ymax >= b.height) {
+        fail_kind(XB_FAILURE_VALIDATION, "native stroke ink probe extent lies outside the drawable");
+        return 0;
+    }
+    region_pixels = (long)(xmax - 7) * (long)(ymax - 7);
     xgl_object_get(b.ctx, XGL_CTX_BACKGROUND_COLOR, &saved_background);
     if (b.errors) return 0;
     xgl_object_get(b.ctx, XGL_3D_CTX_HLHSR_DATA, &saved_depth);
@@ -2464,8 +2560,6 @@ static int validate_ui(enum xb_ui kind)
         xb_backend_clear(1, 1);
         xb_backend_sync();
         if (b.errors || xb_cancel_requested()) goto done;
-        xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, 10.0, 0);
-        if (b.errors) goto done;
         position.x = 8.0f - b.ui_probe_bounds.xmin;
         position.y = 8.0f + b.ui_probe_bounds.ymax;
         b.ui_pending = 1;
@@ -2474,26 +2568,29 @@ static int validate_ui(enum xb_ui kind)
         if (b.errors || xb_cancel_requested()) goto done;
         /* Find opaque white ink, allowing font-specific bearings and glyph
          * shape. No exact glyph pixel or monospaced font is assumed. */
-        found = 0;
-        xmax = 8 + (int)ceil((double)width);
-        ymax = 8 + (int)ceil((double)height);
-        for (py = 8; py <= ymax && !found; ++py) {
-            for (px = 8; px <= xmax; ++px) {
+        found = reads = 0;
+        for (py = 8; py <= ymax && !found && reads < 4096; ++py) {
+            for (px = 8; px <= xmax && reads < 4096; ++px) {
                 if (!read_pixel(px, py, &sample)) goto done;
+                ++reads;
                 if (fabs(sample.r - 1) <= .065 && fabs(sample.g - 1) <= .065 &&
                     fabs(sample.b - 1) <= .065) { found = 1; break; }
             }
         }
         if (!found) {
-            fail_kind(XB_FAILURE_VALIDATION, "native stroke text produced no white ink inside measured extent");
+            if ((long)reads < region_pixels)
+                fail_kind(XB_FAILURE_VALIDATION, "native stroke text ink scan exhausted 4096 samples "
+                          "at selected UI height; no white ink found");
+            else
+                fail_kind(XB_FAILURE_VALIDATION, "native stroke text produced no white ink "
+                          "inside measured extent at selected UI height");
             goto done;
         }
         expected.r = background.rgb.r;
         expected.g = background.rgb.g;
         expected.b = background.rgb.b;
         if (!pixel_matches(4, 4, &expected)) goto done;
-        xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, (double)b.ui_char_height, 0);
-        if (b.errors || !xb_backend_ui(kind, (unsigned long)buffer)) goto done;
+        if (!xb_backend_ui(kind, (unsigned long)buffer)) goto done;
         s = b.ui_scale;
         px = (int)(b.ui_x + 2*s);
         py = b.height - (int)(3*s);

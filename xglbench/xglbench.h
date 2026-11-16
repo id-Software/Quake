@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#define XB_VERSION "0.9"
+#define XB_VERSION "0.9.1"
 #define XB_MAX_QUEUE 8
 #define XB_MAX_LIGHTS 4
 #define XB_STYLE_LAYERS 4
