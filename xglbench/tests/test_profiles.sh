@@ -37,7 +37,7 @@ XB_TEST_LOG="$test_dir/list.log" "$bench" -list >"$test_dir/default.list"
 test ! -e "$test_dir/list.log" || fail "default listing opened the display"
 for profile in quick medium long extralong; do
     "$bench" "-$profile" -list >"$test_dir/$profile.list"
-    case "$profile" in quick) count=16 ;; medium|long) count=34 ;; *) count=230 ;; esac
+    case "$profile" in quick) count=16 ;; medium|long) count=34 ;; *) count=237 ;; esac
     test "$(wc -l <"$test_dir/$profile.list" | tr -d ' ')" = "$count" ||
         fail "$profile selected the wrong number of cases"
     sort "$test_dir/$profile.list" >"$test_dir/$profile.sorted"
@@ -56,8 +56,8 @@ cmp "$test_dir/repeated.list" "$test_dir/quick.list" >/dev/null || fail "repeate
 # Default profiles emphasize sampled materials, scene timing without a HUD,
 # Quake-like CPU lighting and one matched smooth CPU/XGL lighting comparison.
 for profile in quick medium long; do
-    if grep -E '^texture-map/(point|bilinear|trilinear)/' "$test_dir/$profile.list" >/dev/null; then
-        fail "$profile selected optional native texture mapping"
+    if grep -E '^texture-map/(point|bilinear|trilinear)/|^transparency-stress/' "$test_dir/$profile.list" >/dev/null; then
+        fail "$profile selected optional native texture mapping or transparency stress"
     fi
     for compute in cpu-smooth xgl-smooth; do
         grep -x "lighting/submit/multi_polygon/$compute/point-1/depth-1" "$test_dir/$profile.list" >/dev/null ||
@@ -75,6 +75,14 @@ for profile in quick medium long; do
     done
     grep -x 'overhead/color-depth-clear' "$test_dir/$profile.list" >/dev/null ||
         fail "$profile lost combined clear comparison"
+done
+for profile in medium long; do
+    for ui in menu console; do
+        grep -x "ui/$ui" "$test_dir/$profile.list" >/dev/null || fail "$profile omitted native $ui"
+    done
+    if grep -E '^overhead/(color-clear|depth-clear)$' "$test_dir/$profile.list" >/dev/null; then
+        fail "$profile kept separate clears instead of UI coverage"
+    fi
 done
 awk '
     /^scene\/lighting\// { scene=NR }
@@ -118,7 +126,7 @@ for profile in quick medium long extralong; do
     awk '/^clock-sleep / { if ($2 <= 0 || $2 > .100001) bad++; sleeps++ }
          END { if (!sleeps || bad) exit 1 }' "$test_dir/$profile.log" ||
         fail "$profile disabled mandatory rest or used uninterruptible sleep chunks"
-    case "$profile" in quick) completed=16 ;; medium) completed=34 ;; long) completed=68 ;; *) completed=460 ;; esac
+    case "$profile" in quick) completed=16 ;; medium) completed=34 ;; long) completed=68 ;; *) completed=474 ;; esac
     grep "Completed $completed cases; 0 skipped/failed" "$test_dir/output" >/dev/null ||
         fail "$profile omitted short samples from its selection"
 done
@@ -193,6 +201,52 @@ awk -F, '
     }
     END { if (!record || !name || !status || !total || compared != 10 || bad) exit 1 }
 ' "$test_dir/pause-0.csv" "$test_dir/pause-.5.csv" || fail "idle time leaked into reported throughput"
+
+# Native UI formatting/layout/draw work belongs inside measured render and
+# total time. Advancing only its mock draw clock must not affect scene-only
+# controls, preparation, or presentation time.
+for workload in ui frame scene; do
+    case "$workload" in
+        ui) selected=ui/ ;;
+        frame) selected=frame/lighting/cpu-flat/quake-point-1/depth-1 ;;
+        scene) selected=scene/lighting/cpu-flat/quake-point-1/depth-1 ;;
+    esac
+    for delay in 0 .05; do
+        XB_TEST_CLOCK_STEP=.001 XB_TEST_UI_ADVANCE="$delay" \
+            "$bench" -quick -winsize 320 240 -test "$selected" -triangles 8 \
+            -seconds .001 -warmup 0 -repeats 1 -pause 0 \
+            -csv "$test_dir/ui-time-$workload-$delay.csv" >"$test_dir/output" 2>&1 ||
+            fail "$workload native UI timing sample failed"
+    done
+    awk -F, -v workload="$workload" '
+        FNR == 1 {
+            file++
+            for (i=1; i<=NF; ++i) col[$i]=i
+            record=col["record"]; name=col["test"]; status=col["status"]
+            total=col["total_ms"]; render=col["render_ms"]; prep=col["prepare_ms"]; present=col["present_ms"]
+            next
+        }
+        $record == "summary" {
+            if ($status != "ok") bad++
+            if (file == 1) {
+                totals[$name]=$total; renders[$name]=$render; preps[$name]=$prep; presents[$name]=$present
+            } else {
+                expected=workload == "scene" ? 0 : 50
+                delta=$total-totals[$name]
+                if (delta < expected-.000001 || delta > expected+.000001) bad++
+                delta=$render-renders[$name]
+                if (delta < expected-.000001 || delta > expected+.000001 ||
+                    $prep != preps[$name] || $present != presents[$name]) bad++
+                compared++
+            }
+        }
+        END {
+            expected=workload == "ui" ? 3 : 1
+            if (!record || !name || !status || !total || !render || !prep || !present || compared != expected || bad) exit 1
+        }
+    ' "$test_dir/ui-time-$workload-0.csv" "$test_dir/ui-time-$workload-.05.csv" ||
+        fail "$workload native UI cost escaped rendering time or affected another phase"
+done
 
 # Opening consumes the fixed profile budget even with explicit sample/pause
 # overrides. Once opening exhausts it, no workload should be configured.
@@ -290,7 +344,7 @@ if XB_TEST_OPEN_ADVANCE=2701 XB_TEST_LOG="$test_dir/extra-expiry.log" \
 fi
 grep 'Time limit: 2700 seconds' "$test_dir/output" >/dev/null || fail "extralong overrides changed the ceiling"
 grep 'Profile time budget reached' "$test_dir/output" >/dev/null || fail "extralong remained unbounded"
-grep '460 selected cases not run' "$test_dir/output" >/dev/null || fail "extralong expiry lost unrun cases"
+grep '474 selected cases not run' "$test_dir/output" >/dev/null || fail "extralong expiry lost unrun cases"
 if grep '^lighting-configure ' "$test_dir/extra-expiry.log" >/dev/null; then
     fail "expired extralong profile configured a workload"
 fi

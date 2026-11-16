@@ -32,9 +32,20 @@ used. This target is separate from the Solaris build and portable `make check`.
 It verifies selected resource and error-handling contracts, not rendering or
 device support.
 
-The raster tests check creation-time RGB ordering, resource cleanup and retry,
-readback errors, and requested native-array allocation accounting (including
-geometry and stream-slot teardown). The clear/transparency tests use a scalar
+The texture-raster tests check creation-time RGB ordering, resource cleanup
+and retry, readback errors, and requested native-array allocation accounting
+(including geometry and stream-slot teardown). The native UI tests inspect
+the separate 2D context, stroke-font lookup, polygon/text submission, buffer
+selection, synchronization order, and error handling. UI memory-raster
+creation and buffer-copy calls are rejected by these mocks. They do not
+implement stroke-font rendering or establish text legibility on the device.
+Measured text bounds include proportional widths, negative bearings and
+descenders. A simple per-buffer paint-region model exercises the UI readback
+gate: missing ink, missing panels, drawing to the wrong buffer and API readback
+errors must fail without caching success, and saved context/raster state must
+be restored. Recoverable primitive and completion errors also check that
+pending UI work is completed before later main-context work, clear or swap.
+The clear/transparency tests use a scalar
 pixel and depth model for the backend's centered flat-triangle probes. They
 check that missing color/depth clears, reversed opacity, incorrect blending,
 broken depth freeze/write or testing, and native readback errors reject the

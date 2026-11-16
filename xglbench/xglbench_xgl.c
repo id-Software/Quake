@@ -15,8 +15,6 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-#define XB_RASTER_W 128
-#define XB_RASTER_H 64
 
 /* Every pointer reachable by a retained draw remains stable until completion.
  * Keeping separate native copies also prevents CPU color preparation from
@@ -44,7 +42,13 @@ typedef struct {
     Xgl_win_ras raster;
     Xgl_ctx ctx;
     Xgl_trans model, view;
-    Xgl_mem_ras hud, mask;
+    Xgl_ctx ui_ctx;
+    Xgl_sfont ui_font;
+    int ui_ready, ui_pending, ui_checked[3];
+    float ui_scale, ui_x, ui_char_height;
+    char ui_font_name[80], ui_font_directory[160];
+    Xgl_bounds_f2d ui_hud_bounds[3][101], ui_menu_bounds[8];
+    Xgl_bounds_f2d ui_console_bounds[12], ui_footer_bounds, ui_probe_bounds;
     Xgl_mem_ras texture_rasters[7];
     Xgl_mipmap_texture texture_mipmap;
     Xgl_tmap texture_map;
@@ -71,7 +75,6 @@ typedef struct {
     int shading, hardware_lighting, allow_fallback, light_count, cull;
     Xgl_light lights[XB_MAX_LIGHTS + 1];
     xb_light_state light_state;
-    int raster_checked, mask_checked, hud_ready;
     xb_native_slot stream[XB_MAX_QUEUE];
     int stream_active, stream_slots, stream_batch;
     Xgl_boolean stream_previous_volatile;
@@ -134,7 +137,9 @@ void xb_backend_memory_reset_peak(void)
 /* The cancellation query reads latched flags only: no clock or XGL call in
  * the per-primitive hot loops. Cancellation must not set b.errors/fatal,
  * because synchronization and retained-buffer cleanup still have to run. */
-static int validate_raster(int masked);
+static int validate_ui(enum xb_ui kind);
+static int ensure_ui(void);
+static int ui_complete(void);
 static int validate_stream(void);
 static int validate_lighting(void);
 static int validate_culling(void);
@@ -279,7 +284,7 @@ static void setup_view(void)
  * it after those attributes produced di-158 on XGL 3.3/Leo; omitting it left
  * the logical color type non-RGB. Depth alone does not select RGB. The new
  * creation order still needs hardware validation, so retain the inquiries
- * and the copy/texture readback gates before accepting any measurements.
+ * and the texture readback gates before accepting any measurements.
  * Only fully checked objects enter a cache; failed, unreferenced objects can
  * be destroyed on recoverable errors. After a fatal error xgl_close owns all
  * remaining cleanup and no further object operations are attempted.
@@ -365,56 +370,6 @@ bad:
     *address = NULL;
     b.stage = previous_stage;
     return NULL;
-}
-
-static int make_hud(void)
-{
-    Xgl_mem_ras hud, mask;
-    Xgl_usgn32 *pixels;
-    Xgl_usgn16 *mask_words;
-    void *image_address, *mask_address;
-    const char *previous_stage;
-    int x, y;
-    if (b.errors || b.fatal || xb_cancel_requested()) return 0;
-    if (!b.hud || !b.mask) {
-        image_address = mask_address = NULL;
-        hud = make_memory_raster(32, XB_RASTER_W, XB_RASTER_H,
-                                 &image_address, "HUD RGB raster creation");
-        if (!hud) return 0;
-        mask = make_memory_raster(1, XB_RASTER_W, XB_RASTER_H,
-                                  &mask_address, "HUD mask raster creation");
-        if (!mask) {
-            destroy_unreferenced(hud);
-            return 0;
-        }
-        pixels = (Xgl_usgn32 *)image_address;
-        mask_words = (Xgl_usgn16 *)mask_address;
-        memset(mask_words, 0, (size_t)XB_RASTER_W * XB_RASTER_H / 8);
-        for (y = 0; y < XB_RASTER_H; ++y) {
-            for (x = 0; x < XB_RASTER_W; ++x) {
-                /* Canonical XGL native word, independent of host byte order. */
-                pixels[y * XB_RASTER_W + x] =
-                    ((Xgl_usgn32)(64 + (y * 3) % 192) << 16) |
-                    ((Xgl_usgn32)(32 + (x * 5) % 224) << 8) | 220;
-                if (((x / 8) + (y / 8)) % 2 == 0)
-                    mask_words[y * (XB_RASTER_W / 16) + x / 16] |=
-                        (Xgl_usgn16)(0x8000U >> (x & 15));
-            }
-        }
-        /* Both buffers are initialized before exposing either cached handle.
-         * Once attached to the context, keep these valid objects even if a
-         * later attribute fails; retry attachment without reallocating them.
-         */
-        b.hud = hud;
-        b.mask = mask;
-    }
-    previous_stage = b.stage;
-    b.stage = "HUD mask attachment";
-    xgl_object_set(b.ctx, XGL_CTX_RASTER_FPAT, b.mask,
-                   XGL_CTX_ROP, XGL_ROP_COPY, 0);
-    b.hud_ready = !b.errors;
-    b.stage = previous_stage;
-    return b.hud_ready;
 }
 
 /* XGL 3.1+ Texture Map objects, Reference pp.106-110,118,339-340,374-378,
@@ -1041,6 +996,10 @@ void xb_backend_close(void)
     b.system = NULL;
     b.display = NULL;
     b.ctx = NULL;
+    b.ui_ctx = NULL;
+    b.ui_font = NULL;
+    b.ui_ready = 0;
+    b.ui_pending = 0;
 }
 
 int xb_backend_resize(int width, int height)
@@ -1052,7 +1011,8 @@ int xb_backend_resize(int width, int height)
     XSync(b.display, False);
     if (!wait_window(width, height) || xb_cancel_requested()) return 0;
     xgl_window_raster_resize(b.raster);
-    b.raster_checked = b.mask_checked = 0;
+    b.ui_ready = 0;
+    memset(b.ui_checked, 0, sizeof(b.ui_checked));
     setup_view();
     xb_backend_clear(1, 1);
     xb_backend_sync();
@@ -1077,8 +1037,7 @@ void xb_backend_info(FILE *out)
     fprintf(out, "Display: %s; screen %d; visual 0x%lx TrueColor depth %d\n",
             b.display ? DisplayString(b.display) : "unopened", b.screen,
             (unsigned long)b.visual, b.depth);
-    fprintf(out, "Visual RGB masks: 0x%lx / 0x%lx / 0x%lx; HUD memory raster: "
-                 "32-bit native B:G:R words (24 color bits).\n",
+    fprintf(out, "Visual RGB masks: 0x%lx / 0x%lx / 0x%lx.\n",
             b.red_mask, b.green_mask, b.blue_mask);
     fprintf(out, "Drawable: %dx%d; DGA: %s; buffers allocated: %lu (maximum %ld)\n",
             b.width, b.height, b.inquiry.dga_flag ? "yes" : "no",
@@ -1092,13 +1051,12 @@ void xb_backend_info(FILE *out)
     fprintf(out, "Default state: flat facet RGB; illumination off; no textures; culling off; "
                  "six clipping planes; deferred submission; volatile geometry "
                  "except retained-array and pipeline cases.\n");
-    fprintf(out, "Raster copies share the 3D context to preserve draw order "
-                 "without inter-context synchronization.\n");
+    fprintf(out, "UI: native stroke text and filled quads in a 2D context sharing the draw raster; "
+                 "scene/UI synchronization is timed; one final swap; no UI image uploads.\n");
     fprintf(out, "Triangle-list facets are padded per batch to num_points-2 as "
                  "documented; readback must pass. No IS_PLANAR flag is used.\n");
     fprintf(out, "Strip inputs share vertex records; batch caps split strips "
-                 "with two overlapping vertices. Raster copies: %dx%d.\n",
-            XB_RASTER_W, XB_RASTER_H);
+                 "with two overlapping vertices.\n");
     fprintf(out, "Pipeline: CPU facet or vertex RGB; one thread/context; stable native slots; BUFFERS posts, "
                  "SYNCHRONIZE drains before slot reuse; no presentation.\n");
     fprintf(out, "Culling comparisons use unlit multi-polygon geometry with explicit "
@@ -1757,17 +1715,19 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
         return 0;
     }
     if (b.errors) { copy_text(reason, size, b.error); return 0; }
-    if (test->work == XB_RASTER || test->work == XB_MASKED_RASTER ||
-        test->work == XB_FRAME) {
-        b.stage = "HUD raster readback";
-        if (!validate_raster(0) ||
-            ((test->work == XB_MASKED_RASTER || test->work == XB_FRAME) &&
-             !validate_raster(1))) {
+    if (test->work == XB_UI || test->work == XB_FRAME) {
+        b.stage = "native UI font/geometry/readback";
+        if (!ensure_ui() || !validate_ui(test->ui)) {
             copy_text(reason, size, b.error);
             return 0;
         }
         xb_backend_clear(1, 1);
         xb_backend_sync();
+    }
+    if (test->work == XB_UI || test->work == XB_FRAME) {
+        char note[160];
+        sprintf(note, "native text/geometry UI readback passed; stroke font %.80s", b.ui_font_name);
+        copy_text(reason, size, note);
     }
     if (test->work == XB_COLOR_DEPTH_CLEAR)
         copy_text(reason, size, "combined color/Z clear readback passed");
@@ -1899,13 +1859,16 @@ size_t xb_backend_draw(enum xb_method method, int batch)
 
 void xb_backend_sync(void)
 {
+    /* A previous recoverable UI completion error can leave native work
+     * pending. Retry it before the next case clears or changes buffers. */
+    if (b.errors || !ui_complete()) return;
     if (b.ctx && !b.errors) xgl_context_flush(b.ctx, XGL_FLUSH_SYNCHRONIZE);
 }
 
 void xb_backend_swap(void)
 {
     if (b.buffers < 2 || b.errors || xb_cancel_requested()) return;
-    /* Complete queued geometry and raster copies before presentation. */
+    /* Complete scene and overlay work before presentation. */
     xb_backend_sync();
     if (b.errors || xb_cancel_requested()) return;
     xgl_object_set(b.ctx, XGL_CTX_NEW_FRAME_ACTION,
@@ -1915,20 +1878,282 @@ void xb_backend_swap(void)
     if (!b.errors) xgl_context_flush(b.ctx, XGL_FLUSH_SYNCHRONIZE);
 }
 
-void xb_backend_raster(int masked)
+/* Native UI uses a separate 2D context on the same draw raster. Its arrays
+ * and strings remain alive until completion; no image, mask or glyph atlas
+ * is uploaded by the application. Text metrics are prepared outside timing.
+ */
+#define XB_UI_QUADS 24
+#define XB_UI_LINES 12
+static const char *ui_menu_text[8] = {
+    "XGL QUAKE", "SINGLE PLAYER", "MULTIPLAYER", "OPTIONS", "VIDEO",
+    "CONTROLS", "QUIT", "VOLUME"
+};
+static const char *ui_console_text[12] = {
+    "CONSOLE", "XGLQuake native display", "map: start", "player entered the game",
+    "health 100  armor 75  ammo 25", "sound initialized", "video: local Sun ZX",
+    "renderer: sampled colors", "commands: map save load", "status: connected",
+    "press escape to close", "quake>"
+};
+static const char *ui_footer = "WEAPON: SHOTGUN  KEYS: R B  QUAD";
+typedef struct {
+    Xgl_pt_f2d points[XB_UI_QUADS * 4];
+    Xgl_pt_list lists[XB_UI_QUADS];
+    Xgl_color_facet colors[XB_UI_QUADS];
+    int quads, lines;
+    char strings[XB_UI_LINES][80];
+    Xgl_pt_f2d positions[XB_UI_LINES];
+} xb_ui_packet;
+
+static int ui_complete(void)
 {
-    Xgl_pt_i2d position;
-    int restore_texture;
-    if (b.errors || xb_cancel_requested()) return;
-    restore_texture = b.texture_switch;
-    if (!texture_enable(0)) return;
-    position.x = (b.width - XB_RASTER_W) / 2;
-    position.y = b.height - XB_RASTER_H;
-    xgl_object_set(b.ctx, XGL_CTX_RASTER_FILL_STYLE,
-                   masked ? XGL_RAS_FILL_STIPPLE : XGL_RAS_FILL_COPY,
-                   XGL_CTX_RASTER_FPAT_POSITION, &position, 0);
-    if (!b.errors && !xb_cancel_requested()) xgl_context_copy_buffer(b.ctx, NULL, &position, b.hud);
-    if (!b.errors && !xb_cancel_requested() && restore_texture) (void)texture_enable(1);
+    int errors;
+    if (!b.ui_pending) return 1;
+    if (b.fatal || !b.ui_ctx) return 0;
+    errors = b.errors;
+    xgl_context_flush(b.ui_ctx, XGL_FLUSH_SYNCHRONIZE);
+    if (b.errors != errors) return 0;
+    b.ui_pending = 0;
+    return 1;
+}
+
+static int ui_measure(const char *text, Xgl_bounds_f2d *bounds)
+{
+    Xgl_pt_f2d concatenate;
+    memset(bounds, 0, sizeof(*bounds));
+    memset(&concatenate, 0, sizeof(concatenate));
+    xgl_stroke_text_extent(b.ui_ctx, (void *)text, bounds, &concatenate);
+    if (b.errors) return 0;
+    if (!(bounds->xmax > bounds->xmin && bounds->ymax > bounds->ymin &&
+          bounds->xmax - bounds->xmin < 10000 && bounds->ymax - bounds->ymin < 10000 &&
+          concatenate.x > 0 && concatenate.x < 10000)) {
+        fail_kind(XB_FAILURE_VALIDATION, "native stroke font returned empty or invalid text extents");
+        return 0;
+    }
+    return 1;
+}
+
+static int ensure_ui(void)
+{
+    Xgl_ctx context;
+    Xgl_sfont font;
+    Xgl_color white;
+    Xgl_pt_f2d up;
+    char *name, *directory;
+    char text[80];
+    double scale;
+    int i, value;
+    if (b.errors || xb_cancel_requested()) return 0;
+    if (b.width < 320 || b.height < 200) {
+        fail_kind(XB_FAILURE_UNSUPPORTED, "native UI requires at least a 320x200 drawable");
+        return 0;
+    }
+    if (b.ui_ready) return 1;
+    scale = (double)b.width / 320.0;
+    if ((double)b.height / 240.0 < scale) scale = (double)b.height / 240.0;
+    b.ui_scale = (float)scale;
+    b.ui_x = (b.width - 320.0f * b.ui_scale) * .5f;
+    b.ui_char_height = 9.0f * b.ui_scale;
+    memset(&white, 0, sizeof(white));
+    white.rgb.r = white.rgb.g = white.rgb.b = 1;
+    up.x = 0; up.y = 1;
+    if (!b.ui_ctx) {
+        context = xgl_object_create(b.system, XGL_2D_CTX, NULL,
+            XGL_CTX_DEVICE, b.raster,
+            XGL_CTX_RENDER_BUFFER, XGL_RENDER_DRAW_BUFFER,
+            XGL_CTX_NEW_FRAME_ACTION, XGL_CTX_NEW_FRAME_NONE,
+            XGL_CTX_DEFERRAL_MODE, XGL_DEFER_ASAP,
+            XGL_CTX_GEOM_DATA_IS_VOLATILE, TRUE,
+            XGL_CTX_VDC_MAP, XGL_VDC_MAP_DEVICE,
+            XGL_CTX_VDC_ORIENTATION, XGL_Y_DOWN_Z_AWAY,
+            XGL_CTX_SURF_FRONT_COLOR_SELECTOR, XGL_SURF_COLOR_FACET,
+            XGL_CTX_SURF_FRONT_FILL_STYLE, XGL_SURF_FILL_SOLID,
+            XGL_CTX_SURF_EDGE_FLAG, FALSE,
+            XGL_CTX_STEXT_PRECISION, XGL_STEXT_PRECISION_STROKE,
+            XGL_CTX_STEXT_CHAR_ENCODING, XGL_SINGLE_STR | XGL_CHAR_MBY,
+            XGL_CTX_STEXT_CHAR_UP_VECTOR, &up,
+            XGL_CTX_STEXT_PATH, XGL_STEXT_PATH_RIGHT,
+            XGL_CTX_STEXT_ALIGN_HORIZ, XGL_STEXT_ALIGN_HORIZ_LEFT,
+            XGL_CTX_STEXT_ALIGN_VERT, XGL_STEXT_ALIGN_VERT_BASE,
+            XGL_CTX_STEXT_COLOR, &white, 0);
+        if (!context || b.errors) {
+            if (!b.errors) fail("cannot create native UI context");
+            destroy_unreferenced(context);
+            return 0;
+        }
+        font = NULL;
+        xgl_object_get(context, XGL_CTX_SFONT_0, &font);
+        if (b.errors || !font) {
+            if (!b.errors) fail_kind(XB_FAILURE_UNSUPPORTED, "native UI stroke font is unavailable");
+            destroy_unreferenced(context);
+            return 0;
+        }
+        b.ui_ctx = context;
+        b.ui_font = font;
+    }
+    name = directory = NULL;
+    xgl_object_get(b.ui_font, XGL_SFONT_NAME, &name);
+    if (b.errors) return 0;
+    if (!name || !name[0]) {
+        fail_kind(XB_FAILURE_UNSUPPORTED, "native UI stroke font has no name");
+        return 0;
+    }
+    copy_text(b.ui_font_name, sizeof(b.ui_font_name), name);
+    xgl_object_get(b.system, XGL_SYS_ST_SFONT_DIRECTORY, &directory);
+    if (b.errors) return 0;
+    copy_text(b.ui_font_directory, sizeof(b.ui_font_directory), directory);
+    xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, (double)b.ui_char_height, 0);
+    if (b.errors) return 0;
+    /* Every possible changing HUD value has a cached extent. Runtime work is
+     * string formatting and submission, not repeated font/layout inquiries. */
+    for (i = 0; i < 3; ++i) {
+        for (value = 0; value <= 100; ++value) {
+            if (xb_cancel_requested()) return 0;
+            sprintf(text, "%s %3d", i == 0 ? "HEALTH" : (i == 1 ? "ARMOR" : "AMMO"), value);
+            if (!ui_measure(text, &b.ui_hud_bounds[i][value])) return 0;
+        }
+    }
+    for (i = 0; i < 8; ++i)
+        if (!ui_measure(ui_menu_text[i], &b.ui_menu_bounds[i])) return 0;
+    for (i = 0; i < 12; ++i)
+        if (!ui_measure(ui_console_text[i], &b.ui_console_bounds[i])) return 0;
+    if (!ui_measure(ui_footer, &b.ui_footer_bounds)) return 0;
+    xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, 10.0, 0);
+    if (b.errors || !ui_measure("H", &b.ui_probe_bounds)) return 0;
+    xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, (double)b.ui_char_height, 0);
+    if (b.errors) return 0;
+    b.ui_ready = 1;
+    fprintf(stdout, "Native UI font: %s; directory: %s; stroke height %.2f; layout scale %.3f\n",
+            b.ui_font_name, b.ui_font_directory, (double)b.ui_char_height, (double)b.ui_scale);
+    return 1;
+}
+
+static void ui_quad(xb_ui_packet *packet, float x, float y, float width, float height,
+                    float r, float g, float blue)
+{
+    int index;
+    Xgl_pt_f2d *points;
+    /* An empty health/armor bar is valid UI, not a degenerate polygon. */
+    if (width == 0 || height == 0) return;
+    if (packet->quads >= XB_UI_QUADS || !(width > 0 && height > 0)) {
+        fail_kind(XB_FAILURE_VALIDATION, "native UI geometry capacity or size is invalid");
+        packet->quads = -1;
+        return;
+    }
+    if (packet->quads < 0) return;
+    index = packet->quads++;
+    points = &packet->points[index * 4];
+    points[0].x = x; points[0].y = y;
+    points[1].x = x + width; points[1].y = y;
+    points[2].x = x + width; points[2].y = y + height;
+    points[3].x = x; points[3].y = y + height;
+    packet->lists[index].pt_type = XGL_PT_F2D;
+    packet->lists[index].num_pts = 4;
+    packet->lists[index].pts.f2d = points;
+    packet->colors[index].color.rgb.r = r;
+    packet->colors[index].color.rgb.g = g;
+    packet->colors[index].color.rgb.b = blue;
+}
+
+static int ui_line(xb_ui_packet *packet, const char *text, const Xgl_bounds_f2d *bounds,
+                   float left, float top, float width)
+{
+    int index;
+    if (packet->lines >= XB_UI_LINES ||
+        bounds->xmax - bounds->xmin > width ||
+        bounds->ymax - bounds->ymin > 13.0f * b.ui_scale) {
+        fail_kind(XB_FAILURE_VALIDATION, "native font does not fit the UI layout");
+        return 0;
+    }
+    index = packet->lines++;
+    copy_text(packet->strings[index], sizeof(packet->strings[index]), text);
+    packet->positions[index].x = left - bounds->xmin;
+    /* Text extents are in baseline coordinates, with positive Y upward;
+     * device-space pixel rows increase downward. Respect glyph bearings. */
+    packet->positions[index].y = top + bounds->ymax;
+    return 1;
+}
+
+static int build_ui_packet(xb_ui_packet *packet, enum xb_ui kind, unsigned long sequence)
+{
+    float s, x, y, top;
+    int i, value, selected;
+    char text[80];
+    memset(packet, 0, sizeof(*packet));
+    s = b.ui_scale; x = b.ui_x;
+    if (kind == XB_UI_HUD) {
+        top = b.height - 56 * s;
+        ui_quad(packet, x, top, 320*s, 56*s, .08f, .08f, .10f);
+        ui_quad(packet, x, top, 320*s, 2*s, .45f, .23f, .08f);
+        for (i = 0; i < 3; ++i) {
+            value = i == 0 ? 100 - (int)(sequence % 101UL) :
+                    (i == 1 ? (int)(sequence % 101UL) : 100 - (int)(sequence % 51UL));
+            sprintf(text, "%s %3d", i == 0 ? "HEALTH" : (i == 1 ? "ARMOR" : "AMMO"), value);
+            if (!ui_line(packet, text, &b.ui_hud_bounds[i][value],
+                         x + (8 + 104*i)*s, top + 8*s, 96*s)) return 0;
+            ui_quad(packet, x+(8+104*i)*s, top+23*s, 94*s, 7*s, .20f,.20f,.22f);
+            ui_quad(packet, x+(8+104*i)*s, top+23*s, 94*s*value/100.0f, 7*s,
+                    i == 0 ? .8f : .2f, i == 1 ? .65f : .25f, i == 2 ? .8f : .15f);
+        }
+        if (!ui_line(packet, ui_footer, &b.ui_footer_bounds, x+8*s, top+38*s, 304*s)) return 0;
+        ui_quad(packet, b.width*.5f-5*s, b.height*.5f-s, 10*s, 2*s, 1,1,1);
+        ui_quad(packet, b.width*.5f-s, b.height*.5f-5*s, 2*s, 10*s, 1,1,1);
+    } else if (kind == XB_UI_MENU) {
+        x += 48*s; top = b.height*.5f - 88*s;
+        ui_quad(packet, x, top, 224*s, 176*s, .08f,.08f,.10f);
+        ui_quad(packet, x, top, 224*s, 2*s, .45f,.23f,.08f);
+        if (!ui_line(packet, ui_menu_text[0], &b.ui_menu_bounds[0], x+12*s, top+10*s, 200*s)) return 0;
+        selected = (int)(sequence % 6UL);
+        ui_quad(packet, x+8*s, top+(34+18*selected)*s, 208*s, 15*s, .35f,.16f,.04f);
+        for (i = 1; i <= 6; ++i)
+            if (!ui_line(packet, ui_menu_text[i], &b.ui_menu_bounds[i], x+18*s,
+                         top+(37+18*(i-1))*s, 188*s)) return 0;
+        if (!ui_line(packet, ui_menu_text[7], &b.ui_menu_bounds[7], x+12*s, top+150*s, 70*s)) return 0;
+        ui_quad(packet, x+88*s, top+154*s, 112*s, 3*s, .3f,.3f,.3f);
+        ui_quad(packet, x+(88+(sequence%101UL))*s, top+150*s, 5*s, 11*s, .8f,.6f,.2f);
+    } else if (kind == XB_UI_CONSOLE) {
+        ui_quad(packet, x, 0, 320*s, 176*s, .08f,.08f,.10f);
+        ui_quad(packet, x, 174*s, 320*s, 2*s, .45f,.23f,.08f);
+        for (i = 0; i < 12; ++i) {
+            y = (8 + 13*i)*s;
+            if (!ui_line(packet, ui_console_text[i], &b.ui_console_bounds[i], x+8*s, y, 304*s)) return 0;
+        }
+        if (!(sequence & 1UL)) ui_quad(packet, x+51*s, 159*s, 6*s, 2*s, 1,1,1);
+    } else {
+        fail_kind(XB_FAILURE_UNSUPPORTED, "unknown native UI workload");
+        return 0;
+    }
+    return 1;
+}
+
+int xb_backend_ui(enum xb_ui kind, unsigned long sequence)
+{
+    xb_ui_packet packet;
+    Xgl_facet_list facets;
+    int i;
+    if (b.errors || xb_cancel_requested()) return 0;
+    if (!b.ui_ready) {
+        fail("native UI was not prepared before rendering");
+        return 0;
+    }
+    if (!build_ui_packet(&packet, kind, sequence) || packet.quads < 0) return 0;
+    /* Independent deferred contexts need an explicit ordering boundary. */
+    xb_backend_sync();
+    if (b.errors || xb_cancel_requested()) return 0;
+    memset(&facets, 0, sizeof(facets));
+    facets.facet_type = XGL_FACET_COLOR;
+    facets.num_facets = (Xgl_usgn32)packet.quads;
+    facets.facets.color_facets = packet.colors;
+    b.ui_pending = 1;
+    xgl_multi_simple_polygon(b.ui_ctx,
+        XGL_FACET_FLAG_SIDES_ARE_4 | XGL_FACET_FLAG_SHAPE_CONVEX,
+        &facets, NULL, (Xgl_usgn32)packet.quads, packet.lists);
+    for (i = 0; i < packet.lines && !b.errors && !xb_cancel_requested(); ++i)
+        xgl_stroke_text(b.ui_ctx, packet.strings[i], &packet.positions[i], NULL);
+    /* Drain recoverable failures too: queued overlay work must not survive
+     * into another case after its error state is reset. Volatile inputs and
+     * this completion boundary keep stack strings/descriptors valid. */
+    (void)ui_complete();
+    return !b.errors && !xb_cancel_requested();
 }
 
 int xb_backend_events(void)
@@ -1968,6 +2193,8 @@ int xb_backend_events(void)
             b.width = event.xconfigure.width;
             b.height = event.xconfigure.height;
             xgl_window_raster_resize(b.raster);
+            b.ui_ready = 0;
+            memset(b.ui_checked, 0, sizeof(b.ui_checked));
             setup_view();
             changed = 1;
         }
@@ -2184,6 +2411,134 @@ static int pixel_matches(int x, int y, const xb_rgb *expected)
         return 0;
     }
     return 1;
+}
+
+static int validate_ui(enum xb_ui kind)
+{
+    Xgl_color background, saved_background;
+    Xgl_hlhsr_data saved_depth, near_depth;
+    Xgl_usgn32 saved_draw, saved_actions, buffer;
+    Xgl_pt_f2d position;
+    xb_rgb expected, sample;
+    enum xb_failure saved_failure;
+    char previous_error[256], context[96];
+    float width, height, s;
+    int px, py, xmax, ymax, found, result;
+    if (kind < XB_UI_HUD || kind > XB_UI_CONSOLE) {
+        fail_kind(XB_FAILURE_UNSUPPORTED, "unknown native UI workload");
+        return 0;
+    }
+    if (b.errors || xb_cancel_requested() || !ensure_ui()) return 0;
+    if (b.ui_checked[kind]) return 1;
+    width = b.ui_probe_bounds.xmax - b.ui_probe_bounds.xmin;
+    height = b.ui_probe_bounds.ymax - b.ui_probe_bounds.ymin;
+    if (!(width > 0 && width <= 32 && height > 0 && height <= 32)) {
+        fail_kind(XB_FAILURE_VALIDATION, "native stroke font exceeds bounded ink probe extent");
+        return 0;
+    }
+    xgl_object_get(b.ctx, XGL_CTX_BACKGROUND_COLOR, &saved_background);
+    if (b.errors) return 0;
+    xgl_object_get(b.ctx, XGL_3D_CTX_HLHSR_DATA, &saved_depth);
+    if (b.errors) return 0;
+    xgl_object_get(b.ctx, XGL_CTX_NEW_FRAME_ACTION, &saved_actions);
+    if (b.errors) return 0;
+    xgl_object_get(b.raster, XGL_WIN_RAS_BUF_DRAW, &saved_draw);
+    if (b.errors) return 0;
+    result = 0;
+    buffer = 0;
+    memset(&near_depth, 0, sizeof(near_depth));
+    /* Populate nearest Z without touching main transforms/lighting. The 2D
+     * overlay must remain visible over it. All state is restored below. */
+    xgl_object_set(b.ctx, XGL_3D_CTX_HLHSR_DATA, &near_depth, 0);
+    if (b.errors) goto done;
+    for (buffer = 0; buffer < b.buffers; ++buffer) {
+        if (xb_cancel_requested()) goto done;
+        memset(&background, 0, sizeof(background));
+        background.rgb.r = buffer ? .30f : .10f;
+        background.rgb.g = buffer ? .15f : .20f;
+        background.rgb.b = buffer ? .10f : .35f;
+        xgl_object_set(b.raster, XGL_WIN_RAS_BUF_DRAW, buffer, 0);
+        if (b.errors) goto done;
+        xgl_object_set(b.ctx, XGL_CTX_BACKGROUND_COLOR, &background, 0);
+        if (b.errors) goto done;
+        xb_backend_clear(1, 1);
+        xb_backend_sync();
+        if (b.errors || xb_cancel_requested()) goto done;
+        xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, 10.0, 0);
+        if (b.errors) goto done;
+        position.x = 8.0f - b.ui_probe_bounds.xmin;
+        position.y = 8.0f + b.ui_probe_bounds.ymax;
+        b.ui_pending = 1;
+        xgl_stroke_text(b.ui_ctx, (void *)"H", &position, NULL);
+        (void)ui_complete();
+        if (b.errors || xb_cancel_requested()) goto done;
+        /* Find opaque white ink, allowing font-specific bearings and glyph
+         * shape. No exact glyph pixel or monospaced font is assumed. */
+        found = 0;
+        xmax = 8 + (int)ceil((double)width);
+        ymax = 8 + (int)ceil((double)height);
+        for (py = 8; py <= ymax && !found; ++py) {
+            for (px = 8; px <= xmax; ++px) {
+                if (!read_pixel(px, py, &sample)) goto done;
+                if (fabs(sample.r - 1) <= .065 && fabs(sample.g - 1) <= .065 &&
+                    fabs(sample.b - 1) <= .065) { found = 1; break; }
+            }
+        }
+        if (!found) {
+            fail_kind(XB_FAILURE_VALIDATION, "native stroke text produced no white ink inside measured extent");
+            goto done;
+        }
+        expected.r = background.rgb.r;
+        expected.g = background.rgb.g;
+        expected.b = background.rgb.b;
+        if (!pixel_matches(4, 4, &expected)) goto done;
+        xgl_object_set(b.ui_ctx, XGL_CTX_STEXT_CHAR_HEIGHT, (double)b.ui_char_height, 0);
+        if (b.errors || !xb_backend_ui(kind, (unsigned long)buffer)) goto done;
+        s = b.ui_scale;
+        px = (int)(b.ui_x + 2*s);
+        py = b.height - (int)(3*s);
+        if (kind == XB_UI_MENU) {
+            px = (int)(b.ui_x + 53*s);
+            py = (int)(b.height*.5f + 82*s);
+        } else if (kind == XB_UI_CONSOLE) {
+            px = (int)(b.ui_x + 314*s);
+            py = (int)(165*s);
+        }
+        expected.r = expected.g = .08f; expected.b = .10f;
+        if (!pixel_matches(px, py, &expected)) goto done;
+        expected.r = background.rgb.r;
+        expected.g = background.rgb.g;
+        expected.b = background.rgb.b;
+        if (!pixel_matches(0, kind == XB_UI_CONSOLE ? b.height - 1 : 0, &expected)) goto done;
+    }
+    result = 1;
+done:
+    if (!result && b.error[0]) {
+        sprintf(context, "native UI %s buffer %lu", kind == XB_UI_HUD ? "HUD" :
+                (kind == XB_UI_MENU ? "menu" : "console"), (unsigned long)buffer);
+        error_context(context);
+    }
+    copy_text(previous_error, sizeof(previous_error), b.error);
+    saved_failure = b.failure;
+    /* Recoverable API failures still need state restoration. Preserve the
+     * original diagnostic if restoration itself reports a later error. */
+    (void)ui_complete();
+    if (!b.fatal) xgl_object_set(b.ui_ctx,
+        XGL_CTX_STEXT_CHAR_HEIGHT, (double)b.ui_char_height, 0);
+    if (!b.fatal) xgl_object_set(b.ctx,
+        XGL_CTX_BACKGROUND_COLOR, &saved_background,
+        XGL_3D_CTX_HLHSR_DATA, &saved_depth,
+        XGL_CTX_NEW_FRAME_ACTION, saved_actions, 0);
+    if (!b.fatal) xgl_object_set(b.raster, XGL_WIN_RAS_BUF_DRAW, saved_draw, 0);
+    if (previous_error[0]) {
+        copy_text(b.error, sizeof(b.error), previous_error);
+        b.failure = saved_failure;
+    }
+    if (result && !b.errors && !xb_cancel_requested()) {
+        b.ui_checked[kind] = 1;
+        return 1;
+    }
+    return 0;
 }
 
 static int lighting_probe_draw(const xb_mesh *mesh)
@@ -2517,35 +2872,6 @@ done:
     return result && !b.errors;
 }
 
-static int validate_raster(int masked)
-{
-    xb_rgb black, hud;
-    int px, py, result;
-    if ((masked && b.mask_checked) || (!masked && b.raster_checked)) return 1;
-    if (b.width < XB_RASTER_W || b.height < XB_RASTER_H) {
-        fail_kind(XB_FAILURE_UNSUPPORTED, "raster benchmark requires at least a 128x64 drawable");
-        return 0;
-    }
-    if (!b.hud_ready && !make_hud()) return 0;
-    xb_backend_clear(1, 1);
-    xb_backend_raster(masked);
-    xb_backend_sync();
-    px = (b.width - XB_RASTER_W) / 2;
-    py = b.height - XB_RASTER_H;
-    black.r = black.g = black.b = 0;
-    hud.r = 220.0f / 255; hud.g = 32.0f / 255; hud.b = 64.0f / 255;
-    result = pixel_matches(px, py, &hud);
-    if (result && masked) result = pixel_matches(px + 9, py, &black);
-    /* Cache success only. API errors, cancellation and obscured pixels may
-     * recover at the next case boundary; never relabel them as a cached RGB
-     * mismatch. Rechecking a real mismatch also preserves its precise reason.
-     */
-    if (result) {
-        if (masked) b.mask_checked = 1;
-        else b.raster_checked = 1;
-    }
-    return result;
-}
 
 int xb_backend_validate(enum xb_method method, char *reason, size_t size)
 {

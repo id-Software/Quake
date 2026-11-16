@@ -8,6 +8,8 @@
 typedef void *Xgl_sys_state;
 typedef void *Xgl_win_ras;
 typedef void *Xgl_ctx;
+typedef void *Xgl_2d_ctx;
+typedef void *Xgl_sfont;
 typedef void *Xgl_trans;
 typedef void *Xgl_mem_ras;
 typedef void *Xgl_ras;
@@ -37,9 +39,12 @@ typedef enum {
     XGL_COLOR_INDEX, XGL_COLOR_GRAY, XGL_COLOR_RGB, XGL_COLOR_Z
 } Xgl_color_type;
 typedef struct { float x, y, z; } Xgl_pt_f3d;
+typedef struct { float x, y; } Xgl_pt_f2d;
 typedef struct { double x, y, z; } Xgl_pt_d3d;
 typedef struct { int x, y; } Xgl_pt_i2d;
 typedef struct { double xmin, xmax, ymin, ymax, zmin, zmax; } Xgl_bounds_d3d;
+typedef struct { double xmin, xmax, ymin, ymax; } Xgl_bounds_d2d;
+typedef struct { float xmin, xmax, ymin, ymax; } Xgl_bounds_f2d;
 typedef struct { int xmin, xmax, ymin, ymax; } Xgl_bounds_i2d;
 typedef float Xgl_matrix_f3d[4][4];
 typedef float Xgl_matrix_f2d[3][2];
@@ -99,7 +104,7 @@ typedef struct {
     int pt_type;
     Xgl_bbox *bbox;
     Xgl_usgn32 num_pts, num_data_values;
-    union { Xgl_pt_f3d *f3d; Xgl_pt_color_f3d *color_f3d;
+    union { Xgl_pt_f2d *f2d; Xgl_pt_f3d *f3d; Xgl_pt_color_f3d *color_f3d;
             Xgl_pt_color_normal_f3d *color_normal_f3d;
             Xgl_pt_data_f3d *data_f3d; } pts;
 } Xgl_pt_list;
@@ -122,7 +127,7 @@ typedef struct {
     Xgl_inq_support_level transparency;
 } Xgl_inquire;
 typedef struct { void *X_display; int X_screen; Xgl_usgn32 X_window; } Xgl_X_window;
-typedef union { struct { Xgl_usgn32 type; void *desc; } win_ras; } Xgl_obj_desc;
+typedef union { struct { Xgl_usgn32 type; void *desc; } win_ras; char *sfont_name; } Xgl_obj_desc;
 #ifndef TRUE
 #define TRUE 1
 #define FALSE 0
@@ -131,6 +136,10 @@ typedef union { struct { Xgl_usgn32 type; void *desc; } win_ras; } Xgl_obj_desc;
 #define XGL_CTX_NEW_FRAME_CLEAR 0x02
 #define XGL_CTX_NEW_FRAME_HLHSR_ACTION 0x04
 #define XGL_CTX_NEW_FRAME_SWITCH_BUFFER 0x08
+#define XGL_CTX_NEW_FRAME_NONE 0x00
+#define XGL_SINGLE_STR 0x0
+#define XGL_CHAR_MBY 0x0
+#define XGL_CHAR_ISO 0x1
 enum {
     XGL_3D_CTX = 100, XGL_3D_CTX_HLHSR_DATA, XGL_3D_CTX_HLHSR_MODE,
     XGL_3D_CTX_SURF_FACE_CULL, XGL_3D_CTX_SURF_FACE_DISTINGUISH,
@@ -191,7 +200,19 @@ enum {
     XGL_TRANSP_NONE, XGL_TRANSP_BLENDED, XGL_TRANSP_SCREEN_DOOR,
     XGL_BLEND_NONE, XGL_BLEND_ARBITRARY_BG, XGL_BLEND_CONST_BG,
     XGL_BLEND_ADD_TO_BG, XGL_BLEND_DRAW_ALL, XGL_BLEND_DRAW_NOT_BLENDED,
-    XGL_BLEND_DRAW_BLENDED
+    XGL_BLEND_DRAW_BLENDED,
+    XGL_2D_CTX, XGL_SFONT, XGL_SFONT_NAME, XGL_CTX_SFONT_0,
+    XGL_CTX_STEXT_CHAR_ENCODING, XGL_CTX_STEXT_CHAR_HEIGHT,
+    XGL_CTX_STEXT_CHAR_SPACING, XGL_CTX_STEXT_CHAR_EXPANSION_FACTOR,
+    XGL_CTX_STEXT_PATH, XGL_CTX_STEXT_CHAR_UP_VECTOR,
+    XGL_CTX_STEXT_ALIGN_HORIZ, XGL_CTX_STEXT_ALIGN_VERT,
+    XGL_CTX_STEXT_PRECISION, XGL_CTX_STEXT_COLOR,
+    XGL_STEXT_PATH_RIGHT, XGL_STEXT_ALIGN_HORIZ_LEFT,
+    XGL_STEXT_ALIGN_VERT_BASE, XGL_STEXT_ALIGN_VERT_TOP,
+    XGL_STEXT_PRECISION_STROKE, XGL_PT_F2D, XGL_TRANS_2D,
+    XGL_CTX_RENDER_BUFFER, XGL_RENDER_DRAW_BUFFER,
+    XGL_VDC_MAP_DEVICE, XGL_FACET_FLAG_SIDES_ARE_4,
+    XGL_SYS_ST_SFONT_DIRECTORY, XGL_DEFER_ASAP
 };
 Xgl_sys_state xgl_open(Xgl_attribute, ...);
 void xgl_close(Xgl_sys_state);
@@ -214,4 +235,6 @@ void xgl_mipmap_texture_build(Xgl_mipmap_texture, Xgl_mem_ras,
                              Xgl_texture_boundary, Xgl_texture_boundary);
 void xgl_context_copy_buffer(Xgl_ctx, Xgl_bounds_i2d *, Xgl_pt_i2d *, Xgl_ras);
 Xgl_boolean xgl_context_get_pixel(Xgl_ctx, Xgl_pt_i2d *, Xgl_color *);
+void xgl_stroke_text(Xgl_ctx, void *, void *, void *);
+void xgl_stroke_text_extent(Xgl_ctx, void *, Xgl_bounds_f2d *, Xgl_pt_f2d *);
 #endif

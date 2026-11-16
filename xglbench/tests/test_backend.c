@@ -9,6 +9,7 @@
 int xb_test_paused(void);
 void xb_test_advance(double seconds);
 static double test_draw_advance;
+static double test_ui_advance;
 static unsigned long test_draw_advance_at;
 #endif
 
@@ -41,6 +42,7 @@ static unsigned long test_texture_checksum;
 static int test_texture_active;
 static int test_texture_bad;
 static size_t test_memory_peak;
+static unsigned long test_ui_draws;
 
 typedef struct {
     xb_rgb *colors;
@@ -72,6 +74,13 @@ static const char *test_filter_name(enum xb_texture_filter filter)
     if (filter == XB_TEXTURE_BILINEAR) return "bilinear";
     if (filter == XB_TEXTURE_TRILINEAR) return "trilinear";
     return "off";
+}
+
+static const char *test_ui_name(enum xb_ui ui)
+{
+    if (ui == XB_UI_MENU) return "menu";
+    if (ui == XB_UI_CONSOLE) return "console";
+    return "hud";
 }
 
 static int test_texture_fail(const char *error, char *reason, size_t size)
@@ -117,6 +126,7 @@ int xb_backend_open(const xb_options *options, int width, int height)
     test_texture_point_count = 0;
     test_texture_active = test_texture_bad = 0;
     test_memory_peak = 0;
+    test_ui_draws = 0;
     memset(&test_case, 0, sizeof(test_case));
     memset(&test_lights, 0, sizeof(test_lights));
     test_slot_count = test_outstanding = test_peak = 0;
@@ -137,6 +147,8 @@ int xb_backend_open(const xb_options *options, int width, int height)
     if (delay) xb_test_advance(atof(delay));
     delay = getenv("XB_TEST_DRAW_ADVANCE");
     test_draw_advance = delay ? atof(delay) : 0;
+    delay = getenv("XB_TEST_UI_ADVANCE");
+    test_ui_advance = delay ? atof(delay) : 0;
     draw = getenv("XB_TEST_DRAW_ADVANCE_AT");
     test_draw_advance_at = draw ? strtoul(draw, NULL, 10) : 0;
 #endif
@@ -267,6 +279,7 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
     test_light_updates = 0;
     test_texture_active = 0;
     test_texture_bad = 0;
+    test_ui_draws = 0;
     memset(&test_lights, 0, sizeof(test_lights));
     test_log("lighting-configure", (int)test->lighting, (int)test->shade);
     test_log("lighting-compute", test->xgl_lighting, test->lights);
@@ -275,6 +288,7 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
     test_log("material-configure", test->vertex_material, (int)test->shade);
     test_log("texture-configure", (int)test->texture_filter, test->texture_compare);
     test_log("simulation-fps", test->sim_fps, 0);
+    test_log("geometry-count", (int)mesh->triangles, test->overdraw);
     if (test->work == XB_FRAME || test->work == XB_SCENE_FRAME)
         test_log("frame-kind", test->work == XB_SCENE_FRAME, 0);
     if (test->transparency) {
@@ -296,15 +310,18 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
             return 0;
         }
     }
-    if ((test->work == XB_FRAME || test->work == XB_RASTER ||
-         test->work == XB_MASKED_RASTER) && getenv("XB_TEST_FAIL_HUD")) {
-        test_failure = XB_FAILURE_VALIDATION;
-        test_error = "injected HUD readback failure";
-        if (size) {
-            strncpy(reason, test_error, size - 1);
-            reason[size - 1] = '\0';
+    if (test->work == XB_FRAME || test->work == XB_UI) {
+        test_log("ui-configure", (int)test->ui, 0);
+        failed = getenv("XB_TEST_FAIL_UI");
+        if (failed && (!strcmp(failed, "all") || !strcmp(failed, test_ui_name(test->ui)))) {
+            test_failure = XB_FAILURE_VALIDATION;
+            test_error = "injected native UI validation failure";
+            if (size) {
+                strncpy(reason, test_error, size - 1);
+                reason[size - 1] = '\0';
+            }
+            return 0;
         }
-        return 0;
     }
     if (test->texture_compare) {
         if (!mesh || mesh->point_count != mesh->triangles * 3 || !mesh->texcoords)
@@ -488,6 +505,7 @@ void xb_backend_clear(int color, int depth)
         test_log("frame-clear", color, depth);
     if (test_case.work == XB_COLOR_DEPTH_CLEAR)
         test_log("combined-clear", color, depth);
+    if (test_case.work == XB_UI) test_log("ui-clear", color, depth);
 }
 
 size_t xb_backend_draw(enum xb_method method, int batch)
@@ -541,18 +559,33 @@ void xb_backend_swap(void)
     if (test_slot_count) test_stream_fail("streaming test unexpectedly swapped");
     if (test_case.work == XB_FRAME || test_case.work == XB_SCENE_FRAME)
         test_log("frame-swap", 0, 0);
+    if (test_case.work == XB_UI) test_log("ui-swap", 0, 0);
 }
-void xb_backend_raster(int masked)
+int xb_backend_ui(enum xb_ui ui, unsigned long sequence)
 {
     int texture_was_active;
+    const char *failed;
+    if ((test_case.work != XB_FRAME && test_case.work != XB_UI) || ui != test_case.ui)
+        return test_lighting_fail("native UI called outside its requested workload");
+    if (test_slot_count) return test_stream_fail("streaming test unexpectedly drew native UI");
+    ++test_ui_draws;
     texture_was_active = test_texture_active;
     test_texture_active = 0;
-    if (test_case.texture_compare) test_log("texture-hud", test_texture_active, masked);
-    if (test_slot_count) test_stream_fail("streaming test unexpectedly drew a HUD");
-    if (test_case.work == XB_FRAME) test_log("frame-hud", masked, 0);
-    if (test_case.work == XB_SCENE_FRAME)
-        test_lighting_fail("scene-only frame unexpectedly drew a HUD");
+    test_log("ui-draw", (int)ui, (int)sequence);
+    if (test_case.texture_compare) test_log("texture-hud", test_texture_active, (int)ui);
+    if (test_case.work == XB_FRAME) test_log("frame-hud", (int)ui, 0);
+#ifdef XB_PROFILE_TEST_CLOCK
+    xb_test_advance(test_ui_advance);
+#endif
     test_texture_active = texture_was_active;
+    failed = getenv("XB_TEST_FAIL_UI_DRAW");
+    if (failed && test_ui_draws == strtoul(failed, NULL, 10)) {
+        test_failure = XB_FAILURE_API;
+        test_error = "injected native UI drawing failure";
+        test_log("ui-failed", (int)ui, (int)sequence);
+        return 0;
+    }
+    return 1;
 }
 int xb_backend_events(void)
 {

@@ -272,8 +272,9 @@ static int make_cases(xb_case *cases)
     c = add_case(cases, &n, "overhead/depth-clear"); c->work = XB_DEPTH_CLEAR;
     c = add_case(cases, &n, "overhead/color-depth-clear"); c->work = XB_COLOR_DEPTH_CLEAR;
     c = add_case(cases, &n, "overhead/swap"); c->work = XB_SWAP;
-    c = add_case(cases, &n, "hud/opaque-copy"); c->work = XB_RASTER; c->zbuffer = 0;
-    c = add_case(cases, &n, "hud/masked-copy"); c->work = XB_MASKED_RASTER; c->zbuffer = 0;
+    c = add_case(cases, &n, "ui/hud"); c->work = XB_UI; c->ui = XB_UI_HUD;
+    c = add_case(cases, &n, "ui/menu"); c->work = XB_UI; c->ui = XB_UI_MENU;
+    c = add_case(cases, &n, "ui/console"); c->work = XB_UI; c->ui = XB_UI_CONSOLE;
     areas[0] = 4; areas[1] = 16; areas[2] = 64;
     areas[3] = 100; areas[4] = 256; areas[5] = 1024;
     for (i = 0; i < 6; ++i) {
@@ -408,7 +409,7 @@ static int make_cases(xb_case *cases)
         c->texture_filter = mode < 2 ? XB_TEXTURE_OFF :
                               (enum xb_texture_filter)(mode - 1);
     }
-    /* Scene presentation is independent of the strict masked-HUD path.
+    /* Scene presentation is independent of the native text/geometry HUD path.
      * These controls otherwise match the corresponding full-frame cases. */
     for (path = 0; path < 2; ++path) {
         for (d = 0; d <= 1; ++d) {
@@ -421,15 +422,21 @@ static int make_cases(xb_case *cases)
         add_lighting_case(cases, &n, name, path, XB_LIGHT_QUAKE, 1, 0, 1, 0, 1, 0);
         c = &cases[n - 1]; c->work = XB_SCENE_FRAME; c->vertex_material = path & 1;
     }
-    for (mode = 0; mode < 3; ++mode) {
-        for (i = 0; i < 2; ++i) {
-            sprintf(name, "transparency/%s/%s", mode == 0 ? "opaque" :
-                    (mode == 1 ? "blended-zfreeze" : "blended-zwrite"),
-                    i ? "far-to-near" : "near-to-far");
-            c = add_case(cases, &n, name);
-            c->overdraw = 1; c->reverse = i;
-            c->transparency = mode != 0; c->opacity = .5f;
-            c->blend_zwrite = mode == 2;
+    /* Normal comparisons use four overlapping quads. The prior full-base
+     * overdraw workload remains an explicit stress family, not default work. */
+    for (path = 0; path < 2; ++path) {
+        for (mode = 0; mode < 3; ++mode) {
+            for (i = 0; i < 2; ++i) {
+                sprintf(name, "%s/%s/%s", path ? "transparency-stress" : "transparency",
+                        mode == 0 ? "opaque" :
+                        (mode == 1 ? "blended-zfreeze" : "blended-zwrite"),
+                        i ? "far-to-near" : "near-to-far");
+                c = add_case(cases, &n, name);
+                c->base_triangles = path ? 0 : 8;
+                c->overdraw = 1; c->reverse = i;
+                c->transparency = mode != 0; c->opacity = .5f;
+                c->blend_zwrite = mode == 2;
+            }
         }
     }
     return n;
@@ -465,7 +472,7 @@ static int select_cases(const xb_case *cases, int count, const xb_options *o, in
         "transparency/opaque/near-to-far", "transparency/opaque/far-to-near",
         "transparency/blended-zfreeze/near-to-far", "transparency/blended-zfreeze/far-to-near",
         "transparency/blended-zwrite/near-to-far", "transparency/blended-zwrite/far-to-near",
-        "overhead/color-clear", "overhead/depth-clear",
+        "ui/menu", "ui/console",
         "texture/facet-flat/depth-2", "texture/vertex-smooth/depth-2",
         "pipeline/serialized/quake-cpu-smooth/depth-1",
         "pipeline/streaming/quake-cpu-smooth/depth-1"
@@ -496,13 +503,14 @@ static int select_cases(const xb_case *cases, int count, const xb_options *o, in
 static int build_mesh(xb_mesh *mesh, const xb_options *o, const xb_case *c,
                       int width, int height)
 {
-    int ok;
+    int ok, base_triangles;
     size_t i;
     xb_point point;
-    if (c->area > 0) ok = xb_mesh_build_calibrated(mesh, o->base_triangles,
+    base_triangles = c->base_triangles ? c->base_triangles : o->base_triangles;
+    if (c->area > 0) ok = xb_mesh_build_calibrated(mesh, base_triangles,
                                                  width, height, c->area, c->aspect);
-    else if (c->connected) ok = xb_mesh_build_connected(mesh, o->base_triangles, c->depth);
-    else ok = xb_mesh_build(mesh, o->base_triangles, c->depth, c->size, c->overdraw);
+    else if (c->connected) ok = xb_mesh_build_connected(mesh, base_triangles, c->depth);
+    else ok = xb_mesh_build(mesh, base_triangles, c->depth, c->size, c->overdraw);
     if (ok && c->reverse) ok = xb_mesh_reverse_draw_order(mesh);
     if (ok && !strncmp(c->name, "cull/", 5)) {
         /* Only unlit multi-polygon cases use this independent-corner fixture;
@@ -616,7 +624,7 @@ static int one_frame(const xb_options *o, const xb_case *c, xb_mesh *mesh,
     }
     prepared = xb_now();
     if (budget_expired()) goto cancelled;
-    if (c->work == XB_DRAW || c->work == XB_RASTER || c->work == XB_MASKED_RASTER) {
+    if (c->work == XB_DRAW || c->work == XB_UI) {
         /* Identical depth history for every frame. Exclude this reset from render_ms. */
         xb_backend_clear(1, c->zbuffer);
         xb_backend_sync();
@@ -632,13 +640,14 @@ static int one_frame(const xb_options *o, const xb_case *c, xb_mesh *mesh,
         if (budget_expired()) goto cancelled;
         f->calls = xb_backend_draw(c->method, c->batch);
         if (budget_expired()) goto cancelled;
-        if (c->work == XB_FRAME) xb_backend_raster(1);
+        if (c->work == XB_FRAME && !xb_backend_ui(c->ui, sequence)) return 0;
         break;
     case XB_COLOR_CLEAR: xb_backend_clear(1, 0); break;
     case XB_DEPTH_CLEAR: xb_backend_clear(0, 1); break;
     case XB_COLOR_DEPTH_CLEAR: xb_backend_clear(1, 1); break;
-    case XB_RASTER: xb_backend_raster(0); break;
-    case XB_MASKED_RASTER: xb_backend_raster(1); break;
+    case XB_UI:
+        if (!xb_backend_ui(c->ui, sequence)) return 0;
+        break;
     case XB_SWAP: break;
     case XB_PIPELINE: return 0; /* has a separate bounded-window timing path */
     }
@@ -949,8 +958,9 @@ static void measure(const xb_options *o, xb_result *r, const int *valid,
     /* Show a representative image even for tests which exclude presentation. */
     xb_backend_clear(1, c->zbuffer);
     if (uses_mesh) xb_backend_draw(c->method, c->batch);
-    if (c->work == XB_RASTER || c->work == XB_MASKED_RASTER)
-        xb_backend_raster(c->work == XB_MASKED_RASTER);
+    if (c->work == XB_UI && !xb_backend_ui(c->ui, 0)) {
+        backend_reason(r, "native UI preview failed"); goto done;
+    }
     xb_backend_sync();
     if (xb_backend_has_double_buffer()) xb_backend_swap();
     xb_backend_sync();
@@ -1091,9 +1101,18 @@ static const char *failure_label(enum xb_failure failure)
     return labels[failure];
 }
 
+static const char *ui_name(const xb_case *c)
+{
+    if (c->work != XB_UI && c->work != XB_FRAME) return "none";
+    if (c->ui == XB_UI_MENU) return "menu";
+    if (c->ui == XB_UI_CONSOLE) return "console";
+    return "hud";
+}
+
 static const char *frame_path(const xb_case *c)
 {
-    if (c->work == XB_FRAME) return "hud-swap";
+    if (c->work == XB_FRAME) return "native-ui-swap";
+    if (c->work == XB_UI) return "ui-only";
     if (c->work == XB_SCENE_FRAME) return "scene-swap";
     if (c->work == XB_PIPELINE) return "pipeline-no-swap";
     if (c->work == XB_DRAW) return "draw-only";
@@ -1182,7 +1201,9 @@ static void csv_row(FILE *f, const xb_result *r, const char *record, int trial,
     fprintf(f, ",%s,%s,", frame_path(&r->test), r->test.transparency ? "blended" : "opaque");
     if (r->test.transparency) fprintf(f, "%.6f,%d", r->test.opacity, r->test.blend_zwrite);
     else fputc(',', f);
-    fputc('\n', f);
+    fprintf(f, ",%s,%s,%d,%d\n", ui_name(&r->test),
+            r->test.work == XB_UI || r->test.work == XB_FRAME ? "native-text-geometry" : "none",
+            r->test.base_triangles, r->test.overdraw ? r->test.base_triangles / 2 : 0);
 }
 
 static void print_result(FILE *csv, const xb_result *r)
@@ -1251,9 +1272,16 @@ static void print_result(FILE *csv, const xb_result *r)
         printf("  Backface culling %s; %s winding. Facet rate counts submitted triangles,\n"
                "  including rejected backfaces; this is not a CPU-culling comparison.\n",
                r->test.cull ? "on" : "off", r->test.mixed_winding ? "mixed" : "all-front");
+    if (r->test.work == XB_UI || r->test.work == XB_FRAME)
+        printf("  Native XGL %s: stroke text and geometry; formatting/layout/submission included in render_ms.\n",
+                ui_name(&r->test));
+    if (r->test.overdraw)
+        printf("  Overlap workload: %d quads/layers, %d base triangles%s.\n",
+                r->test.base_triangles / 2, r->test.base_triangles,
+                !strncmp(r->test.name, "transparency-stress/", 20) ? " (explicit stress test)" : "");
     if (presentation_case(&r->test))
         printf("  Presentation path: %s.\n", r->test.work == XB_FRAME ?
-                "scene + masked HUD + swap" : "scene + swap; HUD deliberately excluded");
+                "scene + native text/geometry HUD + swap" : "scene + swap; UI deliberately excluded");
     if (r->test.transparency)
         printf("  Blended opacity %.2f; Z writes %s; submitted order %s.\n",
                 r->test.opacity, r->test.blend_zwrite ? "enabled" : "frozen",
@@ -1332,10 +1360,7 @@ static void findings(const xb_result *r, int count, int width, int height)
     if (a && b && a->median > 0)
         printf("  Rebuilding depth-1 geometry each frame costs %.2fx the cached total; "
                "rebuild preparation %.3f ms/frame.\n", b->median / a->median, b->prep_median * 1000);
-    a = find_result(r, count, width, height, "hud/opaque-copy");
-    b = find_result(r, count, width, height, "hud/masked-copy");
-    if (a && b && a->render_median > 0)
-        printf("  Masked/opaque HUD copy time ratio: %.2f.\n", b->render_median / a->render_median);
+
     a = find_result(r, count, width, height, "overdraw/z-on");
     b = find_result(r, count, width, height, "overdraw/far-to-near/z-on");
     if (a && b && a->render_median > 0)
@@ -1385,7 +1410,7 @@ static void findings(const xb_result *r, int count, int width, int height)
         sprintf(name, "texture-map/%s/frame/depth-1", shade ? "vertex-smooth" : "facet-flat");
         b = find_result(r, count, width, height, name);
         if (a && b)
-            printf("  Sampled %s depth-1 scene+swap %.3f ms; scene+HUD+swap %.3f ms.\n"
+            printf("  Sampled %s depth-1 scene+swap %.3f ms; scene+native-UI+swap %.3f ms.\n"
                    "    Difference includes any presentation timing variation; both paths validated.\n",
                     shade ? "smooth" : "flat", a->median * 1000, b->median * 1000);
     }
@@ -1457,7 +1482,7 @@ static void compare_sizes(const xb_result *r, int count)
            "  stronger scaling indicates pixel-work sensitivity. Neither identifies a\n"
            "  unique bottleneck. Swap timing can be quantized by display refresh.\n"
            "  Calibrated area/shape cases keep triangle area/count fixed; clears still grow.\n"
-           "  HUD copies remain 128x64 pixels at both sizes; their work does not quadruple.\n");
+           "  Native UI covers different areas at each size; its text/layout work need not scale by four.\n");
 }
 
 int main(int argc, char **argv)
@@ -1476,7 +1501,10 @@ int main(int argc, char **argv)
     if (parsed == 2) return 0;
     if (!parsed) { usage(stderr); return 2; }
     count = make_cases(cases);
-    for (i = 0; i < count; ++i) cases[i].sim_fps = o.sim_fps;
+    for (i = 0; i < count; ++i) {
+        cases[i].sim_fps = o.sim_fps;
+        if (!cases[i].base_triangles) cases[i].base_triangles = o.base_triangles;
+    }
     selected = select_cases(cases, count, &o, order);
     if (selected < 0) return 1;
     if (o.list_only)
@@ -1515,7 +1543,8 @@ int main(int argc, char **argv)
                      "texture_mapping,texture_filter,texture_execution,texture_width,texture_height,failure_kind,"
                      "completed_facets_sec,rate_basis,sim_fps,color_update_items,light_update_items,"
                      "updated_color_light_items,cached_color_light_items,updated_prepare_ms,cached_prepare_ms,"
-                     "native_current_bytes,native_peak_bytes,frame_path,transparency,opacity,blend_zwrite\n");
+                     "native_current_bytes,native_peak_bytes,frame_path,transparency,opacity,blend_zwrite,"
+                     "ui_kind,ui_method,base_triangles,overlap_layers\n");
     }
     results = (xb_result *)calloc((size_t)planned, sizeof(*results));
     if (!results) { if (csv) fclose(csv); fprintf(stderr, "Out of memory.\n"); return 1; }
@@ -1538,11 +1567,15 @@ int main(int argc, char **argv)
     xb_backend_info(stdout);
     printf("Settings: %d base triangles; %.3f seconds/trial; %d repeats; %.3f seconds warm-up; queue %d\n",
         o.base_triangles, o.seconds, o.repeats, o.warmup, o.queue);
+    printf("Native UI uses XGL stroke text and geometry; no HUD/menu/console raster copies.\n"
+           "Normal transparency cases use four overlapping quads (8 base triangles);\n"
+           "transparency-stress/* retains the global base count for explicit stress tests.\n");
     printf("Simulation: %d FPS; styles tick at 10 Hz without wall-clock pacing.\n", o.sim_fps);
     printf("Sampled-color cases use CPU material RGB; texture-map cases also compare native XGL texturing.\n"
            "All timed rendering waits for completion. No result is a GPU-only timer.\n"
            "Totals include reset clears; draw render_ms excludes the reset. frame/* includes\n"
-           "clear+draw+masked HUD in render_ms and swap in present_ms. scene/* excludes HUD.\n"
+           "clear+draw+native UI in render_ms and swap in present_ms. scene/* excludes UI.\n"
+           "UI formatting/layout and drawing are timed in render_ms; prep_ms covers scene preparation.\n"
            "Their event polling is untimed. done/sec always uses completed total_ms.\n"
            "CSV preserves the old triangles_per_second with rate_basis, and adds completed_facets_sec.\n");
     printf("Pipeline cases use one thread, retained slots and bounded post/drain windows.\n"

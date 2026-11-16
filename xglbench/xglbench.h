@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#define XB_VERSION "0.8"
+#define XB_VERSION "0.9"
 #define XB_MAX_QUEUE 8
 #define XB_MAX_LIGHTS 4
 #define XB_STYLE_LAYERS 4
@@ -39,8 +39,9 @@ typedef struct {
 
 enum xb_method { XB_POLYGON, XB_MULTI, XB_TLIST, XB_STRIP };
 enum xb_work { XB_DRAW, XB_COLOR_CLEAR, XB_DEPTH_CLEAR, XB_SWAP,
-               XB_RASTER, XB_MASKED_RASTER, XB_FRAME, XB_PIPELINE,
+               XB_UI, XB_FRAME, XB_PIPELINE,
                XB_SCENE_FRAME, XB_COLOR_DEPTH_CLEAR };
+enum xb_ui { XB_UI_HUD, XB_UI_MENU, XB_UI_CONSOLE };
 enum xb_update { XB_STATIC, XB_TRANSFORM, XB_COLORS, XB_REBUILD, XB_LIGHT_UPDATE };
 enum xb_shade { XB_FLAT, XB_SMOOTH };
 enum xb_light_model { XB_LIGHT_OFF, XB_LIGHT_BAKED, XB_LIGHT_LAMBERT, XB_LIGHT_QUAKE };
@@ -67,6 +68,8 @@ typedef struct {
     enum xb_work work;
     enum xb_method method;
     enum xb_update update;
+    enum xb_ui ui;
+    int base_triangles; /* zero selects the global count until options are resolved */
     int batch, depth, zbuffer, overdraw, perspective, connected, retained, clipping, reverse;
     int streaming;
     int vertex_material, cull, mixed_winding, texture_compare;
@@ -192,7 +195,9 @@ void xb_backend_clear(int color, int depth);
 size_t xb_backend_draw(enum xb_method method, int batch);
 void xb_backend_sync(void);
 void xb_backend_swap(void);
-void xb_backend_raster(int masked);
+/* Native text/geometry UI. Formatting, layout and submission are included in
+ * this call and measured as render time; failure rejects the work item. */
+int xb_backend_ui(enum xb_ui kind, unsigned long sequence);
 int xb_backend_events(void); /* 0 requests exit; -1 means resized/exposed */
 void xb_backend_label(const char *name);
 int xb_backend_has_double_buffer(void);

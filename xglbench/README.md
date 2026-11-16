@@ -68,7 +68,7 @@ requires builds and readback checks against those installed SDKs/runtimes.
 
 ## Run
 
-Version 0.8 defaults to the **quick** profile at **320x240**, with a one-minute
+Version 0.9 defaults to the **quick** profile at **320x240**, with a one-minute
 elapsed-time limit:
 
 ```sh
@@ -91,37 +91,37 @@ limit.
 | `-quick` (default) | 16 | 320x240 | 0.2 | 1 | 0.02 s | 1.5 s | 60 s |
 | `-medium` | 34 | 320x240 | 0.25 | 2 | 0.03 s | 2.5 s | 180 s |
 | `-long` | 34 | 320x240, 640x480 | 0.4 | 2 | 0.05 s | 3.0 s | 420 s |
-| `-extralong` | 230 | 320x240, 640x480 | 0.5 | 3 | 0.1 s | 2.0 s | 2700 s (45 min) |
+| `-extralong` | 237 | 320x240, 640x480 | 0.5 | 3 | 0.1 s | 2.0 s | 2700 s (45 min) |
 
 Quick compares individual polygons and two batched submission APIs, sampled
 flat/smooth draws at depth one, matching frames with and without the HUD,
 CPU/XGL smooth lighting with vertex-sampled materials, CPU Quake-like dynamic
 lighting, cached baked lighting, and a combined color/depth clear.
 Medium adds Quake-like frames with and without the HUD, four-layer lightstyle
-updates, six transparency cases, separate color/depth clears, depth-two
-sampled colors, and serialized/streaming Quake-like smooth lighting.
+updates, six transparency cases with four overlapping quads, native-text menu
+and console workloads, depth-two sampled colors, and serialized/streaming
+Quake-like smooth lighting.
 Long runs the same 34 cases at both resolutions with longer trials.
 Native texture mapping is optional: use an explicit `-test` filter or
-`-extralong`, which retains the complete 230-case registry. The later sections
+`-extralong`, which retains the complete 237-case registry. The later sections
 describe all available families; a short profile need not include every case
 described there.
 
 Keep both standard output and standard error when collecting a hardware run,
 as in the examples above. XGL error details and setup-stage diagnostics are
-written to standard error. After rebuilding, first check HUD/raster recovery
-and a small complete-frame group before repeating the long profile:
+written to standard error. After rebuilding, first check native text and UI
+readback and a small complete-frame group before repeating the long profile:
 
 ```sh
-./xglbench -test hud/ -winsize 320 240 -csv zx-raster.csv >zx-raster.txt 2>&1
+./xglbench -test ui/ -winsize 320 240 -csv zx-ui.csv >zx-ui.txt 2>&1
 ./xglbench -test texture-map/facet-flat/frame/depth-0 -winsize 320 240 >zx-frame.txt 2>&1
 ```
 
-RGB memory rasters request `XGL_DEV_COLOR_TYPE` before depth and dimensions.
-The ZX runs showed that setting it after storage attributes triggered a
-write-once error, while omitting it did not select RGB. The revised order
-still requires verification on the ZX. Allocation metadata and actual
-opaque/masked pixel readback must pass before HUD/full-frame timings are
-accepted; a 32-bit allocation by itself does not establish the color format.
+HUD, menu and console drawing uses XGL stroke text and filled geometry.
+There are no UI image uploads, bitmap glyph atlases, raster copies or masks.
+The former `hud/opaque-copy` and `hud/masked-copy` cases are removed. Optional
+native texture-mapping experiments still use memory rasters as texture data;
+their storage and sampled-color checks remain independent of UI rendering.
 
 The elapsed-time limits include opening XGL, setup, validation, measurements
 and idle pauses. At the limit, the program stops starting new work and discards
@@ -151,7 +151,7 @@ two-to-one idle-to-active rule remains in effect.
 Setup, readback validation and minimum work counts vary with the machine, so
 profiles may finish early or reach their limits before attempting every
 selected case. Extra-long's default workload and rest periods take roughly
-37 minutes before setup and validation; its 45-minute limit can leave cases
+38 minutes before setup and validation; its 45-minute limit can leave cases
 unattempted on slower systems. These measures reduce continuous benchmark
 activity, but do not measure temperature or guarantee protection for aging
 graphics hardware.
@@ -182,7 +182,7 @@ warm-up work are outside the measured rendering intervals.
 ./xglbench -quick -test lighting/ -seconds .2 -warmup .02 -pause 0 -csv lighting.csv
 ```
 
-`-test TEXT` selects matching names from the **full 230-case registry**, even
+`-test TEXT` selects matching names from the **full 237-case registry**, even
 when they are outside the profile's usual subset. The chosen profile still
 supplies resolutions, timings, pauses and any elapsed-time limit.
 `-list` shows the selected profile or filter without opening XGL;
@@ -207,7 +207,7 @@ Options:
 | `-warmup N` | Override unmeasured warm-up duration. |
 | `-repeats N` | Override trials per case, range 1 through 31. |
 | `-pause N` | Override the minimum idle pause in seconds; zero retains the adaptive two-to-one rest period. |
-| `-triangles N` | Positive even base triangle count, at most 16384; default 512. |
+| `-triangles N` | Positive even base triangle count, at most 16384; default 512. Normal transparency cases use a fixed eight triangles; explicit transparency stress cases use this setting. |
 | `-queue N` | Maximum outstanding work items in streaming cases, 1 through 8; default 2. Serialized controls use one slot. |
 | `-sim-fps N` | Deterministic simulated frame rate for 10 Hz lightstyles, from 1 to 240; default 15. Use 60 for the previous cadence. This does not pace rendering or change the elapsed-time limits. |
 | `-test TEXT` | Select matching names from the full registry, retaining the profile's other settings. |
@@ -278,10 +278,11 @@ not an assessment of run-to-run variation.
   from XGL light sources.
 * **How much frame overhead remains?** Separate and combined color/depth
   clears, swaps, and frame workloads separate fixed work from primitive
-  throughput. Matched scene-and-swap and full-frame cases isolate the masked
-  HUD copy; both require working double buffering.
-* **Can a practical HUD be cheap?** Opaque and one-bit-masked raster-copy
-  cases exercise 2D images without creating a triangle per image pixel.
+  throughput. Matched scene-and-swap and full-frame cases isolate a native
+  text/geometry HUD; both require working double buffering.
+* **Can a practical UI be cheap?** HUD, menu and console fixtures use native
+  stroke text with filled panels and indicators, approximating their screen
+  layout and information without drawing images.
 * **Does native transparency work correctly and cheaply?** Overlapping
   opaque and blended geometry tests submission order and optional depth
   writes, with readback checks before accepting blended timings.
@@ -308,7 +309,7 @@ The added cases keep the original measurements available for comparison:
 | `texture/{facet-flat,vertex-smooth}/depth-{0,1,2}` | Compare one filtered material color per triangle with independently sampled corner colors, with XGL lighting disabled. |
 | `scene/texture/{facet-flat,vertex-smooth}/depth-{0,1}` | Color/Z clear, sampled geometry, swap and completion, without a HUD. Matched HUD-inclusive controls are `texture-map/{facet-flat,vertex-smooth}/frame/depth-{0,1}`. |
 | `scene/lighting/{cpu-flat,cpu-smooth}/quake-point-1/depth-1` | Quake-like lighting, color/Z clear, geometry, swap and completion, without a HUD. |
-| `frame/lighting/{cpu-flat,cpu-smooth,xgl-flat,xgl-smooth}/point-1/depth-{0,1,2}` | Moving Lambert light, color/Z clear, geometry, masked HUD, buffer swap and completion. |
+| `frame/lighting/{cpu-flat,cpu-smooth,xgl-flat,xgl-smooth}/point-1/depth-{0,1,2}` | Moving Lambert light, color/Z clear, geometry, native text/geometry HUD, buffer swap and completion. |
 | `frame/lighting/{cpu-flat,cpu-smooth}/quake-point-1/depth-{0,1,2}` | The same complete-frame path with CPU baked-plus-dynamic Quake-like lighting. |
 | `pipeline/{serialized,streaming}/quake-{cpu-flat,cpu-smooth}/depth-{0,1,2}` | Bounded one-thread CPU/device overlap with actual CPU light evaluation and native color updates; no swaps. |
 | `lighting/submit/{polygon,multi_polygon}/{cpu-flat,cpu-smooth,xgl-flat,xgl-smooth}/point-1/depth-1` | Matched lit geometry/materials using individual calls or batches of 128 polygons. |
@@ -351,11 +352,58 @@ not a thread count. Queue one is the serialized reference. No test uses the
 second host processor explicitly. Real SDK and on-device readback validation
 remain required before treating any timings as hardware evidence.
 
-The `scene/*` cases intentionally omit the HUD. A failed HUD raster check
+The `scene/*` cases intentionally omit the HUD. A failed native UI check
 still disqualifies its corresponding complete-frame case; it does not
 silently remove the HUD from that result. Compare each pair at the same
 resolution and detail level. Their timings establish render-path costs,
 not whole-game frame rates.
+
+## Native text and geometry UI
+
+`ui/hud`, `ui/menu`, and `ui/console` exercise native stroke text with filled
+panels and indicators. Full-frame workloads draw the same HUD after the
+scene and before presentation. They approximate the placement and information
+needed by Quake's interface, including changing values; they do not load UI
+artwork or implement game/menu logic.
+
+The HUD includes changing health, armor and ammunition values, inventory
+labels and a geometric crosshair. The menu contains six choices, a moving
+selection indicator and a slider. The console contains a title, ten lines
+and a prompt. Layout uses a centered logical 320x240 space, scaled to fit
+the drawable, with a 56-unit HUD panel and nine-unit stroke height.
+Native UI requires at least a 320x200 drawable; smaller explicitly
+requested windows skip UI-dependent cases instead of dropping content.
+
+The rendering path uses `xgl_stroke_text` and filled native geometry. The
+installed XGL stroke font supplies the letters; the application supplies no
+bitmap font, image mask or per-pixel geometry. Text and panels use screen
+coordinates with independent UI state. World drawing must finish before the
+overlay, and the overlay must finish before the single buffer swap. All
+required ordering and completion costs are part of the measurement.
+
+Font setup, cached text metrics and correctness checks occur before timing.
+Dynamic UI formatting,
+submission and completion are included in `render_ms` and `total_ms`;
+`prepare_ms` continues to describe scene geometry and lighting preparation.
+Font availability and visible output must be validated on the workstation.
+The existence of a stroke-text API alone does not establish text acceleration
+or performance. A failed UI path remains a failed measurement, while
+independent scene-only cases can still run.
+
+Version 0.9 full-frame results are **not the same workload as version 0.8**:
+the latter included a 128x64 masked memory-raster copy. Keep the version and
+UI method alongside timing comparisons. The old raster-copy cases are no
+longer available. Optional `texture-map/*` experiments concern scene
+materials and do not provide a UI raster fallback.
+
+For the later XGL game target, the corresponding drawing adapters can retain
+existing UI state and input handling while replacing images with text and
+geometry: numeric health/armor/ammo, named inventory items, menu labels and
+sliders, console/chat, pause/loading messages, and intermission scores.
+Quake-specific character codes need explicit glyph/color mappings. Preserve
+the original layout bounds and redraw the overlay into each cleared
+backbuffer; the existing status-bar dirty-page optimization must not leave
+it absent after a buffer clear. This benchmark does not modify engine files.
 
 ## Combined clears and transparency
 
@@ -367,7 +415,8 @@ to estimate the combined operation. Ordinary draw and frame totals already
 include their reset clear.
 
 `transparency/{opaque,blended-zfreeze,blended-zwrite}/{near-to-far,far-to-near}`
-uses matching overlapping geometry. Blended cases use 0.5 opacity,
+uses matching overlapping geometry: four quads, eight triangles, independent
+of `-triangles`. Blended cases use 0.5 opacity,
 arbitrary-background blending, and either frozen or writable Z values.
 Opacity is reported in the usual sense: one is opaque; XGL's transparency
 attribute receives its complement. Depth testing stays enabled in all six
@@ -378,12 +427,22 @@ one; rejection behind opaque geometry; depth freeze/write behavior; both
 submission orders; and restoration of opaque drawing. The device's coarse
 transparency inquiry alone is insufficient. Non-hardware transparency needs
 `-allow-fallback` and remains labeled as a diagnostic fallback. These cases
-measure constant surface transparency, not per-texel alpha. Existing one-bit
-HUD masks test cutouts separately.
+measure constant surface transparency, not per-texel alpha or image masks.
+
+The six `transparency-stress/*` variants retain the large overlap experiment,
+using `-triangles` (512 triangles or 256 overlapping quads by default).
+They are selected explicitly or through `-extralong`. At large sizes, even
+opaque rendering of hundreds of overlapping surfaces can take seconds per
+item. That remains useful as a fill/depth stress test, but it crowded later
+cases out of the seven-minute long profile. Normal transparency tests now
+measure a small layer count, and the long profile spends its remaining
+slots on menu and console costs. Its time limit and idle policy are unchanged.
+Separate color-only and depth-only clears remain selectable through `-test`.
 
 ```sh
 ./xglbench -test overhead/color-depth-clear -quick
 ./xglbench -test transparency/ -quick -csv transparency.csv
+./xglbench -test transparency-stress/ -long -winsize 640 480 -triangles 128
 ```
 
 ## Native XGL texture mapping
@@ -394,7 +453,7 @@ sampled-color cases or make texture mapping a requirement for their execution.
 | Cases | Workload |
 | --- | --- |
 | `texture-map/{facet-flat,vertex-smooth,point,bilinear,trilinear}/draw/depth-{0,1,2}` | Matching geometry and source image; draw completion without timed presentation. |
-| `texture-map/{facet-flat,vertex-smooth,point,bilinear,trilinear}/frame/depth-{0,1,2}` | The same modes with color/Z clear, masked HUD, swap and completion. |
+| `texture-map/{facet-flat,vertex-smooth,point,bilinear,trilinear}/frame/depth-{0,1,2}` | The same modes with color/Z clear, native text/geometry HUD, swap and completion. |
 | `texture-map/{facet-flat,vertex-smooth,point,bilinear,trilinear}/perspective-motion/depth-1` | A rotating, tilted plane whose depth varies within triangles, exercising perspective mapping. |
 
 The `facet-flat` and `vertex-smooth` controls approximate the texture with
@@ -426,10 +485,11 @@ the cost of the installed XGL pipeline, not proof of hardware texturing.
 
 Unsupported mapping, failed texture readback, or a rendering error leaves
 the requested case skipped. It never becomes an apparently successful
-untextured fallback. Texture state is disabled for ordinary cases and HUD
-copies; a failure to reset that state can also skip subsequent cases, and
+untextured fallback. Native UI uses its own untextured drawing state;
+a failure to reset world texture state can also skip subsequent cases, and
 fatal native errors still stop the run. The texture readback gates require
-a drawable at least 128x128 pixels. Native texturing is currently
+a drawable at least 128x128 pixels; full-frame cases also require the UI's
+320x200 minimum. Native texturing is currently
 limited to unlit, non-streaming multi-polygon draws and complete frames.
 Combining native texturing with baked/dynamic illumination, strip submissions
 or retained streaming is a subsequent experiment.
@@ -472,9 +532,9 @@ nominal reference area grows approximately fourfold when the window changes
 from 320x240 to 640x480. For the default 512-triangle normal-size scene, nominal
 triangle areas are about 88, 22, and 5.5 pixels at subdivision depths 0, 1,
 and 2 in the smaller window. The larger window gives approximately 351, 88,
-and 22 pixels. The fixed 128x64 HUD raster also keeps its pixel dimensions
-at both window sizes. Compare resolution effects within the appropriate
-workload family.
+and 22 pixels. Native UI cases have their own screen layout and text workload;
+they do not inherit the old 128x64 image-copy fixture. Compare resolution
+effects within the appropriate workload family.
 
 Michael F. Deering and Scott R. Nelson's *Leo: A System for Cost Effective
 3D Shaded Graphics* provides the architectural context:
@@ -646,7 +706,7 @@ accelerated lighting measurement.
 
 `pipeline/{serialized,streaming}/{cached,relight}/depth-{0,1,2}` are matched
 throughput experiments using batched simple polygons. Each work item clears
-color and depth, then draws the mesh. There is no HUD copy or buffer swap in
+color and depth, then draws the mesh. There is no HUD drawing or buffer swap in
 these cases, so presentation synchronization does not obscure the comparison.
 They are separate from the existing `frame/*` tests, which include both HUD
 and presentation.
@@ -700,7 +760,7 @@ primitive throughput.
 
 For the original serialized cases, `total_ms` includes the reset clears
 before drawing; ordinary draw-case `render_ms` excludes those clears.
-`frame/*` includes clear, draw and masked HUD in `render_ms` and swaps in
+`frame/*` includes clear, draw and native HUD in `render_ms` and swaps in
 `present_ms`; `scene/*` has the same timing boundaries with the HUD omitted.
 Event polling is outside these elapsed frame totals. Process
 CPU time includes the trial's polling and loop overhead.
@@ -776,8 +836,15 @@ Those two fields are empty for skipped and non-frame cases. A fraction below
 one only means this synthetic render workload fits the reference budget;
 it does not establish 15 FPS in Quake. Portable/mock results have no hardware
 performance meaning even when their fractions are small.
-`frame_path` distinguishes `hud-swap`, `scene-swap`, `pipeline-no-swap`,
-`draw-only`, and `none`. `transparency`, `opacity`, and `blend_zwrite` record
+`frame_path` distinguishes `native-ui-swap`, `ui-only`, `scene-swap`,
+`pipeline-no-swap`, `draw-only`, and `none`. `ui_kind` records `hud`, `menu`,
+`console` or `none`; `ui_method` identifies `native-text-geometry` or `none`.
+`base_triangles` records the resolved geometry setting, including the fixed
+eight-triangle normal transparency workload; non-mesh cases do not use it.
+`overlap_layers` records the number of overlapping quads, or zero for other
+geometry. Reported triangle and geometry-call counts describe the scene,
+not the strokes and panels inside the UI; compare UI costs by elapsed time.
+`transparency`, `opacity`, and `blend_zwrite` record
 the blend configuration; opacity and blend-write fields are empty for opaque
 cases. These labels describe requested work even when a case is skipped.
 
@@ -867,9 +934,12 @@ passed through XGL's variadic attribute interfaces, native behavior, or
 performance. It is optional and separate from `make check`.
 
 `make native-contract-check` runs focused host tests of the native backend
-using mock XGL functions. It checks memory-raster setup, partial-object
-cleanup and retries, validated raster properties, preservation of native
-errors, native heap counters, and geometry/stream-slot cleanup. A scalar
+using mock XGL functions. It checks optional texture-memory-raster setup,
+partial-object cleanup, validated raster properties, preservation of native
+errors, native heap counters, and geometry/stream-slot cleanup. Native UI
+tests cover text/geometry submission, context and buffer ordering, and
+rejection of setup or rendering failures, without allowing UI raster copies.
+A scalar
 color/depth model also injects clear, blending, depth and readback faults to
 verify that the new correctness gates reject them and restore drawing state.
 This separate target uses GNU-compatible
@@ -885,7 +955,7 @@ binary and `build/` directory.
 
 The native implementation uses the supplied XGL Reference Manual and XGL
 Programmer's Guide, notably facet colors/illumination, multi-simple polygons,
-triangle lists/strips, raster masks, device inquiry, synchronization, and
+triangle lists/strips, stroke text, device inquiry, synchronization, and
 window buffering. See source comments for API-specific details. The OpenGL
 1.1 specification is conceptual background, not a dependency or a Leo
 performance specification. The calibrated and streaming tests are informed

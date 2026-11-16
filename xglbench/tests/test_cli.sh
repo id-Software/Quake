@@ -161,12 +161,20 @@ for path in cpu-flat cpu-smooth; do
     grep -x "scene/lighting/$path/quake-point-1/depth-1" "$test_dir/output" >/dev/null ||
         fail "missing scene-only Quake lighting $path case"
 done
-for path in opaque blended-zfreeze blended-zwrite; do
-    for order in near-to-far far-to-near; do
-        grep -x "transparency/$path/$order" "$test_dir/output" >/dev/null ||
-            fail "missing transparency $path/$order case"
+for family in transparency transparency-stress; do
+    for path in opaque blended-zfreeze blended-zwrite; do
+        for order in near-to-far far-to-near; do
+            grep -x "$family/$path/$order" "$test_dir/output" >/dev/null ||
+                fail "missing $family/$path/$order case"
+        done
     done
 done
+for ui in hud menu console; do
+    grep -x "ui/$ui" "$test_dir/output" >/dev/null || fail "missing native $ui UI case"
+done
+if grep -E '^hud/|raster' "$test_dir/output" >/dev/null; then
+    fail "removed bitmap raster workload remains selectable"
+fi
 grep -x 'overhead/color-depth-clear' "$test_dir/output" >/dev/null || fail "missing combined clear case"
 
 XB_TEST_LOG="$test_dir/default.log" run_bench -long -allow-fallback \
@@ -725,7 +733,7 @@ for count in 24 96 384; do
         fail "smooth texture did not supply all $count vertex colors"
 done
 
-# Lit frame trials include real light/color updates, masked HUD and swap.
+# Lit frame trials include real light/color updates, native text/geometry HUD and swap.
 # Budget metadata is a fraction of the 15 Hz frame allowance, not engine FPS.
 XB_TEST_LOG="$test_dir/lit-frame.log" run_bench -winsize 320 240 -allow-fallback \
     -test frame/lighting/ -triangles 8 -seconds .001 -warmup 0 -repeats 1 \
@@ -734,7 +742,7 @@ awk '
     /^lighting-configure / { cases++ }
     /^frame-clear / { if ($2 != 1 || $3 != 1) bad++; clears++ }
     /^frame-draw / { draws++ }
-    /^frame-hud / { if ($2 != 1) bad++; hud++ }
+    /^frame-hud / { if ($2 != 0) bad++; hud++ }
     /^frame-swap / { swaps++ }
     /^lighting-colors / { colors++; changes+=$3 }
     /^lighting-update / { lights++ }
@@ -751,6 +759,7 @@ awk -F, '
         material=col["material_sample"]; budget=col["frame_budget_ms"]
         fraction=col["frame_budget_fraction"]; total=col["total_ms"]
         present=col["present_ms"]; model=col["lighting_model"]
+        ui=col["ui_kind"]; uimethod=col["ui_method"]; path=col["frame_path"]
         facets=col["triangles"]; rate=col["triangles_per_second"]
         next
     }
@@ -759,6 +768,7 @@ awk -F, '
         expected_rate=$facets*1000/$total
         expected_fraction=$total*.015
         if ($status != "ok" || $material != expected_material ||
+            $ui != "hud" || $uimethod != "native-text-geometry" || $path != "native-ui-swap" ||
             ($model != "lambert" && $model != "quake-like") ||
             $budget < 66.666 || $budget > 66.667 || $total <= 0 || $present < 0 ||
             $fraction < expected_fraction*.999-1e-8 || $fraction > expected_fraction*1.001+1e-8 ||
@@ -767,12 +777,12 @@ awk -F, '
     }
     END {
         if (!record || !status || !shade || !material || !budget || !fraction ||
-            !total || !present || !model || !facets || !rate || rows != 18 || bad) exit 1
+            !total || !present || !model || !ui || !uimethod || !path || !facets || !rate || rows != 18 || bad) exit 1
     }
 ' "$test_dir/lit-frame.csv" || fail "lit frame budget or completed-work metadata is invalid"
 
 # A failing HUD validation must not suppress scene clear/draw/swap timings.
-XB_TEST_FAIL_HUD=1 XB_TEST_LOG="$test_dir/scene.log" run_bench \
+XB_TEST_FAIL_UI=all XB_TEST_LOG="$test_dir/scene.log" run_bench \
     -winsize 320 240 -allow-fallback -test scene/ -triangles 8 \
     -seconds .001 -warmup 0 -repeats 1 -csv "$test_dir/scene.csv" \
     >"$test_dir/output" 2>&1
@@ -782,6 +792,7 @@ awk '
     /^frame-draw / { if (phase != 1) bad++; phase=2; draws++ }
     /^frame-swap / { if (phase != 2) bad++; phase=0; swaps++ }
     /^frame-hud / { bad++ }
+    /^ui-(configure|draw) / { bad++ }
     /^lighting-error / { bad++ }
     END { if (cases != 6 || clears != draws || swaps != draws || !draws || phase || bad) exit 1 }
 ' "$test_dir/scene.log" || fail "scene-only frames omitted clear/draw/swap or depended on the HUD"
@@ -802,7 +813,7 @@ awk -F, '
     }
     END { if (!record || !status || !path || !total || !budget || !rate || !facets || !basis || rows != 6 || bad) exit 1 }
 ' "$test_dir/scene.csv" || fail "scene-only completed-work metadata is invalid"
-if XB_TEST_FAIL_HUD=1 run_bench -winsize 320 240 -allow-fallback \
+if XB_TEST_FAIL_UI=all run_bench -winsize 320 240 -allow-fallback \
     -test frame/lighting/cpu-flat/quake-point-1/depth-1 -triangles 8 \
     -seconds .001 -warmup 0 -repeats 1 -csv "$test_dir/hud-rejected.csv" \
     >"$test_dir/output" 2>&1; then
@@ -820,7 +831,7 @@ awk '/^combined-clear / { if ($2 != 1 || $3 != 1) bad++; calls++ }
 # Every blend ordering has a matched opaque control. Failed blend readback
 # rejects blend timings while independent opaque cases remain usable.
 XB_TEST_LOG="$test_dir/transparency.log" run_bench -winsize 320 240 \
-    -test transparency/ -triangles 8 -seconds .001 -warmup 0 -repeats 1 \
+    -test transparency/ -seconds .001 -warmup 0 -repeats 1 \
     -csv "$test_dir/transparency.csv" >"$test_dir/output" 2>&1
 awk '
     /^transparency-configure / { if ($2 != 50 || ($3 != 0 && $3 != 1)) bad++; writes[$3]++; configs++ }
@@ -832,10 +843,11 @@ awk -F, '
         for (i=1; i<=NF; ++i) col[$i]=i
         record=col["record"]; status=col["status"]; name=col["test"]
         blend=col["transparency"]; opacity=col["opacity"]; write=col["blend_zwrite"]
+        facets=col["triangles"]; base=col["base_triangles"]; layers=col["overlap_layers"]
         next
     }
     $record == "summary" {
-        if ($status != "ok") bad++
+        if ($status != "ok" || $facets != 8 || $base != 8 || $layers != 4) bad++
         if ($name ~ /\/opaque\//) {
             if ($blend != "opaque" || $opacity != "" || $write != "") bad++
             opaque++
@@ -845,10 +857,10 @@ awk -F, '
             blended++
         }
     }
-    END { if (!record || !status || !name || !blend || !opacity || !write || opaque != 2 || blended != 4 || bad) exit 1 }
+    END { if (!record || !status || !name || !blend || !opacity || !write || !facets || !base || !layers || opaque != 2 || blended != 4 || bad) exit 1 }
 ' "$test_dir/transparency.csv" || fail "transparency metadata mislabeled opacity or depth writes"
 XB_TEST_FAIL_TRANSPARENCY=1 run_bench -winsize 320 240 \
-    -test transparency/ -triangles 8 -seconds .001 -warmup 0 -repeats 1 \
+    -test transparency/ -seconds .001 -warmup 0 -repeats 1 \
     -csv "$test_dir/transparency-rejected.csv" >"$test_dir/output" 2>&1
 awk -F, '
     NR == 1 {
@@ -866,6 +878,102 @@ awk -F, '
     }
     END { if (!record || !status || !blend || !kind || !rate || opaque != 2 || rejected != 4 || bad) exit 1 }
 ' "$test_dir/transparency-rejected.csv" || fail "blend validation failure produced a measurement or rejected opaque controls"
+
+# Default transparency controls stay at four overlapping quads even when
+# other geometry uses a different global base count. Stress uses that count.
+for family in transparency transparency-stress; do
+    case "$family" in transparency) expected=8 ;; *) expected=16 ;; esac
+    XB_TEST_LOG="$test_dir/$family-size.log" run_bench -winsize 320 240 \
+        -test "$family/" -triangles 16 -seconds .001 -warmup 0 -repeats 1 \
+        -csv "$test_dir/$family-size.csv" >"$test_dir/output" 2>&1
+    awk -v expected="$expected" '
+        /^geometry-count / { if ($2 != expected || $3 != 1) bad++; cases++ }
+        END { if (cases != 6 || bad) exit 1 }
+    ' "$test_dir/$family-size.log" || fail "$family geometry ignored its intended base count"
+    awk -F, -v expected="$expected" '
+        NR == 1 {
+            for (i=1; i<=NF; ++i) col[$i]=i
+            record=col["record"]; facets=col["triangles"]; base=col["base_triangles"]
+            layers=col["overlap_layers"]; next
+        }
+        $record == "summary" {
+            if ($facets != expected || $base != expected || $layers != expected/2) bad++
+            rows++
+        }
+        END { if (!record || !facets || !base || !layers || rows != 6 || bad) exit 1 }
+    ' "$test_dir/$family-size.csv" || fail "$family CSV mislabeled effective count or overlapping quads"
+done
+for selected in transparency-stress/opaque/near-to-far submit/multi_polygon/batch-128; do
+    run_bench -winsize 320 240 -test "$selected" -seconds .001 -warmup 0 -repeats 1 \
+        -csv "$test_dir/global-base.csv" >"$test_dir/output" 2>&1
+    awk -F, '
+        NR == 1 {
+            for (i=1; i<=NF; ++i) col[$i]=i
+            record=col["record"]; facets=col["triangles"]; base=col["base_triangles"]; next
+        }
+        $record == "summary" { if ($facets != 512 || $base != 512) bad++; rows++ }
+        END { if (!record || !facets || !base || rows != 1 || bad) exit 1 }
+    ' "$test_dir/global-base.csv" || fail "global base count changed from 512"
+done
+
+# Native HUD/menu/console workloads must configure only their own UI and draw
+# through the native UI API. Bitmap-copy benchmark APIs are absent.
+XB_TEST_LOG="$test_dir/ui.log" run_bench -winsize 320 240 -test ui/ \
+    -seconds .001 -warmup 0 -repeats 1 -csv "$test_dir/ui.csv" >"$test_dir/output" 2>&1
+awk '
+    /^ui-configure / { if ($2 < 0 || $2 > 2) bad++; configured[$2]++; mode=$2; cases++ }
+    /^ui-draw / { if ($2 != mode || $3 < 0) bad++; draws[$2]++ }
+    /^ui-swap / { swaps++ }
+    /^frame-(draw|hud|swap) / { bad++ }
+    END {
+        for (i=0; i<3; ++i) if (configured[i] != 1 || draws[i] < 5) bad++
+        if (cases != 3 || swaps != 3 || bad) exit 1
+    }
+' "$test_dir/ui.log" || fail "native UI scheduling omitted a workload or presented inside a render-only trial"
+awk -F, '
+    NR == 1 {
+        for (i=1; i<=NF; ++i) col[$i]=i
+        record=col["record"]; status=col["status"]; name=col["test"]; path=col["frame_path"]
+        kind=col["ui_kind"]; method=col["ui_method"]; present=col["present_ms"]; budget=col["frame_budget_ms"]
+        next
+    }
+    $record == "summary" {
+        expected=$name; gsub(/"/, "", expected); sub(/^ui\//, "", expected)
+        if ($status != "ok" || $path != "ui-only" || $kind != expected ||
+            $method != "native-text-geometry" || $present != 0 || $budget != "") bad++
+        rows++
+    }
+    END { if (!record || !status || !name || !path || !kind || !method || !present || !budget || rows != 3 || bad) exit 1 }
+' "$test_dir/ui.csv" || fail "native UI CSV is confused with the retired raster path"
+XB_TEST_FAIL_UI=menu run_bench -winsize 320 240 -test ui/ \
+    -seconds .001 -warmup 0 -repeats 1 -csv "$test_dir/ui-rejected.csv" >"$test_dir/output" 2>&1
+awk -F, '
+    NR == 1 {
+        for (i=1; i<=NF; ++i) col[$i]=i
+        record=col["record"]; status=col["status"]; kind=col["ui_kind"]; failure=col["failure_kind"]
+        rate=col["completed_facets_sec"]; next
+    }
+    $record == "summary" {
+        if ($kind == "menu") {
+            if ($status != "skipped" || $failure != "validation-failed" || $rate != "") bad++
+            rejected++
+        } else { if ($status != "ok") bad++; accepted++ }
+    }
+    END { if (!record || !status || !kind || !failure || !rate || rejected != 1 || accepted != 2 || bad) exit 1 }
+' "$test_dir/ui-rejected.csv" || fail "failed native UI validation affected independent UI workloads"
+if XB_TEST_FAIL_UI_DRAW=3 run_bench -winsize 320 240 \
+    -test frame/lighting/cpu-flat/quake-point-1/depth-1 -triangles 8 \
+    -seconds .001 -warmup 0 -repeats 1 -csv "$test_dir/ui-draw-failed.csv" \
+    >"$test_dir/output" 2>&1; then
+    fail "failed native HUD drawing became a valid complete frame"
+fi
+check_lighting_rejected "$test_dir/ui-draw-failed.csv"
+XB_TEST_FAIL_UI=all XB_TEST_LOG="$test_dir/ui-unneeded.log" run_bench \
+    -winsize 320 240 -test pipeline/serialized/quake-cpu-flat/depth-0 -triangles 8 \
+    -seconds .001 -warmup 0 -repeats 1 >"$test_dir/output" 2>&1
+if grep '^ui-' "$test_dir/ui-unneeded.log" >/dev/null; then
+    fail "a no-UI pipeline allocated or drew a native UI workload"
+fi
 
 # Independent polygons and polygon batches use matching lighting workloads;
 # their API call counts must reflect the actual submitted primitive method.
@@ -985,7 +1093,7 @@ awk '
         if ($2 != (filter != 0) || $3 != filter || (filter && (!setups || !payloads))) bad++
         draws++
     }
-    /^texture-hud / { if ($2 != 0 || $3 != 1 || !draws) bad++; hud++ }
+    /^texture-hud / { if ($2 != 0 || $3 != 0 || !draws) bad++; hud++ }
     /^texture-transform / { if ($2 != 1 || $3 != filter) bad++; motion[filter]++ }
     /^texture-error / { bad++ }
     END {
