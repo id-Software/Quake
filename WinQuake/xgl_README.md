@@ -61,6 +61,19 @@ Original Quake console, save/load, demo, mouse sensitivity and key bindings
 remain in the shared engine. The software-only `lcd_x` interlaced framebuffer
 mode is not applied to XGL rendering.
 
+If a native XGL call fails, capture both output streams:
+
+```sh
+./xglquake -winsize 320 240 +map e1m1 > xglquake.log 2>&1
+```
+
+The diagnostic includes the rendering stage, XGL object and operands, error
+type/category, and the source line where the error was checked. Some Solaris
+installations return an empty error ID and only `Error number` as the message;
+the remaining fields are retained to help identify the failing attribute.
+Startup console drawing begins before sound initialization, so a graphics
+failure at that point does not imply an audio failure.
+
 ## Rendering and tuning
 
 World, brush, alias and sprite materials remain CPU palette data. Geometry
@@ -103,6 +116,11 @@ The original `r_dynamic`, `r_fullbright`, `r_novis`, `r_drawentities`,
 available. The initial settings are bounded starting points, not measured
 Sun ZX performance recommendations.
 
+The 3D context uses the benchmark's automatic full-raster VDC mapping.
+Quake's view rectangle is selected through the VDC window and view clipping,
+without explicitly setting `XGL_CTX_DC_VIEWPORT`. This preserves `viewsize`
+and the space reserved for the status bar. Native UI uses device coordinates.
+
 The existing Solaris main allocates a 16 MiB engine heap. World geometry
 cache storage is capped at another 8 MiB and CPU material pixels at another
 8 MiB; native contexts, window buffers, program data and library allocations
@@ -143,7 +161,9 @@ the compiler log are reported by the script.
 
 The optional native contract test captures SDK calls to check projection,
 clipping, lighting selection/state changes, depth-clear state, gamma and
-native font placement/cache behavior. It does not rasterize those calls.
+native font placement/cache behavior. It also checks view placement after
+resizing and error diagnostics with missing library message fields. It does
+not rasterize those calls.
 
 These checks do not establish Solaris linking, SPARC ABI compatibility,
 native font rendering, Sun ZX correctness or performance. Those require a
