@@ -219,10 +219,11 @@ static void setup_view(void)
     xgl_object_set(b.ctx, XGL_3D_CTX_HLHSR_DATA, &clear, 0);
 }
 
-/* Request memory-raster storage by depth, without also setting color type.
- * This avoids the suspected creation-time attribute conflict behind the
- * XGL 3.3/Leo di-158 reports; the correction still needs hardware validation.
- * Inquire the result rather than assuming that every pipeline chose RGB.
+/* Request RGB before depth/dimensions can initialize raster storage. Setting
+ * it after those attributes produced di-158 on XGL 3.3/Leo; omitting it left
+ * the logical color type non-RGB. Depth alone does not select RGB. The new
+ * creation order still needs hardware validation, so retain the inquiries
+ * and the copy/texture readback gates before accepting any measurements.
  * Only fully checked objects enter a cache; failed, unreferenced objects can
  * be destroyed on recoverable errors. After a fatal error xgl_close owns all
  * remaining cleanup and no further object operations are attempted.
@@ -253,10 +254,17 @@ static Xgl_mem_ras make_memory_raster(int depth, int width, int height,
     if (b.errors || b.fatal || xb_cancel_requested()) return NULL;
     previous_stage = b.stage;
     b.stage = stage;
-    raster = xgl_object_create(b.system, XGL_MEM_RAS, NULL,
-                XGL_RAS_DEPTH, (Xgl_usgn32)depth,
-                XGL_RAS_WIDTH, (Xgl_usgn32)width,
-                XGL_RAS_HEIGHT, (Xgl_usgn32)height, 0);
+    if (depth == 32)
+        raster = xgl_object_create(b.system, XGL_MEM_RAS, NULL,
+                    XGL_DEV_COLOR_TYPE, XGL_COLOR_RGB,
+                    XGL_RAS_DEPTH, (Xgl_usgn32)depth,
+                    XGL_RAS_WIDTH, (Xgl_usgn32)width,
+                    XGL_RAS_HEIGHT, (Xgl_usgn32)height, 0);
+    else
+        raster = xgl_object_create(b.system, XGL_MEM_RAS, NULL,
+                    XGL_RAS_DEPTH, (Xgl_usgn32)depth,
+                    XGL_RAS_WIDTH, (Xgl_usgn32)width,
+                    XGL_RAS_HEIGHT, (Xgl_usgn32)height, 0);
     if (!raster || b.errors) {
         if (!b.errors) fail("XGL returned no memory raster");
         goto bad;
@@ -281,7 +289,9 @@ static Xgl_mem_ras make_memory_raster(int depth, int width, int height,
         xgl_object_get(raster, XGL_DEV_COLOR_TYPE, &color_type);
         if (b.errors) goto bad;
         if (color_type != XGL_COLOR_RGB) {
-            fail_kind(XB_FAILURE_VALIDATION, "32-bit memory raster did not select RGB color");
+            sprintf(message, "32-bit memory raster color type: expected RGB (%d), got %d",
+                    (int)XGL_COLOR_RGB, (int)color_type);
+            fail_kind(XB_FAILURE_VALIDATION, message);
             goto bad;
         }
     }

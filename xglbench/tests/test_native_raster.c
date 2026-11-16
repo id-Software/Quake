@@ -36,7 +36,7 @@ Xgl_object xgl_object_create(Xgl_sys_state system, int type,
                              Xgl_obj_desc *descriptor, ...)
 {
     va_list args;
-    int attribute;
+    int attribute, color_attributes, sizing_attributes;
     mock_raster *raster;
     assert(system == b.system);
     assert(type == XGL_MEM_RAS);
@@ -44,21 +44,43 @@ Xgl_object xgl_object_create(Xgl_sys_state system, int type,
     assert(creations < (int)(sizeof(rasters) / sizeof(rasters[0])));
     raster = &rasters[creations++];
     memset(raster, 0, sizeof(*raster));
+    /* Depth controls storage; it does not select the logical color type. */
+    raster->color_type = XGL_COLOR_INDEX;
+    color_attributes = sizing_attributes = 0;
     va_start(args, descriptor);
     while ((attribute = va_arg(args, int)) != 0) {
         switch (attribute) {
-        case XGL_RAS_DEPTH: raster->depth = va_arg(args, Xgl_usgn32); break;
-        case XGL_RAS_WIDTH: raster->width = va_arg(args, Xgl_usgn32); break;
-        case XGL_RAS_HEIGHT: raster->height = va_arg(args, Xgl_usgn32); break;
+        case XGL_DEV_COLOR_TYPE:
+            /* Allocation can fix this write-once attribute. Set it first. */
+            assert(color_attributes == 0 && sizing_attributes == 0);
+            ++color_attributes;
+            raster->color_type = (Xgl_color_type)va_arg(args, int);
+            assert(raster->color_type == XGL_COLOR_RGB);
+            break;
+        case XGL_RAS_DEPTH:
+            ++sizing_attributes;
+            raster->depth = va_arg(args, Xgl_usgn32);
+            break;
+        case XGL_RAS_WIDTH:
+            ++sizing_attributes;
+            raster->width = va_arg(args, Xgl_usgn32);
+            break;
+        case XGL_RAS_HEIGHT:
+            ++sizing_attributes;
+            raster->height = va_arg(args, Xgl_usgn32);
+            break;
         default:
-            /* In particular, do not reassign XGL_DEV_COLOR_TYPE. */
             assert(!"unexpected memory-raster creation attribute");
         }
     }
     va_end(args);
     assert(raster->depth == 1 || raster->depth == 32);
     assert(raster->width * raster->height <= XB_RASTER_W * XB_RASTER_H);
-    raster->color_type = raster->depth == 32 ? XGL_COLOR_RGB : XGL_COLOR_INDEX;
+    if (raster->depth == 32) {
+        assert(color_attributes == 1 && raster->color_type == XGL_COLOR_RGB);
+    } else {
+        assert(color_attributes == 0 && raster->color_type == XGL_COLOR_INDEX);
+    }
     raster->live = 1;
     ++live_objects;
     if (creations == fail_create_at) inject_error("injected raster creation error");
@@ -270,6 +292,7 @@ static void test_hud_attachment_recovery(void)
 static void test_raster_inquiries(void)
 {
     int fault;
+    char color_diagnostic[128];
     for (fault = 0; fault < 5; ++fault) {
         reset_mock();
         bad_depth = fault == 0;
@@ -282,6 +305,11 @@ static void test_raster_inquiries(void)
         assert(creations == 1 && destructions == 1 && live_objects == 0);
         assert(b.error[0] != '\0');
         assert(xb_backend_failure() == XB_FAILURE_VALIDATION);
+        if (bad_color) {
+            sprintf(color_diagnostic, "expected RGB (%d), got %d",
+                    (int)XGL_COLOR_RGB, (int)XGL_COLOR_INDEX);
+            assert(strstr(b.error, color_diagnostic) != NULL);
+        }
     }
 }
 

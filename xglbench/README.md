@@ -68,7 +68,7 @@ requires builds and readback checks against those installed SDKs/runtimes.
 
 ## Run
 
-Version 0.7 defaults to the **quick** profile at **320x240**, with a one-minute
+Version 0.7.1 defaults to the **quick** profile at **320x240**, with a one-minute
 elapsed-time limit:
 
 ```sh
@@ -115,6 +115,13 @@ and a small complete-frame group before repeating the long profile:
 ./xglbench -test hud/ -winsize 320 240 -csv zx-raster.csv >zx-raster.txt 2>&1
 ./xglbench -test texture-map/facet-flat/frame/depth-0 -winsize 320 240 >zx-frame.txt 2>&1
 ```
+
+RGB memory rasters request `XGL_DEV_COLOR_TYPE` before depth and dimensions.
+The ZX runs showed that setting it after storage attributes triggered a
+write-once error, while omitting it did not select RGB. The revised order
+still requires verification on the ZX. Allocation metadata and actual
+opaque/masked pixel readback must pass before HUD/full-frame timings are
+accepted; a 32-bit allocation by itself does not establish the color format.
 
 The elapsed-time limits include opening XGL, setup, validation, measurements
 and idle pauses. At the limit, the program stops starting new work and discards
