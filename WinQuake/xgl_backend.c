@@ -1,0 +1,704 @@
+/* Native Sun XGL renderer for XGLQuake. GPL-2.0-or-later.
+ * Uses the XGL 3.x SDK directly: no OpenGL and no texture/raster UI uploads.
+ */
+#include "quakedef.h"
+#include "xgl_local.h"
+#include "xgl_backend.h"
+#include <xgl/xgl.h>
+#include <math.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define XGL_BATCH_TRIANGLES 256
+#define XGL_FONT_CACHE 128
+#define XGL_POINT_LIGHTS 4
+#define XGL_UI_GLYPHS 2048
+#define XGL_UI_QUADS 256
+
+typedef struct {
+    int valid;
+    float cell, height, requested, ascent;
+    Xgl_bounds_f2d bounds[95];
+} xgl_font_size_t;
+
+typedef struct {
+    Xgl_sys_state system;
+    Xgl_win_ras raster;
+    Xgl_ctx scene, ui;
+    Xgl_trans model, view;
+    Xgl_light lights[6];
+    Xgl_boolean light_switches[6];
+    Xgl_usgn32 buffers;
+    Xgl_pt_color_normal_f3d points[XGL_BATCH_TRIANGLES * 3];
+    Xgl_pt_list lists[XGL_BATCH_TRIANGLES];
+    xgl_font_size_t fonts[XGL_FONT_CACHE];
+    Xgl_pt_f2d ui_positions[XGL_UI_GLYPHS];
+    Xgl_pt_f2d ui_points[XGL_UI_QUADS][4];
+    Xgl_pt_list ui_lists[XGL_UI_QUADS];
+    Xgl_color_facet ui_colors[XGL_UI_QUADS];
+    Xgl_facet_list ui_facets[XGL_UI_QUADS];
+    char glyphs[95][2];
+    int width, height, frame, scene_active, ui_active, overlay_3d;
+    int count, lit, zwrite, applied_lit, applied_zwrite;
+    int errors, fatal, font_next, ui_glyph_count, ui_quad_count;
+    float opacity, applied_opacity, current_text_height;
+    double maximum_z;
+    char error[256];
+} xgl_backend_t;
+
+static xgl_backend_t xb;
+static cvar_t xgl_ambient = {"xgl_ambient", "1", true, false, 0, NULL};
+static cvar_t xgl_maxlights = {"xgl_maxlights", "4", true, false, 0, NULL};
+
+static float bound_color(float value)
+{
+    if (!(value >= 0)) return 0;
+    return value > 1 ? 1 : value;
+}
+
+static float gamma_color(float value)
+{
+    return gammatable[(int)(bound_color(value) * 255.0f + .5f)] / 255.0f;
+}
+
+static Xgl_sgn32 native_error(Xgl_sys_state system)
+{
+    Xgl_error_info info;
+    memset(&info, 0, sizeof(info));
+    xgl_object_get(system, XGL_SYS_ST_ERROR_INFO, &info);
+    if (!xb.errors)
+        sprintf(xb.error, "%.24s: %.155s (%.40s)", info.id ? info.id : "XGL",
+                info.msg ? info.msg : "native operation failed",
+                info.cur_op ? info.cur_op : "unknown operation");
+    ++xb.errors;
+    if (info.type == XGL_ERROR_NONRECOVERABLE) xb.fatal = 1;
+    return 0;
+}
+
+static void native_check(void)
+{
+    if (xb.errors) Sys_Error("XGL: %s", xb.error);
+}
+
+static void identity_transform(Xgl_trans transform)
+{
+    Xgl_matrix_f3d matrix;
+    int i;
+    memset(matrix, 0, sizeof(matrix));
+    for (i = 0; i < 4; ++i) matrix[i][i] = 1;
+    xgl_transform_write(transform, matrix);
+    native_check();
+}
+
+static void palette_color(int index, Xgl_color *color)
+{
+    index &= 255;
+    memset(color, 0, sizeof(*color));
+    color->rgb.r = gammatable[xgl_palette[index * 3]] / 255.0f;
+    color->rgb.g = gammatable[xgl_palette[index * 3 + 1]] / 255.0f;
+    color->rgb.b = gammatable[xgl_palette[index * 3 + 2]] / 255.0f;
+}
+
+static void complete_scene(void)
+{
+    if (xb.scene && !xb.fatal) xgl_context_flush(xb.scene, XGL_FLUSH_SYNCHRONIZE);
+    native_check();
+}
+
+void XGL_UIFlush(void)
+{
+    if (xb.ui && xb.ui_active && !xb.fatal)
+        xgl_context_flush(xb.ui, XGL_FLUSH_SYNCHRONIZE);
+    native_check();
+    xb.ui_glyph_count = xb.ui_quad_count = 0;
+}
+
+static void set_transparency(float opacity, int zwrite)
+{
+    int blended;
+    blended = opacity < .9999f;
+    xgl_object_set(xb.scene,
+        XGL_3D_CTX_SURF_TRANSP_METHOD, blended ? XGL_TRANSP_BLENDED : XGL_TRANSP_NONE,
+        XGL_3D_CTX_SURF_TRANSP_BLEND_EQ, blended ? XGL_BLEND_ARBITRARY_BG : XGL_BLEND_NONE,
+        XGL_3D_CTX_SURF_FRONT_TRANSP, blended ? 1.0 - (double)opacity : 0.0,
+        XGL_3D_CTX_SURF_BACK_TRANSP, blended ? 1.0 - (double)opacity : 0.0,
+        XGL_3D_CTX_BLEND_FREEZE_Z_BUFFER, blended && !zwrite ? TRUE : FALSE,
+        XGL_3D_CTX_BLEND_DRAW_MODE, XGL_BLEND_DRAW_ALL,
+        XGL_3D_CTX_Z_BUFFER_WRITE_MASK, (Xgl_usgn32)(zwrite ? 0xffffffffUL : 0), 0);
+    native_check();
+}
+
+static void apply_draw_state(void)
+{
+    Xgl_color ambient;
+    float amount;
+    if (xb.applied_lit != xb.lit) {
+        xgl_object_set(xb.scene,
+            XGL_CTX_SURF_FRONT_COLOR_SELECTOR, XGL_SURF_COLOR_VERTEX_ILLUM_DEP,
+            XGL_3D_CTX_SURF_FRONT_ILLUMINATION,
+                xb.lit ? XGL_ILLUM_PER_VERTEX : XGL_ILLUM_NONE_INTERP_COLOR, 0);
+        native_check();
+        amount = bound_color(xgl_ambient.value) * (xb.lit == 2 ? .5f : 1.0f);
+        memset(&ambient, 0, sizeof(ambient));
+        ambient.rgb.r = ambient.rgb.g = ambient.rgb.b = amount;
+        xgl_object_set(xb.lights[0], XGL_LIGHT_COLOR, &ambient, 0);
+        native_check();
+        xb.light_switches[5] = xb.lit == 2 ? TRUE : FALSE;
+        xgl_object_set(xb.scene, XGL_3D_CTX_LIGHT_SWITCHES, xb.light_switches, 0);
+        xb.applied_lit = xb.lit;
+    }
+    if (xb.applied_opacity != xb.opacity || xb.applied_zwrite != xb.zwrite) {
+        set_transparency(xb.opacity, xb.zwrite);
+        xb.applied_opacity = xb.opacity;
+        xb.applied_zwrite = xb.zwrite;
+    }
+    native_check();
+}
+
+void XGL_Flush(void)
+{
+    int triangles;
+    if (!xb.count) return;
+    apply_draw_state();
+    triangles = xb.count / 3;
+    xgl_multi_simple_polygon(xb.scene,
+        XGL_FACET_FLAG_SIDES_ARE_3 | XGL_FACET_FLAG_SHAPE_CONVEX,
+        NULL, NULL, (Xgl_usgn32)triangles, xb.lists);
+    /* GEOM_DATA_IS_VOLATILE copies inputs at submission; batching storage
+     * may be reused while the accelerator completes earlier work. */
+    xb.count = 0;
+    native_check();
+}
+
+void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
+                       float opacity, int zwrite)
+{
+    Xgl_pt_color_normal_f3d *out;
+    int i, available, take;
+    if (!xb.frame || !xb.scene_active || !vertices || count <= 0) return;
+    if (count % 3) Sys_Error("XGL_DrawTriangles: vertex count is not a multiple of three");
+    opacity = bound_color(opacity);
+    if (opacity <= 0) return;
+    lit = lit < 0 ? 0 : (lit > 2 ? 2 : lit);
+    zwrite = zwrite != 0;
+    if (xb.count && (xb.lit != lit || xb.opacity != opacity || xb.zwrite != zwrite)) XGL_Flush();
+    xb.lit = lit; xb.opacity = opacity; xb.zwrite = zwrite;
+    while (count) {
+        available = XGL_BATCH_TRIANGLES * 3 - xb.count;
+        take = count < available ? count : available;
+        for (i = 0; i < take; ++i) {
+            out = &xb.points[xb.count + i];
+            out->x = vertices[i].position[0];
+            out->y = vertices[i].position[1];
+            out->z = vertices[i].position[2];
+            out->normal.x = vertices[i].normal[0];
+            out->normal.y = vertices[i].normal[1];
+            out->normal.z = vertices[i].normal[2];
+            out->color.rgb.r = gamma_color(vertices[i].color[0]);
+            out->color.rgb.g = gamma_color(vertices[i].color[1]);
+            out->color.rgb.b = gamma_color(vertices[i].color[2]);
+        }
+        xb.count += take;
+        vertices += take; count -= take;
+        if (xb.count == XGL_BATCH_TRIANGLES * 3) XGL_Flush();
+    }
+}
+
+static void update_lights(void)
+{
+    int chosen[XGL_POINT_LIGHTS], i, j, insert, limit;
+    double distances[XGL_POINT_LIGHTS], distance, dx, dy, dz;
+    Xgl_pt_d3d position;
+    Xgl_color color;
+    for (i = 0; i < XGL_POINT_LIGHTS; ++i) { chosen[i] = -1; distances[i] = 1e30; }
+    limit = (int)xgl_maxlights.value;
+    if (limit < 0) limit = 0;
+    if (limit > XGL_POINT_LIGHTS) limit = XGL_POINT_LIGHTS;
+    if (!r_dynamic.value) limit = 0;
+    for (i = 0; i < MAX_DLIGHTS; ++i) {
+        if (cl_dlights[i].die < cl.time || cl_dlights[i].radius <= 0) continue;
+        dx = cl_dlights[i].origin[0] - r_origin[0];
+        dy = cl_dlights[i].origin[1] - r_origin[1];
+        dz = cl_dlights[i].origin[2] - r_origin[2];
+        distance = dx*dx + dy*dy + dz*dz;
+        for (insert = 0; insert < limit && distance >= distances[insert]; ++insert) {}
+        if (insert == limit) continue;
+        for (j = limit - 1; j > insert; --j) { distances[j] = distances[j-1]; chosen[j] = chosen[j-1]; }
+        distances[insert] = distance; chosen[insert] = i;
+    }
+    memset(&color, 0, sizeof(color));
+    color.rgb.r = color.rgb.g = color.rgb.b = 1;
+    xb.light_switches[0] = TRUE;
+    xb.light_switches[5] = FALSE;
+    for (i = 0; i < XGL_POINT_LIGHTS; ++i) {
+        xb.light_switches[i+1] = chosen[i] >= 0 ? TRUE : FALSE;
+        if (chosen[i] < 0) continue;
+        j = chosen[i];
+        position.x = cl_dlights[j].origin[0];
+        position.y = cl_dlights[j].origin[1];
+        position.z = cl_dlights[j].origin[2];
+        xgl_object_set(xb.lights[i+1], XGL_LIGHT_TYPE, XGL_LIGHT_POSITIONAL,
+            XGL_LIGHT_COLOR, &color, XGL_LIGHT_POSITION, &position,
+            XGL_LIGHT_ATTENUATION_1, 1.0,
+            XGL_LIGHT_ATTENUATION_2, 1.0 / (double)cl_dlights[j].radius, 0);
+        native_check();
+    }
+    xgl_object_set(xb.scene, XGL_3D_CTX_LIGHT_SWITCHES, xb.light_switches, 0);
+    native_check();
+}
+
+void XGL_BeginFrame(void)
+{
+    Xgl_bounds_d3d viewport;
+    if (!xb.system) return;
+    XGL_Flush(); XGL_UIFlush(); complete_scene();
+    xb.frame = 1; xb.scene_active = 0; xb.ui_active = 0; xb.overlay_3d = 0;
+    memset(&viewport, 0, sizeof(viewport));
+    viewport.xmax = xb.width - 1; viewport.ymax = xb.height - 1;
+    viewport.zmax = xb.maximum_z;
+    set_transparency(1, 1);
+    xgl_object_set(xb.scene,
+        XGL_CTX_DC_VIEWPORT, &viewport,
+        XGL_CTX_CLIP_PLANES, 0,
+        XGL_3D_CTX_HLHSR_MODE, XGL_HLHSR_Z_BUFFER,
+        XGL_CTX_NEW_FRAME_ACTION, XGL_CTX_NEW_FRAME_CLEAR | XGL_CTX_NEW_FRAME_HLHSR_ACTION, 0);
+    native_check();
+    xgl_context_new_frame(xb.scene);
+    native_check();
+}
+
+void XGL_BeginScene(void)
+{
+    Xgl_matrix_f3d matrix;
+    Xgl_bounds_d3d bounds, viewport;
+    double sx, sy, near_clip, far_clip, a, offset, tx, ty;
+    int i;
+    if (!xb.frame) return;
+    XGL_UIFlush(); XGL_Flush();
+    memset(&bounds, 0, sizeof(bounds));
+    bounds.xmin = bounds.ymin = -1; bounds.xmax = bounds.ymax = 1; bounds.zmax = 1;
+    sx = (double)xb.width / vid.width; sy = (double)xb.height / vid.height;
+    viewport.xmin = r_refdef.vrect.x * sx;
+    viewport.xmax = (r_refdef.vrect.x + r_refdef.vrect.width) * sx - 1;
+    viewport.ymin = r_refdef.vrect.y * sy;
+    viewport.ymax = (r_refdef.vrect.y + r_refdef.vrect.height) * sy - 1;
+    viewport.zmin = 0; viewport.zmax = xb.maximum_z;
+    xgl_object_set(xb.scene,
+        XGL_CTX_VDC_MAP, XGL_VDC_MAP_ALL,
+        XGL_CTX_VDC_ORIENTATION, XGL_Y_DOWN_Z_AWAY,
+        XGL_CTX_VDC_WINDOW, &bounds, XGL_CTX_VIEW_CLIP_BOUNDS, &bounds,
+        XGL_CTX_DC_VIEWPORT, &viewport,
+        XGL_CTX_CLIP_PLANES, XGL_CLIP_XMIN | XGL_CLIP_XMAX | XGL_CLIP_YMIN |
+            XGL_CLIP_YMAX | XGL_CLIP_ZMIN | XGL_CLIP_ZMAX,
+        XGL_3D_CTX_HLHSR_MODE, XGL_HLHSR_Z_BUFFER, 0);
+    native_check();
+    near_clip = 4; far_clip = 4096;
+    a = far_clip / (far_clip - near_clip);
+    offset = -near_clip * a;
+    tx = 1.0 / tan(r_refdef.fov_x * M_PI / 360.0);
+    ty = 1.0 / tan(r_refdef.fov_y * M_PI / 360.0);
+    memset(matrix, 0, sizeof(matrix));
+    for (i = 0; i < 3; ++i) {
+        matrix[i][0] = (float)(vright[i] * tx);
+        matrix[i][1] = (float)(-vup[i] * ty);
+        matrix[i][2] = (float)(vpn[i] * a);
+        matrix[i][3] = vpn[i];
+        matrix[3][0] -= r_origin[i] * matrix[i][0];
+        matrix[3][1] -= r_origin[i] * matrix[i][1];
+        matrix[3][2] -= r_origin[i] * matrix[i][2];
+        matrix[3][3] -= r_origin[i] * matrix[i][3];
+    }
+    matrix[3][2] += (float)offset;
+    identity_transform(xb.model);
+    xgl_transform_write(xb.view, matrix);
+    native_check();
+    update_lights();
+    xb.applied_lit = xb.applied_zwrite = -1; xb.applied_opacity = -1;
+    xb.scene_active = 1; xb.ui_active = 0; xb.overlay_3d = 0;
+    native_check();
+}
+
+void XGL_SetViewModel(int enabled)
+{
+    if (!xb.frame || !xb.scene_active) return;
+    XGL_Flush(); complete_scene();
+    if (enabled) {
+        /* Weapon is the last 3D layer; clear depth only, retaining the world
+         * color. No extra world render or texture/lightmap pass is needed. */
+        set_transparency(1, 1);
+        xb.applied_zwrite = -1; xb.applied_opacity = -1;
+        xgl_object_set(xb.scene, XGL_CTX_NEW_FRAME_ACTION, XGL_CTX_NEW_FRAME_HLHSR_ACTION, 0);
+        native_check();
+        xgl_context_new_frame(xb.scene);
+        native_check();
+    }
+}
+
+void XGL_EndScene(void)
+{
+    XGL_Flush(); complete_scene();
+    xb.scene_active = 0;
+}
+
+static void begin_ui(void)
+{
+    if (!xb.frame) return;
+    if (xb.scene_active) XGL_EndScene();
+    if (!xb.ui_active) { complete_scene(); xb.ui_active = 1; }
+}
+
+static xgl_font_size_t *font_size(float cell, float height)
+{
+    xgl_font_size_t *font;
+    Xgl_pt_f2d advance;
+    double usage, ratio, requested, sx, sy;
+    float width, tall, ascent, descent;
+    int i, attempt, slot;
+    for (slot = 0; slot < XGL_FONT_CACHE; ++slot)
+        if (xb.fonts[slot].valid && xb.fonts[slot].cell == cell && xb.fonts[slot].height == height)
+            return &xb.fonts[slot];
+    slot = xb.font_next++ % XGL_FONT_CACHE;
+    font = &xb.fonts[slot];
+    memset(font, 0, sizeof(*font));
+    font->cell = cell; font->height = height;
+    sx = (double)xb.width / vid.width; sy = (double)xb.height / vid.height;
+    requested = height * sy * .85;
+    for (attempt = 0; attempt < 6; ++attempt) {
+        usage = 1;
+        ascent = descent = 0;
+        xgl_object_set(xb.ui, XGL_CTX_STEXT_CHAR_HEIGHT, requested, 0);
+        native_check();
+        for (i = 1; i < 95; ++i) {
+            xgl_stroke_text_extent(xb.ui, xb.glyphs[i], &font->bounds[i], &advance);
+            native_check();
+            width = font->bounds[i].xmax - font->bounds[i].xmin;
+            tall = font->bounds[i].ymax - font->bounds[i].ymin;
+            /* '-'/'_' and '|' may have zero ink height/width. Their
+             * advancing text cells are valid even for degenerate bounds. */
+            if (!(width >= 0 && width < 10000 && tall >= 0 && tall < 10000 &&
+                  advance.x > 0 && advance.x < 10000))
+                Sys_Error("XGL stroke font has invalid bounds for character %c", i + 32);
+            if (font->bounds[i].ymax > ascent) ascent = font->bounds[i].ymax;
+            if (font->bounds[i].ymin < descent) descent = font->bounds[i].ymin;
+            ratio = width / (cell * sx * .95);
+            if (ratio > usage) usage = ratio;
+        }
+        ratio = (ascent - descent) / (height * sy * .95);
+        if (ratio > usage) usage = ratio;
+        if (!(font->bounds['H'-32].xmax > font->bounds['H'-32].xmin &&
+              font->bounds['H'-32].ymax > font->bounds['H'-32].ymin))
+            Sys_Error("XGL stroke font returned empty capital-letter bounds");
+        if (usage <= 1) break;
+        requested *= .96 / usage;
+        if (requested < .2 || attempt == 5) Sys_Error("XGL stroke font does not fit %.1fx%.1f UI cells", cell, height);
+    }
+    font->requested = (float)requested;
+    font->ascent = ascent;
+    font->valid = 1;
+    xb.current_text_height = font->requested;
+    return font;
+}
+
+void XGL_UIText(float x, float y, const char *text, int color, float cell_width, float height)
+{
+    xgl_font_size_t *font;
+    Xgl_pt_f2d *position;
+    Xgl_bounds_f2d *bounds;
+    Xgl_color rgb;
+    float sx, sy, width;
+    int character;
+    if (!xb.frame || !text || cell_width <= 0 || height <= 0) return;
+    begin_ui();
+    font = font_size(cell_width, height);
+    if (xb.current_text_height != font->requested) {
+        xgl_object_set(xb.ui, XGL_CTX_STEXT_CHAR_HEIGHT, (double)font->requested, 0);
+        xb.current_text_height = font->requested;
+    }
+    palette_color(color, &rgb);
+    xgl_object_set(xb.ui, XGL_CTX_STEXT_COLOR, &rgb, 0);
+    native_check();
+    sx = (float)xb.width / vid.width; sy = (float)xb.height / vid.height;
+    while (*text) {
+        character = ((unsigned char)*text++) & 127;
+        if (character < 32 || character > 126) character = '?';
+        if (character != ' ' && x + cell_width > 0 && x < vid.width && y + height > 0 && y < vid.height) {
+            character -= 32;
+            bounds = &font->bounds[character];
+            width = bounds->xmax - bounds->xmin;
+            if (xb.ui_glyph_count == XGL_UI_GLYPHS) XGL_UIFlush();
+            position = &xb.ui_positions[xb.ui_glyph_count++];
+            position->x = x * sx + (cell_width*sx - width)*.5f - bounds->xmin;
+            position->y = y * sy + font->ascent;
+            xgl_stroke_text(xb.ui, xb.glyphs[character], position, NULL);
+            native_check();
+        }
+        x += cell_width;
+    }
+    native_check();
+}
+
+void XGL_UIFillRGB(float x, float y, float width, float height, const float rgb[3], float opacity)
+{
+    Xgl_pt_f2d points2[4];
+    Xgl_pt_f3d points3[4];
+    Xgl_pt_list list;
+    Xgl_facet_list facets;
+    Xgl_color_facet color;
+    Xgl_bounds_d3d viewport;
+    float sx, sy;
+    int i, index;
+    if (!xb.frame || width <= 0 || height <= 0 || opacity <= 0) return;
+    begin_ui();
+    sx = (float)xb.width / vid.width; sy = (float)xb.height / vid.height;
+    if (x < 0) { width += x; x = 0; }
+    if (y < 0) { height += y; y = 0; }
+    if (x + width > vid.width) width = vid.width - x;
+    if (y + height > vid.height) height = vid.height - y;
+    if (width <= 0 || height <= 0) return;
+    points2[0].x = x*sx; points2[0].y = y*sy;
+    points2[1].x = (x+width)*sx; points2[1].y = y*sy;
+    points2[2].x = (x+width)*sx; points2[2].y = (y+height)*sy;
+    points2[3].x = x*sx; points2[3].y = (y+height)*sy;
+    memset(&list, 0, sizeof(list)); memset(&facets, 0, sizeof(facets));
+    memset(&color, 0, sizeof(color));
+    color.color.rgb.r = gamma_color(rgb[0]);
+    color.color.rgb.g = gamma_color(rgb[1]);
+    color.color.rgb.b = gamma_color(rgb[2]);
+    facets.facet_type = XGL_FACET_COLOR; facets.num_facets = 1;
+    facets.facets.color_facets = &color; list.num_pts = 4;
+    if (opacity >= .9999f) {
+        if (xb.ui_quad_count == XGL_UI_QUADS) XGL_UIFlush();
+        index = xb.ui_quad_count++;
+        memcpy(xb.ui_points[index], points2, sizeof(points2));
+        list.pt_type = XGL_PT_F2D; list.pts.f2d = xb.ui_points[index];
+        xb.ui_lists[index] = list; xb.ui_colors[index] = color;
+        facets.facets.color_facets = &xb.ui_colors[index];
+        xb.ui_facets[index] = facets;
+        xgl_multi_simple_polygon(xb.ui, XGL_FACET_FLAG_SIDES_ARE_4 | XGL_FACET_FLAG_SHAPE_CONVEX,
+                                &xb.ui_facets[index], NULL, 1, &xb.ui_lists[index]);
+    } else {
+        /* Blend through the 3D context using device coordinates and no Z;
+         * opaque UI text/geometry continues on the shared 2D draw buffer. */
+        XGL_UIFlush();
+        if (!xb.overlay_3d) {
+            identity_transform(xb.model); identity_transform(xb.view);
+            memset(&viewport, 0, sizeof(viewport));
+            viewport.xmax = xb.width - 1; viewport.ymax = xb.height - 1;
+            viewport.zmax = xb.maximum_z;
+            xgl_object_set(xb.scene,
+                XGL_CTX_VDC_MAP, XGL_VDC_MAP_DEVICE,
+                XGL_CTX_VDC_ORIENTATION, XGL_Y_DOWN_Z_AWAY,
+                XGL_CTX_DC_VIEWPORT, &viewport,
+                XGL_CTX_CLIP_PLANES, 0,
+                XGL_3D_CTX_HLHSR_MODE, XGL_HLHSR_NONE,
+                XGL_CTX_SURF_FRONT_COLOR_SELECTOR, XGL_SURF_COLOR_FACET,
+                XGL_3D_CTX_SURF_FRONT_ILLUMINATION, XGL_ILLUM_NONE, 0);
+            native_check();
+            xb.overlay_3d = 1;
+        }
+        set_transparency(bound_color(opacity), 0);
+        for (i = 0; i < 4; ++i) { points3[i].x = points2[i].x; points3[i].y = points2[i].y; points3[i].z = 0; }
+        list.pt_type = XGL_PT_F3D; list.pts.f3d = points3;
+        xgl_multi_simple_polygon(xb.scene, XGL_FACET_FLAG_SIDES_ARE_4 | XGL_FACET_FLAG_SHAPE_CONVEX,
+                                &facets, NULL, 1, &list);
+        complete_scene();
+    }
+    native_check();
+}
+
+void XGL_UIFill(float x, float y, float width, float height, int index, float opacity)
+{
+    float rgb[3];
+    index &= 255;
+    rgb[0] = xgl_palette[index*3] / 255.0f;
+    rgb[1] = xgl_palette[index*3+1] / 255.0f;
+    rgb[2] = xgl_palette[index*3+2] / 255.0f;
+    XGL_UIFillRGB(x, y, width, height, rgb, opacity);
+}
+
+void XGL_EndFrame(void)
+{
+    if (!xb.frame) return;
+    XGL_Flush(); XGL_UIFlush(); complete_scene();
+    xgl_object_set(xb.scene, XGL_CTX_NEW_FRAME_ACTION, XGL_CTX_NEW_FRAME_SWITCH_BUFFER, 0);
+    native_check();
+    xgl_context_new_frame(xb.scene);
+    complete_scene();
+    xb.frame = xb.scene_active = xb.ui_active = 0;
+}
+
+int XGL_ReadScreen(byte *rgb, int width, int height)
+{
+    Xgl_pt_i2d point;
+    Xgl_color color;
+    int x, y, obscured;
+    if (!xb.system || !rgb || width <= 0 || height <= 0 || xb.errors) return 0;
+    XGL_Flush(); XGL_UIFlush(); complete_scene();
+    xgl_object_set(xb.raster, XGL_RAS_SOURCE_BUFFER,
+                   xb.frame ? XGL_BUFFER_SEL_DRAW : XGL_BUFFER_SEL_DISPLAY, 0);
+    for (y = 0; y < height; ++y) {
+        point.y = (int)((double)y * xb.height / height);
+        for (x = 0; x < width; ++x) {
+            point.x = (int)((double)x * xb.width / width);
+            obscured = xgl_context_get_pixel(xb.scene, &point, &color);
+            if (obscured || xb.errors) {
+                if (!xb.fatal) xgl_object_set(xb.raster, XGL_RAS_SOURCE_BUFFER, XGL_BUFFER_SEL_DRAW, 0);
+                Con_Printf("XGL screenshot readback failed or was obscured\n");
+                return 0;
+            }
+            *rgb++ = (byte)(bound_color(color.rgb.r) * 255 + .5f);
+            *rgb++ = (byte)(bound_color(color.rgb.g) * 255 + .5f);
+            *rgb++ = (byte)(bound_color(color.rgb.b) * 255 + .5f);
+        }
+    }
+    xgl_object_set(xb.raster, XGL_RAS_SOURCE_BUFFER, XGL_BUFFER_SEL_DRAW, 0);
+    return !xb.errors;
+}
+
+void XGLB_Resize(int width, int height)
+{
+    if (!xb.system || width < 1 || height < 1) return;
+    XGL_Flush(); XGL_UIFlush(); complete_scene();
+    xb.width = width; xb.height = height;
+    xgl_window_raster_resize(xb.raster);
+    memset(xb.fonts, 0, sizeof(xb.fonts));
+    xb.current_text_height = -1;
+    native_check();
+}
+
+void XGLB_Shutdown(void)
+{
+    if (xb.system) {
+        /* xgl_close destroys child objects, including queued volatile work. */
+        xgl_close(xb.system);
+    }
+    memset(&xb, 0, sizeof(xb));
+}
+
+void XGLB_Init(Display *display, Window window, int width, int height)
+{
+    Xgl_X_window native_window;
+    Xgl_obj_desc descriptor;
+    Xgl_color color;
+    Xgl_pt_f2d up;
+    Xgl_pt_f3d direction;
+    Xgl_pt_d3d maximum;
+    Xgl_hlhsr_data clear;
+    Xgl_sfont font;
+    Xgl_inquire *inquiry;
+    char *name;
+    int i;
+    if (sizeof(Xgl_usgn32) != 4 || sizeof(void *) != 4 || sizeof(float) != 4)
+        Sys_Error("XGLQuake requires the 32-bit Sun XGL ABI");
+    memset(&xb, 0, sizeof(xb));
+    xb.width = width; xb.height = height; xb.current_text_height = -1;
+    Cvar_RegisterVariable(&xgl_ambient); Cvar_RegisterVariable(&xgl_maxlights);
+    xb.system = xgl_open((Xgl_attribute)NULL);
+    if (!xb.system) Sys_Error("xgl_open failed");
+    xgl_object_set(xb.system, XGL_SYS_ST_ERROR_NOTIFICATION_FUNCTION, native_error,
+                   XGL_SYS_ST_ERROR_DETECTION, TRUE, 0);
+    memset(&native_window, 0, sizeof(native_window));
+    native_window.X_display = display; native_window.X_screen = DefaultScreen(display);
+    native_window.X_window = window;
+    memset(&descriptor, 0, sizeof(descriptor));
+    descriptor.win_ras.type = XGL_WIN_X; descriptor.win_ras.desc = &native_window;
+    inquiry = xgl_inquire(xb.system, &descriptor);
+    native_check();
+    if (!inquiry) Sys_Error("XGL could not inquire the window visual");
+    Con_SafePrintf("XGL device: %s; RGB=%d Z=%d shading=%d lighting=%d transparency=%d\n",
+        inquiry->name ? inquiry->name : "unknown", inquiry->true_color, inquiry->hlhsr,
+        inquiry->shading, inquiry->lighting, inquiry->transparency);
+    if (!inquiry->dga_flag || inquiry->true_color != XGL_INQ_HARDWARE ||
+        inquiry->hlhsr != XGL_INQ_HARDWARE || inquiry->shading != XGL_INQ_HARDWARE ||
+        inquiry->maximum_buffer < 2) {
+        free(inquiry);
+        Sys_Error("XGLQuake needs local DGA hardware RGB/Z/shading and two buffers");
+    }
+    free(inquiry);
+    descriptor.win_ras.type = XGL_WIN_X | XGL_WIN_X_PROTO_DGA;
+    xb.raster = xgl_object_create(xb.system, XGL_WIN_RAS, &descriptor,
+        XGL_DEV_COLOR_TYPE, XGL_COLOR_RGB, XGL_WIN_RAS_BACKING_STORE, FALSE,
+        XGL_WIN_RAS_BUFFERS_REQUESTED, 2, 0);
+    native_check();
+    if (!xb.raster) Sys_Error("XGL window raster creation failed");
+    xgl_object_get(xb.raster, XGL_WIN_RAS_BUFFERS_ALLOCATED, &xb.buffers);
+    native_check();
+    if (xb.buffers < 2) Sys_Error("XGL did not allocate two window buffers");
+    xgl_object_set(xb.raster, XGL_WIN_RAS_BUF_DISPLAY, 0, XGL_WIN_RAS_BUF_DRAW, 1,
+                   XGL_RAS_SOURCE_BUFFER, XGL_BUFFER_SEL_DRAW, 0);
+    memset(&color, 0, sizeof(color));
+    xb.scene = xgl_object_create(xb.system, XGL_3D_CTX, NULL,
+        XGL_CTX_DEVICE, xb.raster, XGL_CTX_RENDER_BUFFER, XGL_RENDER_DRAW_BUFFER,
+        XGL_CTX_BACKGROUND_COLOR, &color, XGL_CTX_DEFERRAL_MODE, XGL_DEFER_ASTI,
+        XGL_CTX_GEOM_DATA_IS_VOLATILE, TRUE,
+        XGL_CTX_SURF_FRONT_FILL_STYLE, XGL_SURF_FILL_SOLID,
+        XGL_CTX_SURF_EDGE_FLAG, FALSE,
+        XGL_3D_CTX_SURF_FACE_CULL, XGL_CULL_OFF,
+        XGL_3D_CTX_SURF_FACE_DISTINGUISH, FALSE,
+        XGL_3D_CTX_SURF_NORMAL_FLIP, FALSE,
+        XGL_3D_CTX_SURF_LIGHTING_NORMAL_FLIP, FALSE,
+        XGL_3D_CTX_SURF_FRONT_AMBIENT, 1.0,
+        XGL_3D_CTX_SURF_FRONT_DIFFUSE, 1.0,
+        XGL_3D_CTX_SURF_FRONT_SPECULAR, 0.0,
+        XGL_3D_CTX_SURF_FRONT_LIGHT_COMPONENT, XGL_LIGHT_ENABLE_COMP_AMBIENT | XGL_LIGHT_ENABLE_COMP_DIFFUSE,
+        XGL_3D_CTX_HLHSR_MODE, XGL_HLHSR_Z_BUFFER,
+        XGL_3D_CTX_Z_BUFFER_COMP_METHOD, XGL_Z_COMP_LESS_THAN_OR_EQUAL,
+        XGL_3D_CTX_LIGHT_NUM, (Xgl_usgn32)6, 0);
+    native_check();
+    if (!xb.scene) Sys_Error("XGL 3D context creation failed");
+    xgl_object_get(xb.scene, XGL_CTX_LOCAL_MODEL_TRANS, &xb.model);
+    xgl_object_get(xb.scene, XGL_CTX_VIEW_TRANS, &xb.view);
+    native_check();
+    if (!xb.model || !xb.view) Sys_Error("XGL did not create scene transforms");
+    xgl_object_set(xb.model, XGL_TRANS_DATA_TYPE, XGL_DATA_FLT, XGL_TRANS_DIMENSION, XGL_TRANS_3D, 0);
+    xgl_object_set(xb.view, XGL_TRANS_DATA_TYPE, XGL_DATA_FLT, XGL_TRANS_DIMENSION, XGL_TRANS_3D, 0);
+    identity_transform(xb.model); identity_transform(xb.view);
+    xgl_object_get(xb.raster, XGL_DEV_MAXIMUM_COORDINATES, &maximum);
+    native_check();
+    xb.maximum_z = maximum.z;
+    memset(&clear, 0, sizeof(clear)); clear.z_buffer.z_value = (float)maximum.z;
+    xgl_object_set(xb.scene, XGL_3D_CTX_HLHSR_DATA, &clear, 0);
+    xgl_object_get(xb.scene, XGL_3D_CTX_LIGHTS, xb.lights);
+    native_check();
+    for (i = 0; i < 6; ++i) if (!xb.lights[i]) Sys_Error("XGL did not create all requested lights");
+    xgl_object_set(xb.lights[0], XGL_LIGHT_TYPE, XGL_LIGHT_AMBIENT, 0);
+    color.rgb.r = color.rgb.g = color.rgb.b = .5f;
+    direction.x = -.577350269f; direction.y = -.577350269f; direction.z = -.577350269f;
+    xgl_object_set(xb.lights[5], XGL_LIGHT_TYPE, XGL_LIGHT_DIRECTIONAL,
+                   XGL_LIGHT_COLOR, &color, XGL_LIGHT_DIRECTION, &direction, 0);
+    up.x = 0; up.y = 1;
+    color.rgb.r = color.rgb.g = color.rgb.b = 1;
+    xb.ui = xgl_object_create(xb.system, XGL_2D_CTX, NULL,
+        XGL_CTX_DEVICE, xb.raster, XGL_CTX_RENDER_BUFFER, XGL_RENDER_DRAW_BUFFER,
+        XGL_CTX_DEFERRAL_MODE, XGL_DEFER_ASAP,
+        XGL_CTX_NEW_FRAME_ACTION, XGL_CTX_NEW_FRAME_NONE,
+        XGL_CTX_GEOM_DATA_IS_VOLATILE, TRUE,
+        XGL_CTX_VDC_MAP, XGL_VDC_MAP_DEVICE, XGL_CTX_VDC_ORIENTATION, XGL_Y_DOWN_Z_AWAY,
+        XGL_CTX_SURF_FRONT_COLOR_SELECTOR, XGL_SURF_COLOR_FACET,
+        XGL_CTX_SURF_FRONT_FILL_STYLE, XGL_SURF_FILL_SOLID, XGL_CTX_SURF_EDGE_FLAG, FALSE,
+        XGL_CTX_STEXT_PRECISION, XGL_STEXT_PRECISION_STROKE,
+        XGL_CTX_STEXT_CHAR_ENCODING, XGL_SINGLE_STR | XGL_CHAR_MBY,
+        XGL_CTX_STEXT_CHAR_UP_VECTOR, &up,
+        XGL_CTX_STEXT_PATH, XGL_STEXT_PATH_RIGHT,
+        XGL_CTX_STEXT_ALIGN_HORIZ, XGL_STEXT_ALIGN_HORIZ_LEFT,
+        XGL_CTX_STEXT_ALIGN_VERT, XGL_STEXT_ALIGN_VERT_BASE,
+        XGL_CTX_STEXT_COLOR, &color, 0);
+    native_check();
+    if (!xb.ui) Sys_Error("XGL native text context creation failed");
+    font = NULL; name = NULL;
+    xgl_object_get(xb.ui, XGL_CTX_SFONT_0, &font);
+    native_check();
+    if (!font) Sys_Error("XGL native stroke font is unavailable");
+    xgl_object_get(font, XGL_SFONT_NAME, &name);
+    native_check();
+    Con_SafePrintf("XGL stroke font: %s; fixed-cell native glyph placement\n", name ? name : "unknown");
+    for (i = 0; i < 95; ++i) { xb.glyphs[i][0] = (char)(i + 32); xb.glyphs[i][1] = 0; }
+    for (i = 0; i < XGL_BATCH_TRIANGLES; ++i) {
+        xb.lists[i].pt_type = XGL_PT_COLOR_NORMAL_F3D;
+        xb.lists[i].num_pts = 3;
+        xb.lists[i].pts.color_normal_f3d = xb.points + i*3;
+    }
+    (void)font_size(8, 8); (void)font_size(16, 16);
+    native_check();
+    Con_SafePrintf("XGL: sampled colors, native ambient/point lighting, %d-triangle batches\n", XGL_BATCH_TRIANGLES);
+}
