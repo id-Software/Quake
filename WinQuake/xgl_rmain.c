@@ -4,6 +4,8 @@
  * GNU GPL version 2 or (at your option) any later version.
  */
 #include "quakedef.h"
+#include "xgl_audio.h"
+#include "xgl_profile.h"
 
 entity_t r_worldentity, *currententity;
 qboolean r_cache_thrash;
@@ -68,6 +70,8 @@ static void XGL_TimeRefresh_f (void)
 
 void R_Init (void)
 {
+    XGL_ProfileInit();
+    XGL_AudioInit();
     Cvar_RegisterVariable(&r_norefresh);
     Cvar_RegisterVariable(&r_drawentities);
     Cvar_RegisterVariable(&r_drawviewmodel);
@@ -132,7 +136,7 @@ static void XGL_SetFrustum (void)
 
 void R_RenderView (void)
 {
-    double start;
+    double start, section_start;
     if (r_norefresh.value || !cl.worldmodel) return;
     start = r_speeds.value ? Sys_FloatTime() : 0;
     if (cl.maxclients > 1 && r_fullbright.value) Cvar_Set("r_fullbright", "0");
@@ -149,11 +153,27 @@ void R_RenderView (void)
     c_brush_polys = c_alias_polys = 0;
     r_cache_thrash = false;
     XGL_BeginScene();
+    section_start = XGL_ProfileNow();
     XGL_DrawWorld();
+    XGL_ProfileAdd(XGL_PROFILE_WORLD, section_start);
+    /* Like GLQuake, service the original sound mixer during long frames. */
+    XGL_AudioUpdate();
+    section_start = XGL_ProfileNow();
     XGL_DrawEntities();
+    XGL_ProfileAdd(XGL_PROFILE_ENTITIES, section_start);
+    XGL_AudioUpdate();
+    section_start = XGL_ProfileNow();
     R_DrawParticles();
+    XGL_ProfileAdd(XGL_PROFILE_EFFECTS, section_start);
+    XGL_AudioUpdate();
+    section_start = XGL_ProfileNow();
     XGL_DrawWater();
+    XGL_ProfileAdd(XGL_PROFILE_EFFECTS, section_start);
+    XGL_AudioUpdate();
+    section_start = XGL_ProfileNow();
     XGL_DrawViewModel();
+    XGL_ProfileAdd(XGL_PROFILE_VIEWMODEL, section_start);
+    XGL_AudioUpdate();
     XGL_EndScene();
     if (r_speeds.value)
         Con_Printf("%3.1f ms %4i wpoly %4i epoly\n", (Sys_FloatTime() - start) * 1000,

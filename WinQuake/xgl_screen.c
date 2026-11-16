@@ -21,6 +21,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 // xgl_screen.c -- OpenGL screen orchestration with native XGL presentation. -- master for refresh, status bar, console, chat, notify, etc
 
 #include "quakedef.h"
+#include "xgl_profile.h"
 
 /*
 
@@ -831,6 +832,7 @@ needs almost the entire 256k of stack space!
 */
 void SCR_UpdateScreen (void)
 {
+    double ui_start;
 
 	if (block_drawing)
 		return;
@@ -883,6 +885,7 @@ void SCR_UpdateScreen (void)
 
 	V_RenderView ();
 
+	ui_start = XGL_ProfileNow ();
 	XGL_PolyBlend ();
 
 	//
@@ -930,5 +933,6 @@ void SCR_UpdateScreen (void)
 	V_UpdatePalette ();
 
 	XGL_DrawFlush ();
+	XGL_ProfileAdd (XGL_PROFILE_UI, ui_start);
 	XGL_EndFrame ();
 }

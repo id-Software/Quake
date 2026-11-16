@@ -4,6 +4,7 @@
  * GNU GPL version 2 or (at your option) any later version.
  */
 #include "quakedef.h"
+#include "xgl_audio.h"
 
 #define XGL_WORLD_CACHE_BYTES (8UL * 1024UL * 1024UL)
 #define XGL_SURFACE_DETAIL_VERTS 12288
@@ -25,13 +26,15 @@ typedef struct {
 typedef struct {
     xgl_cached_vertex_t *vertices;
     int count, texture, style[MAXLIGHTMAPS], fullbright;
+    unsigned int texture_revision, color_revision;
 } xgl_surface_mesh_t;
 
 typedef struct {
     xgl_surface_mesh_t coarse, detail;
     int coarse_attempted, detail_attempted;
     vec3_t center;
-    int center_valid;
+    int center_valid, detail_frame;
+    float area, radius, priority;
 } xgl_surface_cache_t;
 
 typedef struct {
@@ -45,6 +48,7 @@ static xgl_surface_cache_t *xgl_surfaces;
 static model_t *xgl_cached_world;
 static size_t xgl_cache_bytes;
 static int xgl_surface_count, xgl_detail_used;
+static int *xgl_world_order, *xgl_detail_order, xgl_world_count;
 static model_t *xgl_pvs_world;
 static mleaf_t *xgl_pvs_leaf;
 static int xgl_pvs_novis;
@@ -76,6 +80,9 @@ void XGL_WorldShutdown (void)
         }
         free(xgl_surfaces);
     }
+    free(xgl_world_order);
+    xgl_world_order = xgl_detail_order = NULL;
+    xgl_world_count = 0;
     xgl_surfaces = NULL;
     xgl_cached_world = NULL;
     xgl_surface_count = 0;
@@ -92,15 +99,22 @@ void XGL_WorldNewMap (void)
     xgl_cached_world = cl.worldmodel;
     xgl_cache_step = xgl_subdivide.value;
     if (!xgl_cached_world || xgl_cached_world->numsurfaces <= 0) return;
-    bytes = (size_t)xgl_cached_world->numsurfaces * sizeof(*xgl_surfaces);
+    if ((size_t)xgl_cached_world->numsurfaces > XGL_WORLD_CACHE_BYTES /
+        (sizeof(*xgl_surfaces) + 2 * sizeof(int))) return;
+    bytes = (size_t)xgl_cached_world->numsurfaces * (sizeof(*xgl_surfaces) + 2 * sizeof(int));
     if (bytes <= XGL_WORLD_CACHE_BYTES) {
-        xgl_surfaces = (xgl_surface_cache_t *)calloc(1, bytes);
-        if (xgl_surfaces) {
+        xgl_surfaces = (xgl_surface_cache_t *)calloc((size_t)xgl_cached_world->numsurfaces, sizeof(*xgl_surfaces));
+        xgl_world_order = (int *)malloc((size_t)xgl_cached_world->numsurfaces * 2 * sizeof(int));
+        if (xgl_surfaces && xgl_world_order) {
+            xgl_detail_order = xgl_world_order + xgl_cached_world->numsurfaces;
             xgl_surface_count = xgl_cached_world->numsurfaces;
             xgl_cache_bytes = bytes;
+        } else {
+            free(xgl_surfaces); free(xgl_world_order);
+            xgl_surfaces = NULL; xgl_world_order = NULL;
         }
     }
-    Con_Printf("XGL: sampled BSP cache limited to 8 MiB; detail depth <= 2; complete coarse fallback\n");
+    Con_Printf("XGL: sampled BSP cache limited to 8 MiB; detail depth <= 2; projected-size detail priority; complete coarse fallback\n");
 }
 
 static void XGL_SurfacePoint (model_t *model, msurface_t *surface, int index, vec3_t point)
@@ -210,6 +224,7 @@ static int XGL_BuildSurfaceMesh (model_t *model, msurface_t *surface,
     XGL_SurfacePoint(model, surface, 0, a);
     count = 0;
     for (i = 1; i + 1 < surface->numedges; ++i) {
+        if ((i & 15) == 1) XGL_AudioUpdate();
         XGL_SurfacePoint(model, surface, i, b);
         XGL_SurfacePoint(model, surface, i + 1, c);
         count += XGL_SubdivideTriangle(surface, a, b, c, depth, step, NULL);
@@ -222,6 +237,7 @@ static int XGL_BuildSurfaceMesh (model_t *model, msurface_t *surface,
     xgl_cache_bytes += bytes;
     count = 0;
     for (i = 1; i + 1 < surface->numedges; ++i) {
+        if ((i & 15) == 1) XGL_AudioUpdate();
         XGL_SurfacePoint(model, surface, i, b);
         XGL_SurfacePoint(model, surface, i + 1, c);
         count += XGL_SubdivideTriangle(surface, a, b, c, depth, step, mesh->vertices + count);
@@ -313,6 +329,7 @@ static void XGL_UpdateSpecialSurface (xgl_surface_mesh_t *mesh, msurface_t *surf
             vertex->draw.color[0] = vertex->draw.color[1] = vertex->draw.color[2] = .5f;
             XGL_SampleTexture(texture->gl_texturenum, s, t, vertex->draw.color, NULL);
         }
+        XGL_PrepareColor(vertex->draw.color);
     }
 }
 
@@ -320,15 +337,19 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
                                    texture_t *texture, entity_t *entity)
 {
     int i, j, changed, fullbright, texture_changed;
-    float rgb[3], light;
-    xgl_cached_vertex_t *vertex;
+    float rgb[3], light, footprint[2], low, high, value;
+    unsigned int texture_revision, color_revision;
+    int axis, corner;
+    xgl_cached_vertex_t *vertex, *triangle;
     if (surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB)) {
         XGL_UpdateSpecialSurface(mesh, surface, texture, entity);
         return;
     }
     fullbright = r_fullbright.value != 0;
-    texture_changed = mesh->texture != texture->gl_texturenum;
-    changed = texture_changed || mesh->fullbright != fullbright;
+    texture_revision = XGL_TextureRevision(texture->gl_texturenum);
+    color_revision = XGL_ColorRevision();
+    texture_changed = mesh->texture != texture->gl_texturenum || mesh->texture_revision != texture_revision;
+    changed = texture_changed || mesh->fullbright != fullbright || mesh->color_revision != color_revision;
     for (i = 0; i < MAXLIGHTMAPS; ++i) {
         int value;
         value = surface->styles[i] == 255 ? 0 : d_lightstylevalue[surface->styles[i]];
@@ -336,15 +357,33 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
         mesh->style[i] = value;
     }
     if (!changed) return;
+    footprint[0] = footprint[1] = 0;
     for (i = 0, vertex = mesh->vertices; i < mesh->count; ++i, ++vertex) {
+        if ((i & 255) == 0) XGL_AudioUpdate();
         if (texture_changed) {
-            XGL_SampleTexture(texture->gl_texturenum, vertex->st[0] / texture->width,
-                              vertex->st[1] / texture->height, rgb, NULL);
+            if (i % 3 == 0) {
+                triangle = vertex;
+                for (axis = 0; axis < 2; ++axis) {
+                    low = high = triangle[0].st[axis];
+                    for (corner = 1; corner < 3; ++corner) {
+                        value = triangle[corner].st[axis];
+                        if (value < low) low = value;
+                        if (value > high) high = value;
+                    }
+                    footprint[axis] = (high - low) / (3 * (float)(axis ? texture->height : texture->width));
+                }
+            }
+            rgb[0] = rgb[1] = rgb[2] = .5f;
+            XGL_SampleTextureFiltered(texture->gl_texturenum, vertex->st[0] / texture->width,
+                              vertex->st[1] / texture->height, footprint[0], footprint[1], rgb, NULL);
             for (j = 0; j < 3; ++j) vertex->material[j] = (byte)(rgb[j] * 255 + .5f);
         }
         light = XGL_SurfaceLightScale(surface, vertex->samples);
         for (j = 0; j < 3; ++j) vertex->draw.color[j] = vertex->material[j] * (light / 255.0f);
+        XGL_PrepareColor(vertex->draw.color);
     }
+    mesh->texture_revision = texture_revision;
+    mesh->color_revision = color_revision;
     mesh->texture = texture->gl_texturenum;
     mesh->fullbright = fullbright;
 }
@@ -356,7 +395,12 @@ static void XGL_EmitSurfaceVertices (const xgl_cached_vertex_t *source, int coun
     vec3_t forward, right, up;
     int i, j, n, transformed;
     transformed = entity && entity != &r_worldentity;
-    if (transformed) XGL_BrushBasis(entity, forward, right, up);
+    if (!transformed) {
+        XGL_DrawTrianglesStrided(&source[0].draw, count, sizeof(*source), lit, opacity, opacity >= 1, 1);
+        c_brush_polys += count / 3;
+        return;
+    }
+    XGL_BrushBasis(entity, forward, right, up);
     while (count > 0) {
         n = count > XGL_WORLD_BATCH ? XGL_WORLD_BATCH : count;
         for (i = 0; i < n; ++i) {
@@ -368,9 +412,100 @@ static void XGL_EmitSurfaceVertices (const xgl_cached_vertex_t *source, int coun
                         source[i].draw.normal[1] * right[j] + source[i].draw.normal[2] * up[j];
             }
         }
-        XGL_DrawTriangles(vertices, n, lit, opacity, opacity >= 1);
+        XGL_DrawTrianglesStrided(vertices, n, sizeof(*vertices), lit, opacity, opacity >= 1, 1);
         c_brush_polys += n / 3;
         source += n; count -= n;
+    }
+}
+
+static void XGL_SurfaceBounds(model_t *model, msurface_t *surface, xgl_surface_cache_t *cache)
+{
+    vec3_t point, origin, previous, a, b, cross;
+    float radius_squared, length_squared;
+    int i;
+    if (cache->center_valid) return;
+    VectorCopy(vec3_origin, cache->center);
+    cache->area = cache->radius = 0;
+    for (i = 0; i < surface->numedges; ++i) {
+        XGL_SurfacePoint(model, surface, i, point);
+        VectorAdd(cache->center, point, cache->center);
+    }
+    if (surface->numedges) { VectorScale(cache->center, 1.0f / surface->numedges, cache->center); }
+    radius_squared = 0;
+    VectorCopy(vec3_origin, origin); VectorCopy(vec3_origin, previous);
+    for (i = 0; i < surface->numedges; ++i) {
+        XGL_SurfacePoint(model, surface, i, point);
+        VectorSubtract(point, cache->center, a);
+        length_squared = DotProduct(a, a);
+        if (length_squared > radius_squared) radius_squared = length_squared;
+        if (i == 0) { VectorCopy(point, origin); }
+        else if (i > 1) {
+            VectorSubtract(previous, origin, a); VectorSubtract(point, origin, b);
+            CrossProduct(a, b, cross);
+            cache->area += (float)fabs(DotProduct(cross, surface->plane->normal)) * .5f;
+        }
+        VectorCopy(point, previous);
+    }
+    cache->radius = (float)sqrt(radius_squared);
+    cache->center_valid = 1;
+}
+
+static int XGL_DetailCompare(const void *left, const void *right)
+{
+    int a, b;
+    float difference;
+    a = *(const int *)left; b = *(const int *)right;
+    difference = xgl_surfaces[b].priority - xgl_surfaces[a].priority;
+    if (difference > 0) return 1;
+    if (difference < 0) return -1;
+    return a < b ? -1 : (a > b ? 1 : 0);
+}
+
+/* Reserve the fixed detail allowance for the largest visible projected-size
+ * estimates, then submit in the original BSP order. This avoids spending the
+ * whole allowance on small faces encountered early in the traversal. */
+static void XGL_SelectWorldDetail(void)
+{
+    xgl_surface_cache_t *cache;
+    msurface_t *surface;
+    vec3_t delta;
+    float distance, range;
+    int i, index, candidates;
+    candidates = 0;
+    for (i = 0; i < xgl_world_count; ++i) {
+        if ((i & 15) == 0) XGL_AudioUpdate();
+        index = xgl_world_order[i];
+        cache = xgl_surfaces + index;
+        surface = cl.worldmodel->surfaces + index;
+        cache->detail_frame = -1;
+        if ((surface->flags & SURF_DRAWTURB) && r_wateralpha.value <= 0) continue;
+        /* Coarse meshes get memory first, preserving cheap complete fallback. */
+        if (!cache->coarse_attempted) {
+            cache->coarse_attempted = 1;
+            XGL_BuildSurfaceMesh(cl.worldmodel, surface, &cache->coarse, 0);
+        }
+        if (!(xgl_detailtris.value > 0 && xgl_detaildistance.value > 0)) continue;
+        XGL_SurfaceBounds(cl.worldmodel, surface, cache);
+        VectorSubtract(cache->center, r_origin, delta);
+        distance = DotProduct(delta, delta);
+        range = xgl_detaildistance.value + cache->radius;
+        if (distance >= range * range) continue;
+        cache->priority = cache->area / (distance + 64);
+        xgl_detail_order[candidates++] = index;
+    }
+    qsort(xgl_detail_order, candidates, sizeof(*xgl_detail_order), XGL_DetailCompare);
+    for (i = 0; i < candidates && xgl_detail_used < xgl_detailtris.value; ++i) {
+        if ((i & 15) == 0) XGL_AudioUpdate();
+        index = xgl_detail_order[i]; cache = xgl_surfaces + index;
+        if (!cache->detail_attempted) {
+            cache->detail_attempted = 1;
+            XGL_BuildSurfaceMesh(cl.worldmodel, cl.worldmodel->surfaces + index, &cache->detail, 2);
+        }
+        if (cache->detail.vertices && cache->detail.count > cache->coarse.count &&
+            xgl_detail_used + cache->detail.count / 3 <= xgl_detailtris.value) {
+            cache->detail_frame = r_framecount;
+            xgl_detail_used += cache->detail.count / 3;
+        }
     }
 }
 
@@ -398,31 +533,28 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
             XGL_BuildSurfaceMesh(model, surface, &cache->coarse, 0);
         }
         mesh = &cache->coarse;
-        if (!cache->center_valid) {
-            cache->center[0] = cache->center[1] = cache->center[2] = 0;
-            for (i = 0; i < surface->numedges; ++i) {
-                XGL_SurfacePoint(model, surface, i, a);
-                VectorAdd(cache->center, a, cache->center);
+        if (entity == &r_worldentity && xgl_world_order) {
+            if (cache->detail_frame == r_framecount && cache->detail.vertices)
+                mesh = &cache->detail;
+        } else {
+            XGL_SurfaceBounds(model, surface, cache);
+            VectorCopy(cache->center, center);
+            if (entity && entity != &r_worldentity) {
+                XGL_BrushBasis(entity, forward, right, up);
+                XGL_BrushPoint(center, entity, forward, right, up, worldcenter);
+            } else VectorCopy(center, worldcenter);
+            VectorSubtract(worldcenter, r_origin, delta);
+            distance = DotProduct(delta, delta);
+            detail = xgl_detaildistance.value > 0 && distance < xgl_detaildistance.value * xgl_detaildistance.value;
+            if (detail && xgl_detail_used < xgl_detailtris.value && !cache->detail_attempted) {
+                cache->detail_attempted = 1;
+                XGL_BuildSurfaceMesh(model, surface, &cache->detail, 2);
             }
-            if (surface->numedges) VectorScale(cache->center, 1.0f / surface->numedges, cache->center);
-            cache->center_valid = 1;
-        }
-        VectorCopy(cache->center, center);
-        if (entity && entity != &r_worldentity) {
-            XGL_BrushBasis(entity, forward, right, up);
-            XGL_BrushPoint(center, entity, forward, right, up, worldcenter);
-        } else VectorCopy(center, worldcenter);
-        VectorSubtract(worldcenter, r_origin, delta);
-        distance = DotProduct(delta, delta);
-        detail = xgl_detaildistance.value > 0 && distance < xgl_detaildistance.value * xgl_detaildistance.value;
-        if (detail && xgl_detail_used < xgl_detailtris.value && !cache->detail_attempted) {
-            cache->detail_attempted = 1;
-            XGL_BuildSurfaceMesh(model, surface, &cache->detail, 2);
-        }
-        if (detail && cache->detail.vertices &&
-            xgl_detail_used + cache->detail.count / 3 <= xgl_detailtris.value) {
-            mesh = &cache->detail;
-            xgl_detail_used += mesh->count / 3;
+            if (detail && cache->detail.vertices &&
+                xgl_detail_used + cache->detail.count / 3 <= xgl_detailtris.value) {
+                mesh = &cache->detail;
+                xgl_detail_used += mesh->count / 3;
+            }
         }
         if (mesh->vertices) {
             XGL_UpdateSurfaceMesh(mesh, surface, texture, entity);
@@ -437,6 +569,7 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
     memset(&fallback, 0, sizeof(fallback));
     fallback.vertices = triangle; fallback.count = 3;
     for (i = 1; i + 1 < surface->numedges; ++i) {
+        if ((i & 15) == 1) XGL_AudioUpdate();
         XGL_SurfacePoint(model, surface, i, b);
         XGL_SurfacePoint(model, surface, i + 1, c);
         XGL_InitCachedVertex(triangle, surface, a);
@@ -546,19 +679,28 @@ static void XGL_WorldNode (mnode_t *node)
         if (surface->visframe != r_framecount) continue;
         if (!(surface->flags & SURF_UNDERWATER) &&
             ((distance < 0) != ((surface->flags & SURF_PLANEBACK) != 0))) continue;
-        XGL_QueueSurface(cl.worldmodel, surface, &r_worldentity);
+        if (xgl_world_order)
+            xgl_world_order[xgl_world_count++] = (int)(surface - cl.worldmodel->surfaces);
+        else XGL_QueueSurface(cl.worldmodel, surface, &r_worldentity);
     }
     XGL_WorldNode(node->children[!side]);
 }
 
 void XGL_DrawWorld (void)
 {
+    int i;
     if (xgl_cache_step != xgl_subdivide.value) XGL_WorldNewMap();
     xgl_detail_used = 0;
     xgl_water_count = 0;
+    xgl_world_count = 0;
     currententity = &r_worldentity;
     XGL_MarkLeaves();
     XGL_WorldNode(cl.worldmodel->nodes);
+    if (xgl_world_order) {
+        XGL_SelectWorldDetail();
+        for (i = 0; i < xgl_world_count; ++i)
+            XGL_QueueSurface(cl.worldmodel, cl.worldmodel->surfaces + xgl_world_order[i], &r_worldentity);
+    }
 }
 
 void XGL_DrawBrushModel (entity_t *entity)

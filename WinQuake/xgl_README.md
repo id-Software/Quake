@@ -31,10 +31,11 @@ does not enable `-ffast-math`. `CC`, `CPPFLAGS`, `CFLAGS`, `LANGFLAGS`,
 Place your shareware `pak0.pak` in `id1/` under the working
 directory used to start the game. Game data is not included in this port.
 The shareware episode is the initial compatibility baseline. Solaris audio
-uses the existing `/dev/audio` driver; CD audio remains the existing null
-driver. System services and BSD/UDP networking also use the original
-Solaris source files and libraries; no alternate audio or networking driver
-is selected for XGL.
+uses `/dev/audio`, 11,025 Hz 16-bit stereo, and the original mono fallback.
+The XGL-specific `xgl_snd_sun.c` retains those device interfaces with a larger
+mixing buffer and corrected nonblocking submission. CD audio remains the
+existing null driver. System services and BSD/UDP networking use the
+original Solaris source files and libraries.
 
 Start the shareware map or its recorded benchmark demo from the directory
 containing `id1/pak0.pak`:
@@ -98,10 +99,25 @@ approximates Quake's additive dynamic lighting and uses one world shading
 pass. Translucent water and screen color effects use native blending;
 palette effects appear as native overlay geometry.
 
+Ordinary world materials use cached, filtered CPU color samples. Optional
+RGB mip averages share the existing material memory budget; they are never
+uploaded as XGL textures. Large visible surfaces receive priority within
+the same detail-triangle allowance. The depth-two limit still means large
+faces may have coarse patches even when `xgl_subdivide` is small. Filtering
+reduces arbitrary single-texel gradients; it cannot reproduce texture detail
+smaller than the submitted geometry.
+
+Static world colors are gamma-converted when material/lightstyle/gamma state
+changes, then submitted directly from their strided cache. Animated models
+reuse sampled skin colors across poses while retaining current transforms,
+lighting, skins and player colors. Consecutive opaque UI rectangles are
+batched without changing their drawing order; glyphs retain fixed-cell native
+placement. Completion waits are issued only when native work is pending.
+
 | Setting | Default | Effect |
 | --- | ---: | --- |
 | `xgl_subdivide` | 32 | World texture-coordinate subdivision step, clamped to 8–256; smaller adds detail. |
-| `xgl_detailtris` | 4096 | Per-frame detailed world/brush triangle allowance; complete coarse faces remain when exhausted. |
+| `xgl_detailtris` | 4096 | Detailed world/brush triangle allowance; visible world faces are ranked by projected-size estimate, with complete coarse faces when exhausted. |
 | `xgl_detaildistance` | 768 | Distance within which detailed world surfaces are considered. |
 | `xgl_alias_subdivide` | 1 | Alias subdivision depth, 0–2; distant models use less detail. |
 | `xgl_entity_triangles` | 2048 | Additional alias subdivision triangles per frame; original model triangles remain. |
@@ -109,6 +125,8 @@ palette effects appear as native overlay geometry.
 | `xgl_playercolors` | 1 | Apply original player shirt/pants palette translations to sampled skins. |
 | `xgl_ambient` | 1 | Native ambient contribution, clamped to 0–1. |
 | `xgl_maxlights` | 4 | Maximum native point lights, clamped to 0–4. |
+| `xgl_profile` | 0 | Report aggregated graphics timings and native call counts to the terminal once per second. |
+| `_snd_mixahead` | 0.3 | Audio lookahead in seconds for XGL; existing archived values override this default. |
 | `r_wateralpha` | 1 | Water opacity; values below 1 request native blending. |
 
 The original `r_dynamic`, `r_fullbright`, `r_novis`, `r_drawentities`,
@@ -122,16 +140,47 @@ without explicitly setting `XGL_CTX_DC_VIEWPORT`. This preserves `viewsize`
 and the space reserved for the status bar. Native UI uses device coordinates.
 
 The existing Solaris main allocates a 16 MiB engine heap. World geometry
-cache storage is capped at another 8 MiB and CPU material pixels at another
-8 MiB; native contexts, window buffers, program data and library allocations
-are additional. These limits are not a measurement of total process memory.
+cache storage is capped at another 8 MiB, CPU material pixels and optional
+filter levels at another 8 MiB, and alias color caches at 1 MiB. The XGL
+audio ring is 32 KiB. Native contexts, window buffers, program data and
+library allocations are additional. These limits are not a measurement of
+total process memory.
 World cache/detail exhaustion falls back to complete coarse faces; exceeding
 the CPU material limit reports an error rather than silently dropping assets.
 
+## Audio and hardware profiling
+
+The original Solaris submission path writes at most 1,024 bytes per update,
+only about 23 ms of stereo audio. The XGL path submits all available mixed
+sound, retains unwritten data on partial writes/backpressure, and services
+the mixer during rendering and cache preparation. Its default 0.3-second
+lookahead trades some sound latency for tolerance of long frames. A single
+blocking graphics call longer than the queued audio can still cause a gap;
+this is not an independent audio thread.
+
+An existing `config.cfg` may restore `_snd_mixahead 0.1`. For the next Sun
+test, explicitly select 0.3 and collect timings with the console closed:
+
+```sh
+./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 1 +timedemo demo1 > xglquake-profile.txt 2>&1
+```
+
+Repeat with `-winsize 320 240` for a comparable resolution test. The profiler
+prints graphics-frame mean/max time and world, entity, effects, weapon and
+UI stage times. Native submission, synchronization, buffer-switch and audio
+service timings overlap those stages; do not add them to the graphics total.
+Counts include actual emitted 3D triangles (including alias subdivision and
+particles), native glyphs, polygon calls and completion waits. `gfx` excludes
+server work and the final shared sound update, so it is not a whole-game FPS
+measurement; use the timedemo result for that comparison. Profiling is off
+by default and performs no timing queries when disabled. Terminal reporting
+avoids adding in-game console glyphs to the workload being measured.
+
 ## Development-host checks
 
-Shareware recognition, CPU texture/mesh and native UI/entity submission tests
-need no SDK or game data. They run against controlled engine/backend mocks:
+Shareware recognition, CPU texture/mesh, native UI/entity submission, audio
+queueing and profiling tests need no SDK or game data. They run against
+controlled engine/backend mocks:
 
 ```sh
 make -f Makefile.XGL check
@@ -162,8 +211,9 @@ the compiler log are reported by the script.
 The optional native contract test captures SDK calls to check projection,
 clipping, lighting selection/state changes, depth-clear state, gamma and
 native font placement/cache behavior. It also checks view placement after
-resizing and error diagnostics with missing library message fields. It does
-not rasterize those calls.
+resizing, strided/prepared vertex colors, UI batch ordering and lifetimes,
+completion waits, and error diagnostics with missing library message fields.
+It does not rasterize those calls.
 
 These checks do not establish Solaris linking, SPARC ABI compatibility,
 native font rendering, Sun ZX correctness or performance. Those require a

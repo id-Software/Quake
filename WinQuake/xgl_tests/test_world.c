@@ -30,10 +30,21 @@ static byte test_vis;
 static int pvs_calls, sample_calls, efrag_calls, reject_box;
 static xgl_vertex_t captured[1024];
 static int captured_count, captured_lit, captured_zwrite;
-static int captured_calls, varying_material;
+static int captured_calls, varying_material, prepare_calls, filter_calls;
+static unsigned int color_revision, texture_revision;
+static float gamma_scale;
 static float captured_opacity;
 
 void Con_Printf(char *format, ...) { (void)format; }
+void XGL_AudioUpdate(void) {}
+unsigned int XGL_TextureRevision(int id) { assert(id == 1 || id == 2); return texture_revision; }
+unsigned int XGL_ColorRevision(void) { return color_revision; }
+void XGL_PrepareColor(float rgb[3])
+{
+    int i;
+    ++prepare_calls;
+    for (i = 0; i < 3; ++i) rgb[i] *= gamma_scale;
+}
 void Sys_Error(char *format, ...)
 {
     va_list args;
@@ -74,13 +85,25 @@ qboolean XGL_SampleTexture(int texture, float s, float t, float rgb[3], const by
     }
     return true;
 }
-void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit, float opacity, int zwrite)
+qboolean XGL_SampleTextureFiltered(int texture, float s, float t, float fs, float ft,
+                                  float rgb[3], const byte *translation)
+{
+    assert(fs >= 0 && ft >= 0);
+    ++filter_calls;
+    return XGL_SampleTexture(texture, s, t, rgb, translation);
+}
+
+void XGL_DrawTrianglesStrided(const xgl_vertex_t *vertices, int count, size_t stride,
+                              int lit, float opacity, int zwrite, int prepared)
 {
     int i;
+    const xgl_vertex_t *vertex;
+    assert(prepared && stride >= sizeof(*vertices));
     assert(count > 0 && count % 3 == 0 && captured_count + count <= 1024);
     for (i = 0; i < count; ++i) {
-        assert(fabs(DotProduct(vertices[i].normal, vertices[i].normal) - 1) < .0001);
-        captured[captured_count++] = vertices[i];
+        vertex = (const xgl_vertex_t *)((const byte *)vertices + i * stride);
+        assert(fabs(DotProduct(vertex->normal, vertex->normal) - 1) < .0001);
+        captured[captured_count++] = *vertex;
     }
     captured_lit = lit; captured_opacity = opacity; captured_zwrite = zwrite;
     ++captured_calls;
@@ -177,7 +200,8 @@ static void setup_world(void)
     xgl_detaildistance.value = 768;
     for (i = 0; i < 256; ++i) d_lightstylevalue[i] = 256;
     pvs_calls = sample_calls = efrag_calls = reject_box = captured_count = 0;
-    captured_calls = varying_material = 0;
+    captured_calls = varying_material = prepare_calls = filter_calls = 0;
+    color_revision = texture_revision = 1; gamma_scale = 1;
     realtime = 0;
     test_vis = 1;
     XGL_WorldNewMap();
@@ -253,7 +277,7 @@ static void test_animated_water_and_sky(void)
 static void test_cache_and_styles(void)
 {
     float original;
-    int count, samples;
+    int count, samples, prepares;
     setup_world();
     begin_frame();
     assert(captured_count == 96 && captured_lit == 1);
@@ -261,10 +285,19 @@ static void test_cache_and_styles(void)
     assert(fabs(captured_area() - 128 * 128) < .01);
     assert(xgl_cache_bytes <= XGL_WORLD_CACHE_BYTES);
     original = captured[0].color[0];
-    samples = sample_calls; count = captured_count;
+    samples = sample_calls; count = captured_count; prepares = prepare_calls;
+    assert(filter_calls == count);
     begin_frame();
     assert(captured_count == count && sample_calls == samples && pvs_calls == 1);
-    assert(efrag_calls == 2);
+    assert(efrag_calls == 2 && prepare_calls == prepares);
+    gamma_scale = .5f; ++color_revision;
+    begin_frame();
+    assert(sample_calls == samples && prepare_calls == prepares + count);
+    assert(fabs(captured[0].color[0] - original * .5f) < .0001);
+    gamma_scale = 1; ++color_revision;
+    begin_frame();
+    assert(sample_calls == samples);
+    assert(fabs(captured[0].color[0] - original) < .0001);
     d_lightstylevalue[0] = 128;
     begin_frame();
     assert(sample_calls == samples);
@@ -273,9 +306,12 @@ static void test_cache_and_styles(void)
     begin_frame();
     assert(captured_lit == 0 && sample_calls == samples);
     assert(fabs(captured[0].color[0] - .8f) < .0001);
-    test_texture.gl_texturenum = 2;
+    ++texture_revision;
     begin_frame();
     assert(sample_calls == samples + count);
+    test_texture.gl_texturenum = 2;
+    begin_frame();
+    assert(sample_calls == samples + count * 2);
 }
 
 static void test_pvs_and_fallback(void)
@@ -339,9 +375,66 @@ static void test_brush_water_and_point_light(void)
     assert(xgl_water_count == 0);
 }
 
+static void test_projected_detail_priority(void)
+{
+    msurface_t surfaces[2], *marks[2];
+    mvertex_t vertices[8];
+    medge_t edges[8];
+    int surfedges[8], i, j;
+    float minimum, maximum;
+    setup_world();
+    surfaces[0] = surfaces[1] = test_surface;
+    memset(vertices, 0, sizeof(vertices));
+    memset(edges, 0, sizeof(edges));
+    for (i = 0; i < 2; ++i) {
+        minimum = i ? 0 : 32; maximum = i ? 128 : 96;
+        vertices[i * 4].position[0] = vertices[i * 4].position[1] = minimum;
+        vertices[i * 4 + 1].position[0] = maximum;
+        vertices[i * 4 + 1].position[1] = minimum;
+        vertices[i * 4 + 2].position[0] = vertices[i * 4 + 2].position[1] = maximum;
+        vertices[i * 4 + 3].position[0] = minimum;
+        vertices[i * 4 + 3].position[1] = maximum;
+        for (j = 0; j < 4; ++j) {
+            edges[i * 4 + j].v[0] = i * 4 + j;
+            edges[i * 4 + j].v[1] = i * 4 + (j + 1) % 4;
+            surfedges[i * 4 + j] = i * 4 + j;
+        }
+        surfaces[i].firstedge = i * 4;
+        marks[i] = &surfaces[i];
+    }
+    test_model.surfaces = surfaces;
+    test_model.numsurfaces = test_model.nummodelsurfaces = 2;
+    test_model.vertexes = vertices; test_model.edges = edges; test_model.surfedges = surfedges;
+    test_node.numsurfaces = 2;
+    test_leaves[1].firstmarksurface = marks; test_leaves[1].nummarksurfaces = 2;
+    xgl_detailtris.value = 32;
+    XGL_WorldNewMap();
+    begin_frame();
+    /* BSP order reaches the smaller face first, but the larger screen-area
+     * estimate receives the detail budget. Both faces still draw, in order. */
+    assert(xgl_detail_used == 32 && captured_count == 6 + 96);
+    assert(xgl_surfaces[0].detail_frame != r_framecount);
+    assert(xgl_surfaces[1].detail_frame == r_framecount);
+    assert(captured[0].position[0] == 32 && captured[6].position[0] == 0);
+    assert(fabs(captured_area() - (64 * 64 + 128 * 128)) < .01);
+    assert(xgl_cache_bytes <= XGL_WORLD_CACHE_BYTES);
+    xgl_detailtris.value = 0;
+    begin_frame();
+    assert(captured_count == 12 && xgl_detail_used == 0);
+    assert(fabs(captured_area() - (64 * 64 + 128 * 128)) < .01);
+    xgl_detailtris.value = 32;
+    surfaces[1].flags = SURF_DRAWTURB; r_wateralpha.value = 0;
+    begin_frame();
+    assert(captured_count == 24 && xgl_detail_used == 8 && !xgl_water_count);
+    assert(xgl_surfaces[0].detail_frame == r_framecount);
+    assert(xgl_surfaces[1].detail_frame != r_framecount);
+    XGL_WorldShutdown();
+}
+
 int main(void)
 {
     test_cache_and_styles();
+    test_projected_detail_priority();
     test_pvs_and_fallback();
     test_brush_water_and_point_light();
     test_animated_water_and_sky();

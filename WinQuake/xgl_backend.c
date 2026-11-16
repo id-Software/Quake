@@ -4,6 +4,8 @@
 #include "quakedef.h"
 #include "xgl_local.h"
 #include "xgl_backend.h"
+#include "xgl_audio.h"
+#include "xgl_profile.h"
 #include <xgl/xgl.h>
 #include <math.h>
 #include <stdlib.h>
@@ -41,6 +43,10 @@ typedef struct {
     int width, height, frame, scene_active, ui_active, overlay_3d;
     int count, lit, zwrite, applied_lit, applied_zwrite;
     int errors, fatal, font_next, ui_glyph_count, ui_quad_count;
+    int scene_pending, ui_pending, ui_quad_first, text_color_valid;
+    Xgl_color text_color;
+    byte gamma_snapshot[256];
+    unsigned int color_revision;
     float opacity, applied_opacity, current_text_height;
     double maximum_z;
     const char *stage;
@@ -60,6 +66,27 @@ static float bound_color(float value)
 static float gamma_color(float value)
 {
     return gammatable[(int)(bound_color(value) * 255.0f + .5f)] / 255.0f;
+}
+
+static void update_gamma(void)
+{
+    if (!xb.color_revision || memcmp(xb.gamma_snapshot, gammatable, 256)) {
+        memcpy(xb.gamma_snapshot, gammatable, 256);
+        if (!++xb.color_revision) ++xb.color_revision;
+        xb.text_color_valid = 0;
+    }
+}
+
+unsigned int XGL_ColorRevision(void)
+{
+    if (!xb.color_revision) update_gamma();
+    return xb.color_revision;
+}
+
+void XGL_PrepareColor(float rgb[3])
+{
+    int i;
+    for (i = 0; i < 3; ++i) rgb[i] = gamma_color(rgb[i]);
 }
 
 static const char *error_detail(const char *text)
@@ -124,18 +151,64 @@ static void palette_color(int index, Xgl_color *color)
 
 static void complete_scene(void)
 {
+    double start;
     xb.stage = "scene completion";
-    if (xb.scene && !xb.fatal) xgl_context_flush(xb.scene, XGL_FLUSH_SYNCHRONIZE);
+    if (xb.scene && xb.scene_pending && !xb.fatal) {
+        XGL_AudioUpdate();
+        start = XGL_ProfileNow();
+        xgl_context_flush(xb.scene, XGL_FLUSH_SYNCHRONIZE);
+        XGL_ProfileAdd(XGL_PROFILE_SYNC, start);
+        XGL_ProfileCount(XGL_PROFILE_WAIT_CALLS, 1);
+        native_check();
+        xb.scene_pending = 0;
+        XGL_AudioUpdate();
+    }
     native_check();
+}
+
+static void submit_ui_quads(void)
+{
+    Xgl_facet_list *facets;
+    double start;
+    int first, count;
+    first = xb.ui_quad_first;
+    count = xb.ui_quad_count - first;
+    if (!count) return;
+    native_check();
+    facets = &xb.ui_facets[first];
+    facets->facet_type = XGL_FACET_COLOR;
+    facets->num_facets = (Xgl_usgn32)count;
+    facets->facets.color_facets = &xb.ui_colors[first];
+    xb.stage = "UI quad submission";
+    start = XGL_ProfileNow();
+    xgl_multi_simple_polygon(xb.ui,
+        XGL_FACET_FLAG_SIDES_ARE_4 | XGL_FACET_FLAG_SHAPE_CONVEX,
+        facets, NULL, (Xgl_usgn32)count, &xb.ui_lists[first]);
+    XGL_ProfileAdd(XGL_PROFILE_SUBMIT, start);
+    XGL_ProfileCount(XGL_PROFILE_POLYGON_CALLS, 1);
+    native_check();
+    xb.ui_quad_first = xb.ui_quad_count;
+    xb.ui_pending = 1;
+    XGL_AudioUpdate();
 }
 
 void XGL_UIFlush(void)
 {
+    double start;
+    submit_ui_quads();
     xb.stage = "UI completion";
-    if (xb.ui && xb.ui_active && !xb.fatal)
+    if (xb.ui && xb.ui_pending && !xb.fatal) {
+        XGL_AudioUpdate();
+        start = XGL_ProfileNow();
         xgl_context_flush(xb.ui, XGL_FLUSH_SYNCHRONIZE);
+        XGL_ProfileAdd(XGL_PROFILE_SYNC, start);
+        XGL_ProfileCount(XGL_PROFILE_WAIT_CALLS, 1);
+        native_check();
+        xb.ui_pending = 0;
+        XGL_AudioUpdate();
+    }
     native_check();
-    xb.ui_glyph_count = xb.ui_quad_count = 0;
+    xb.ui_glyph_count = xb.ui_quad_count = xb.ui_quad_first = 0;
 }
 
 static void set_transparency(float opacity, int zwrite)
@@ -174,6 +247,7 @@ static void apply_draw_state(void)
         xb.light_switches[5] = xb.lit == 2 ? TRUE : FALSE;
         xb.stage = "light switches";
         xgl_object_set(xb.scene, XGL_3D_CTX_LIGHT_SWITCHES, xb.light_switches, 0);
+        native_check();
         xb.applied_lit = xb.lit;
     }
     if (xb.applied_opacity != xb.opacity || xb.applied_zwrite != xb.zwrite) {
@@ -186,52 +260,78 @@ static void apply_draw_state(void)
 
 void XGL_Flush(void)
 {
+    double start;
     int triangles;
     if (!xb.count) return;
     apply_draw_state();
     triangles = xb.count / 3;
     xb.stage = "triangle submission";
+    start = XGL_ProfileNow();
     xgl_multi_simple_polygon(xb.scene,
         XGL_FACET_FLAG_SIDES_ARE_3 | XGL_FACET_FLAG_SHAPE_CONVEX,
         NULL, NULL, (Xgl_usgn32)triangles, xb.lists);
+    XGL_ProfileAdd(XGL_PROFILE_SUBMIT, start);
+    XGL_ProfileCount(XGL_PROFILE_TRIANGLES, (unsigned long)triangles);
+    XGL_ProfileCount(XGL_PROFILE_POLYGON_CALLS, 1);
     /* GEOM_DATA_IS_VOLATILE copies inputs at submission; batching storage
      * may be reused while the accelerator completes earlier work. */
     xb.count = 0;
+    xb.scene_pending = 1;
     native_check();
+    XGL_AudioUpdate();
 }
 
-void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
-                       float opacity, int zwrite)
+void XGL_DrawTrianglesStrided(const xgl_vertex_t *vertices, int count,
+                             size_t stride, int lit, float opacity,
+                             int zwrite, int prepared_color)
 {
     Xgl_pt_color_normal_f3d *out;
+    const byte *source;
+    const xgl_vertex_t *vertex;
     int i, available, take;
     if (!xb.frame || !xb.scene_active || !vertices || count <= 0) return;
     if (count % 3) Sys_Error("XGL_DrawTriangles: vertex count is not a multiple of three");
+    if (stride < sizeof(*vertices)) Sys_Error("XGL_DrawTriangles: invalid vertex stride");
     opacity = bound_color(opacity);
     if (opacity <= 0) return;
     lit = lit < 0 ? 0 : (lit > 2 ? 2 : lit);
     zwrite = zwrite != 0;
     if (xb.count && (xb.lit != lit || xb.opacity != opacity || xb.zwrite != zwrite)) XGL_Flush();
     xb.lit = lit; xb.opacity = opacity; xb.zwrite = zwrite;
+    source = (const byte *)vertices;
     while (count) {
         available = XGL_BATCH_TRIANGLES * 3 - xb.count;
         take = count < available ? count : available;
         for (i = 0; i < take; ++i) {
+            vertex = (const xgl_vertex_t *)source;
             out = &xb.points[xb.count + i];
-            out->x = vertices[i].position[0];
-            out->y = vertices[i].position[1];
-            out->z = vertices[i].position[2];
-            out->normal.x = vertices[i].normal[0];
-            out->normal.y = vertices[i].normal[1];
-            out->normal.z = vertices[i].normal[2];
-            out->color.rgb.r = gamma_color(vertices[i].color[0]);
-            out->color.rgb.g = gamma_color(vertices[i].color[1]);
-            out->color.rgb.b = gamma_color(vertices[i].color[2]);
+            out->x = vertex->position[0];
+            out->y = vertex->position[1];
+            out->z = vertex->position[2];
+            out->normal.x = vertex->normal[0];
+            out->normal.y = vertex->normal[1];
+            out->normal.z = vertex->normal[2];
+            if (prepared_color) {
+                out->color.rgb.r = vertex->color[0];
+                out->color.rgb.g = vertex->color[1];
+                out->color.rgb.b = vertex->color[2];
+            } else {
+                out->color.rgb.r = gamma_color(vertex->color[0]);
+                out->color.rgb.g = gamma_color(vertex->color[1]);
+                out->color.rgb.b = gamma_color(vertex->color[2]);
+            }
+            source += stride;
         }
         xb.count += take;
-        vertices += take; count -= take;
+        count -= take;
         if (xb.count == XGL_BATCH_TRIANGLES * 3) XGL_Flush();
     }
+}
+
+void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
+                       float opacity, int zwrite)
+{
+    XGL_DrawTrianglesStrided(vertices, count, sizeof(*vertices), lit, opacity, zwrite, 0);
 }
 
 static void update_lights(void)
@@ -282,6 +382,9 @@ static void update_lights(void)
 void XGL_BeginFrame(void)
 {
     if (!xb.system) return;
+    XGL_ProfileBeginFrame();
+    XGL_AudioUpdate();
+    update_gamma();
     XGL_Flush(); XGL_UIFlush(); complete_scene();
     xb.frame = 1; xb.scene_active = 0; xb.ui_active = 0; xb.overlay_3d = 0;
     set_transparency(1, 1);
@@ -294,6 +397,7 @@ void XGL_BeginFrame(void)
     native_check();
     xb.stage = "frame clear";
     xgl_context_new_frame(xb.scene);
+    xb.scene_pending = 1;
     native_check();
 }
 
@@ -372,6 +476,7 @@ void XGL_SetViewModel(int enabled)
         native_check();
         xb.stage = "weapon depth clear";
         xgl_context_new_frame(xb.scene);
+        xb.scene_pending = 1;
         native_check();
     }
 }
@@ -449,10 +554,14 @@ void XGL_UIText(float x, float y, const char *text, int color, float cell_width,
     Xgl_pt_f2d *position;
     Xgl_bounds_f2d *bounds;
     Xgl_color rgb;
+    double start;
     float sx, sy, width;
     int character;
     if (!xb.frame || !text || cell_width <= 0 || height <= 0) return;
     begin_ui();
+    /* Submit rectangles before subsequent glyphs, retaining painter order
+     * without synchronizing two primitives on the same UI context. */
+    submit_ui_quads();
     font = font_size(cell_width, height);
     xb.stage = "UI text attributes";
     if (xb.current_text_height != font->requested) {
@@ -461,7 +570,11 @@ void XGL_UIText(float x, float y, const char *text, int color, float cell_width,
         xb.current_text_height = font->requested;
     }
     palette_color(color, &rgb);
-    xgl_object_set(xb.ui, XGL_CTX_STEXT_COLOR, &rgb, 0);
+    if (!xb.text_color_valid || memcmp(&xb.text_color, &rgb, sizeof(rgb))) {
+        xgl_object_set(xb.ui, XGL_CTX_STEXT_COLOR, &rgb, 0);
+        xb.text_color = rgb;
+        xb.text_color_valid = 1;
+    }
     native_check();
     sx = (float)xb.width / vid.width; sy = (float)xb.height / vid.height;
     while (*text) {
@@ -476,12 +589,17 @@ void XGL_UIText(float x, float y, const char *text, int color, float cell_width,
             position->x = x * sx + (cell_width*sx - width)*.5f - bounds->xmin;
             position->y = y * sy + font->ascent;
             xb.stage = "UI glyph submission";
+            start = XGL_ProfileNow();
             xgl_stroke_text(xb.ui, xb.glyphs[character], position, NULL);
+            XGL_ProfileAdd(XGL_PROFILE_SUBMIT, start);
+            XGL_ProfileCount(XGL_PROFILE_GLYPHS, 1);
+            xb.ui_pending = 1;
             native_check();
         }
         x += cell_width;
     }
     native_check();
+    XGL_AudioUpdate();
 }
 
 void XGL_UIFillRGB(float x, float y, float width, float height, const float rgb[3], float opacity)
@@ -491,6 +609,7 @@ void XGL_UIFillRGB(float x, float y, float width, float height, const float rgb[
     Xgl_pt_list list;
     Xgl_facet_list facets;
     Xgl_color_facet color;
+    double start;
     float sx, sy;
     int i, index;
     if (!xb.frame || width <= 0 || height <= 0 || opacity <= 0) return;
@@ -518,11 +637,8 @@ void XGL_UIFillRGB(float x, float y, float width, float height, const float rgb[
         memcpy(xb.ui_points[index], points2, sizeof(points2));
         list.pt_type = XGL_PT_F2D; list.pts.f2d = xb.ui_points[index];
         xb.ui_lists[index] = list; xb.ui_colors[index] = color;
-        facets.facets.color_facets = &xb.ui_colors[index];
-        xb.ui_facets[index] = facets;
-        xb.stage = "UI quad submission";
-        xgl_multi_simple_polygon(xb.ui, XGL_FACET_FLAG_SIDES_ARE_4 | XGL_FACET_FLAG_SHAPE_CONVEX,
-                                &xb.ui_facets[index], NULL, 1, &xb.ui_lists[index]);
+        /* Consecutive opaque rectangles share one native polygon call.
+         * Persistent arrays remain alive until the UI completion point. */
     } else {
         /* Blend through the 3D context using device coordinates and no Z;
          * opaque UI text/geometry continues on the shared 2D draw buffer. */
@@ -544,8 +660,12 @@ void XGL_UIFillRGB(float x, float y, float width, float height, const float rgb[
         for (i = 0; i < 4; ++i) { points3[i].x = points2[i].x; points3[i].y = points2[i].y; points3[i].z = 0; }
         list.pt_type = XGL_PT_F3D; list.pts.f3d = points3;
         xb.stage = "overlay submission";
+        start = XGL_ProfileNow();
         xgl_multi_simple_polygon(xb.scene, XGL_FACET_FLAG_SIDES_ARE_4 | XGL_FACET_FLAG_SHAPE_CONVEX,
                                 &facets, NULL, 1, &list);
+        XGL_ProfileAdd(XGL_PROFILE_SUBMIT, start);
+        XGL_ProfileCount(XGL_PROFILE_POLYGON_CALLS, 1);
+        xb.scene_pending = 1;
         native_check();
         complete_scene();
     }
@@ -564,16 +684,21 @@ void XGL_UIFill(float x, float y, float width, float height, int index, float op
 
 void XGL_EndFrame(void)
 {
+    double start;
     if (!xb.frame) return;
     XGL_Flush(); XGL_UIFlush(); complete_scene();
     xb.stage = "buffer switch state";
     xgl_object_set(xb.scene, XGL_CTX_NEW_FRAME_ACTION, XGL_CTX_NEW_FRAME_SWITCH_BUFFER, 0);
     native_check();
     xb.stage = "buffer switch";
+    start = XGL_ProfileNow();
     xgl_context_new_frame(xb.scene);
+    XGL_ProfileAdd(XGL_PROFILE_SWAP, start);
+    xb.scene_pending = 1;
     native_check();
     complete_scene();
     xb.frame = xb.scene_active = xb.ui_active = 0;
+    XGL_ProfileEndFrame();
 }
 
 int XGL_ReadScreen(byte *rgb, int width, int height)

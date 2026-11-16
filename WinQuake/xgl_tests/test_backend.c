@@ -6,6 +6,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "../xgl_profile.h"
 #include "../xgl_backend.c"
 
 viddef_t vid;
@@ -23,10 +24,21 @@ static Xgl_usgn32 write_mask;
 static Xgl_boolean switches[6];
 static int actions, orientation, mapping, clip_planes, hlhsr, illumination;
 static int clear_calls, swap_calls, polygon_calls, text_calls, extent_calls, flush_calls;
+static int text_color_sets, audio_updates;
 static int transparency, freeze_z;
 static float current_ambient, text_height;
 static Xgl_color text_color, polygon_color;
 static Xgl_pt_color_normal_f3d submitted_vertex;
+static Xgl_pt_color_normal_f3d submitted_vertices[8192];
+static int submitted_count;
+static Xgl_color recorded_quad_colors[1024];
+static Xgl_pt_f2d recorded_quad_points[1024][4];
+static const Xgl_pt_list *queued_quad_lists[1024];
+static const Xgl_color_facet *queued_quad_facets[1024];
+static int queued_quad_indices[1024], queued_quad_count;
+static int recorded_quads, quad_batches[1024], quad_batch_count;
+static char native_events[16384];
+static int native_event_count;
 static Xgl_pt_d3d light_position[6];
 static Xgl_pt_f2d recorded_position[4096];
 static Xgl_pt_f2d *queued_position[4096];
@@ -36,6 +48,29 @@ static Xgl_error_info injected_error;
 static jmp_buf expected_failure;
 static int expect_failure;
 static char fatal_message[1024];
+
+void XGL_ProfileInit(void) {}
+void XGL_ProfileBeginFrame(void) {}
+void XGL_ProfileEndFrame(void) {}
+double XGL_ProfileNow(void) { return 0; }
+void XGL_ProfileAdd(xgl_profile_section_t section, double start)
+{
+    assert((unsigned int)section < XGL_PROFILE_SECTION_COUNT);
+    (void)start;
+}
+void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count)
+{
+    assert((unsigned int)counter < XGL_PROFILE_COUNTER_COUNT);
+    (void)count;
+}
+void XGL_AudioUpdate(void) { ++audio_updates; }
+
+static void native_event(char event)
+{
+    assert(native_event_count + 1 < (int)sizeof(native_events));
+    native_events[native_event_count++] = event;
+    native_events[native_event_count] = 0;
+}
 
 void Sys_Error(char *format, ...)
 {
@@ -75,7 +110,8 @@ void xgl_object_set(Xgl_object object, ...)
             color = va_arg(args, Xgl_color *);
             if (object == xb.lights[0]) current_ambient = color->rgb.r;
             break;
-        case XGL_CTX_STEXT_COLOR: text_color = *va_arg(args, Xgl_color *); break;
+        case XGL_CTX_STEXT_COLOR:
+            text_color = *va_arg(args, Xgl_color *); ++text_color_sets; break;
         case XGL_CTX_STEXT_CHAR_HEIGHT: text_height = (float)va_arg(args, double); break;
         case XGL_3D_CTX_SURF_FRONT_TRANSP:
         case XGL_3D_CTX_SURF_BACK_TRANSP:
@@ -127,11 +163,22 @@ void xgl_context_flush(Xgl_ctx context, Xgl_flush_action action)
     assert(action == XGL_FLUSH_SYNCHRONIZE);
     assert(context == xb.scene || context == xb.ui);
     ++flush_calls;
+    native_event(context == xb.ui ? 'f' : 'F');
     if (context == xb.ui) {
         for (i = 0; i < queued_count; ++i) {
             assert(queued_position[i]->x == queued_copy[i].x);
             assert(queued_position[i]->y == queued_copy[i].y);
         }
+        for (i = 0; i < queued_quad_count; ++i) {
+            assert(queued_quad_lists[i]->pt_type == XGL_PT_F2D);
+            assert(queued_quad_lists[i]->num_pts == 4);
+            assert(!memcmp(queued_quad_lists[i]->pts.f2d,
+                recorded_quad_points[queued_quad_indices[i]],
+                sizeof(recorded_quad_points[0])));
+            assert(!memcmp(&queued_quad_facets[i]->color,
+                &recorded_quad_colors[queued_quad_indices[i]], sizeof(Xgl_color)));
+        }
+        queued_quad_count = 0;
         queued_count = 0;
     }
 }
@@ -139,10 +186,14 @@ void xgl_context_flush(Xgl_ctx context, Xgl_flush_action action)
 void xgl_context_new_frame(Xgl_ctx context)
 {
     assert(context == xb.scene);
-    if (actions & XGL_CTX_NEW_FRAME_SWITCH_BUFFER) ++swap_calls;
+    if (actions & XGL_CTX_NEW_FRAME_SWITCH_BUFFER) {
+        native_event('S');
+        ++swap_calls;
+    }
     if (actions & XGL_CTX_NEW_FRAME_HLHSR_ACTION) {
         assert(write_mask == (Xgl_usgn32)0xffffffffUL);
         assert(transparency == XGL_TRANSP_NONE && !freeze_z);
+        native_event('C');
         ++clear_calls;
     }
 }
@@ -151,16 +202,45 @@ void xgl_multi_simple_polygon(Xgl_ctx context, Xgl_facet_flags flags,
                               Xgl_facet_list *facets, Xgl_bbox *box,
                               Xgl_usgn32 count, Xgl_pt_list *lists)
 {
+    Xgl_usgn32 i;
+    int j;
     (void)flags;
     assert(!box && count > 0);
     assert(context == xb.scene || context == xb.ui);
     ++polygon_calls;
     if (lists[0].pt_type == XGL_PT_COLOR_NORMAL_F3D) {
         assert(lists[0].num_pts == 3 && !facets);
+        native_event('G');
         submitted_vertex = lists[0].pts.color_normal_f3d[0];
+        for (i = 0; i < count; ++i) {
+            assert(lists[i].pt_type == XGL_PT_COLOR_NORMAL_F3D && lists[i].num_pts == 3);
+            assert(submitted_count + 3 <= (int)(sizeof(submitted_vertices) / sizeof(submitted_vertices[0])));
+            for (j = 0; j < 3; ++j)
+                submitted_vertices[submitted_count++] = lists[i].pts.color_normal_f3d[j];
+        }
     } else {
         assert(facets && facets->facet_type == XGL_FACET_COLOR);
+        /* multi_simple_polygon consumes one list of facet colors, not an
+         * array of one-facet descriptors. Every batched quad keeps its color. */
+        assert(facets->num_facets == count);
         polygon_color = facets->facets.color_facets[0].color;
+        if (context == xb.ui) {
+            native_event('Q');
+            assert(quad_batch_count < (int)(sizeof(quad_batches) / sizeof(quad_batches[0])));
+            quad_batches[quad_batch_count++] = (int)count;
+            for (i = 0; i < count; ++i) {
+                assert(lists[i].pt_type == XGL_PT_F2D && lists[i].num_pts == 4);
+                assert(recorded_quads < (int)(sizeof(recorded_quad_colors) / sizeof(recorded_quad_colors[0])));
+                recorded_quad_colors[recorded_quads] = facets->facets.color_facets[i].color;
+                memcpy(recorded_quad_points[recorded_quads], lists[i].pts.f2d,
+                       sizeof(recorded_quad_points[recorded_quads]));
+                assert(queued_quad_count < (int)(sizeof(queued_quad_lists) / sizeof(queued_quad_lists[0])));
+                queued_quad_lists[queued_quad_count] = &lists[i];
+                queued_quad_facets[queued_quad_count] = &facets->facets.color_facets[i];
+                queued_quad_indices[queued_quad_count++] = recorded_quads;
+                ++recorded_quads;
+            }
+        } else native_event('A');
     }
 }
 
@@ -187,6 +267,7 @@ void xgl_stroke_text_extent(Xgl_ctx context, void *string,
 void xgl_stroke_text(Xgl_ctx context, void *string, void *origin, void *direction)
 {
     assert(context == xb.ui && !direction && *(char *)string);
+    native_event('T');
     assert(text_calls < 4096 && queued_count < 4096);
     recorded_position[text_calls++] = *(Xgl_pt_f2d *)origin;
     queued_position[queued_count] = (Xgl_pt_f2d *)origin;
@@ -225,7 +306,10 @@ static void reset_backend(void)
         xb.lists[i].pts.color_normal_f3d = xb.points + i * 3;
     }
     clear_calls = swap_calls = polygon_calls = text_calls = extent_calls = flush_calls = 0;
-    queued_count = 0;
+    text_color_sets = audio_updates = submitted_count = 0;
+    recorded_quads = quad_batch_count = native_event_count = 0;
+    native_events[0] = 0;
+    queued_count = queued_quad_count = 0;
     actions = orientation = mapping = clip_planes = hlhsr = illumination = 0;
     write_mask = 0; transparency = freeze_z = 0;
     r_refdef.vrect.x = 40; r_refdef.vrect.y = 30;
@@ -380,10 +464,12 @@ static void test_fonts_and_gamma(void)
     assert(queued_count == 0);
     for (i = 0; i < 256; ++i) gammatable[i] = (byte)(255 - i);
     xgl_palette[3] = 64; xgl_palette[4] = 128; xgl_palette[5] = 255;
+    XGL_BeginFrame();
     XGL_UIText(0, 0, "H", 1, 8, 8);
     assert(fabs(text_color.rgb.r - 191.0 / 255) < .0001);
     assert(fabs(text_color.rgb.g - 127.0 / 255) < .0001 && text_color.rgb.b == 0);
     XGL_UIFillRGB(0, 0, 8, 8, color, 1);
+    XGL_UIFlush();
     assert(polygon_color.rgb.r == 1 && polygon_color.rgb.b == 0);
     assert(fabs(polygon_color.rgb.g - 127.0 / 255) < .0001);
     XGL_BeginScene();
@@ -392,6 +478,139 @@ static void test_fonts_and_gamma(void)
     XGL_DrawTriangles(vertices, 3, 1, 1, 1); XGL_Flush();
     assert(submitted_vertex.color.rgb.r == 1 && submitted_vertex.color.rgb.b == 0);
     assert(fabs(submitted_vertex.color.rgb.g - 127.0 / 255) < .0001);
+}
+
+static void test_strided_prepared_colors(void)
+{
+    typedef struct {
+        xgl_vertex_t draw;
+        unsigned long unrelated[5];
+    } padded_vertex_t;
+    padded_vertex_t vertices[XGL_BATCH_TRIANGLES * 3 + 3];
+    xgl_vertex_t raw[3];
+    unsigned int revision;
+    int i, count;
+    reset_backend();
+    revision = XGL_ColorRevision();
+    assert(revision != 0 && XGL_ColorRevision() == revision);
+    XGL_BeginFrame();
+    assert(XGL_ColorRevision() == revision);
+    for (i = 0; i < 256; ++i) gammatable[i] = (byte)(255 - i);
+    XGL_BeginFrame();
+    assert(XGL_ColorRevision() != revision);
+    revision = XGL_ColorRevision();
+    XGL_BeginFrame();
+    assert(XGL_ColorRevision() == revision);
+    XGL_BeginScene();
+    count = (int)(sizeof(vertices) / sizeof(vertices[0]));
+    memset(vertices, 0xcd, sizeof(vertices));
+    for (i = 0; i < count; ++i) {
+        vertices[i].draw.position[0] = (float)i;
+        vertices[i].draw.position[1] = (float)i + .25f;
+        vertices[i].draw.position[2] = (float)i + .5f;
+        vertices[i].draw.normal[0] = 0;
+        vertices[i].draw.normal[1] = 0;
+        vertices[i].draw.normal[2] = 1;
+        vertices[i].draw.color[0] = 0;
+        vertices[i].draw.color[1] = .5f;
+        vertices[i].draw.color[2] = 1;
+        XGL_PrepareColor(vertices[i].draw.color);
+    }
+    XGL_DrawTrianglesStrided(&vertices[0].draw, count, sizeof(vertices[0]), 1, 1, 1, 1);
+    XGL_Flush();
+    assert(submitted_count == count && polygon_calls == 2);
+    for (i = 0; i < count; ++i) {
+        assert(submitted_vertices[i].x == (float)i);
+        assert(submitted_vertices[i].y == (float)i + .25f);
+        assert(submitted_vertices[i].z == (float)i + .5f);
+        assert(submitted_vertices[i].normal.z == 1);
+        assert(submitted_vertices[i].color.rgb.r == 1 && submitted_vertices[i].color.rgb.b == 0);
+        assert(fabs(submitted_vertices[i].color.rgb.g - 127.0 / 255) < .0001);
+    }
+    /* The existing entry point still accepts raw colors and applies gamma
+     * once; prepared cache colors must not receive that conversion again. */
+    memset(raw, 0, sizeof(raw));
+    for (i = 0; i < 3; ++i) { raw[i].color[1] = .5f; raw[i].color[2] = 1; }
+    XGL_DrawTriangles(raw, 3, 1, 1, 1);
+    XGL_Flush();
+    assert(submitted_vertex.color.rgb.r == 1 && submitted_vertex.color.rgb.b == 0);
+    assert(fabs(submitted_vertex.color.rgb.g - 127.0 / 255) < .0001);
+}
+
+static void test_ui_batch_order_and_capacity(void)
+{
+    float red[3] = {1, 0, 0}, green[3] = {0, 1, 0}, blue[3] = {0, 0, 1};
+    const char *quad, *text, *alpha;
+    int i;
+    reset_backend();
+    XGL_UIFillRGB(0, 0, 20, 20, red, 1);
+    XGL_UIFillRGB(2, 3, 12, 10, green, 1);
+    assert(polygon_calls == 0);
+    XGL_UIText(3, 4, "H", 1, 8, 8);
+    assert(polygon_calls == 1 && quad_batches[0] == 2 && recorded_quads == 2);
+    assert(recorded_quad_colors[0].rgb.r == 1 && recorded_quad_colors[1].rgb.g == 1);
+    assert(recorded_quad_points[0][0].x == 0 && recorded_quad_points[1][0].x == 2);
+    assert(recorded_quad_points[1][0].y == 3 && recorded_quad_points[1][2].y == 13);
+    quad = strchr(native_events, 'Q'); text = strchr(native_events, 'T');
+    assert(quad && text && quad < text);
+    XGL_UIFillRGB(4, 5, 8, 8, blue, 1);
+    assert(polygon_calls == 1);
+    XGL_UIFillRGB(0, 0, 30, 30, red, .5f);
+    assert(polygon_calls == 3 && quad_batches[1] == 1 && recorded_quads == 3);
+    assert(recorded_quad_colors[2].rgb.b == 1);
+    quad = strchr(text, 'Q'); alpha = strchr(native_events, 'A');
+    assert(quad && alpha && text < quad && quad < alpha);
+    XGL_UIFillRGB(1, 2, 8, 8, green, 1);
+    XGL_EndFrame();
+    quad = strchr(alpha, 'Q');
+    assert(quad && strchr(quad, 'S') && quad < strchr(quad, 'S'));
+    assert(recorded_quads == 4 && recorded_quad_colors[3].rgb.g == 1);
+
+    reset_backend();
+    for (i = 0; i < XGL_UI_QUADS + 3; ++i)
+        XGL_UIFillRGB((float)(i % 100), 0, 1, 1, i & 1 ? red : green, 1);
+    XGL_UIFlush();
+    assert(quad_batch_count == 2 && quad_batches[0] == XGL_UI_QUADS && quad_batches[1] == 3);
+    assert(recorded_quads == XGL_UI_QUADS + 3);
+    for (i = 0; i < recorded_quads; ++i) {
+        assert(recorded_quad_points[i][0].x == (float)(i % 100));
+        assert(recorded_quad_colors[i].rgb.r == (float)(i & 1));
+        assert(recorded_quad_colors[i].rgb.g == (float)(!(i & 1)));
+    }
+}
+
+static void test_completion_and_attribute_reuse(void)
+{
+    xgl_vertex_t triangle[3];
+    int completed, colors, extents;
+    reset_backend();
+    XGL_UIFlush(); complete_scene();
+    assert(flush_calls == 0);
+    XGL_BeginScene();
+    memset(triangle, 0, sizeof(triangle));
+    XGL_DrawTriangles(triangle, 3, 0, 1, 1);
+    XGL_EndScene();
+    assert(polygon_calls == 1 && flush_calls == 1);
+    completed = flush_calls;
+    XGL_EndScene(); complete_scene(); XGL_UIFlush();
+    assert(flush_calls == completed);
+    XGL_UIText(0, 0, "H", 2, 8, 8);
+    colors = text_color_sets;
+    XGL_UIText(8, 0, "g", 2, 8, 8);
+    assert(text_color_sets == colors);
+    XGL_UIFlush();
+    assert(flush_calls == completed + 1);
+    XGL_UIFlush();
+    assert(flush_calls == completed + 1);
+    extents = extent_calls;
+    XGLB_Resize(800, 600);
+    XGL_UIText(0, 0, "H", 2, 8, 8);
+    assert(extent_calls > extents);
+    XGL_EndFrame();
+    assert(swap_calls == 1 && !queued_count);
+    completed = flush_calls;
+    XGL_EndFrame();
+    assert(flush_calls == completed && swap_calls == 1);
 }
 
 static void test_point_light_selection(void)
@@ -426,6 +645,7 @@ static void test_point_light_selection(void)
 static void test_error_diagnostics(void)
 {
     char first_error[sizeof(xb.error)];
+    float color[3] = {1, 0, 0};
     reset_backend();
     xb.stage = "prepare scene camera";
     injected_error.type = XGL_ERROR_RECOVERABLE;
@@ -484,6 +704,20 @@ static void test_error_diagnostics(void)
     assert(strstr(xb.error, "object=?"));
     assert(strstr(xb.error, "operand1=?") && strstr(xb.error, "operand2=?"));
     assert(!strstr(xb.error, "(null)"));
+
+    /* Deferred UI geometry must not reach XGL after an unrecoverable error. */
+    reset_backend();
+    XGL_UIFillRGB(0, 0, 8, 8, color, 1);
+    assert(!polygon_calls);
+    injected_error.type = XGL_ERROR_NONRECOVERABLE;
+    assert(native_error(xb.system) == 1);
+    expect_failure = 1;
+    if (!setjmp(expected_failure)) {
+        XGL_UIFlush();
+        assert(!"queued geometry must stop after a fatal XGL error");
+    }
+    expect_failure = 0;
+    assert(!polygon_calls && !flush_calls);
 }
 
 int main(void)
@@ -492,6 +726,9 @@ int main(void)
     test_camera();
     test_clear_and_lighting();
     test_fonts_and_gamma();
+    test_strided_prepared_colors();
+    test_ui_batch_order_and_capacity();
+    test_completion_and_attribute_reuse();
     test_point_light_selection();
     test_error_diagnostics();
     puts("XGL backend contracts passed (API state/matrices; no device rendering)");

@@ -41,6 +41,11 @@ void XGL_BeginScene(void);
 /* Positions and unit normals are in Quake world coordinates. */
 void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
                       float opacity, int zwrite);
+void XGL_DrawTrianglesStrided(const xgl_vertex_t *vertices, int count,
+                             size_t stride, int lit, float opacity,
+                             int zwrite, int prepared_color);
+unsigned int XGL_ColorRevision(void);
+void XGL_PrepareColor(float rgb[3]);
 void XGL_Flush(void);
 void XGL_EndScene(void);
 void XGL_EndFrame(void);
@@ -61,6 +66,11 @@ int XGL_LoadTexture(char *identifier, int width, int height, byte *data,
                     qboolean mipmap, qboolean alpha);
 qboolean XGL_SampleTexture(int id, float s, float t, float rgb[3],
                           const byte *translation);
+unsigned int XGL_TextureRevision(int id);
+qboolean XGL_TextureHasAlpha(int id);
+qboolean XGL_SampleTextureFiltered(int id, float s, float t,
+                                  float footprint_s, float footprint_t,
+                                  float rgb[3], const byte *translation);
 void XGL_TextureInit(void);
 void XGL_TextureShutdown(void);
 void XGL_MakeAliasModelDisplayLists(model_t *model, aliashdr_t *header);
@@ -74,6 +84,7 @@ void XGL_DrawWater(void);
 void XGL_DrawEntities(void);
 void XGL_DrawViewModel(void);
 void XGL_EntitiesInit(void);
+void XGL_EntitiesShutdown(void);
 void R_TranslatePlayerSkin(int playernum);
 int R_LightPoint(vec3_t point);
 void R_AnimateLight(void);

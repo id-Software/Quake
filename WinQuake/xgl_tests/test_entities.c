@@ -2,7 +2,11 @@
 #include <assert.h>
 #include <math.h>
 #include <stdarg.h>
+#include <stdlib.h>
+static void *entity_test_malloc(size_t bytes);
+#define malloc entity_test_malloc
 #include "../xgl_entities.c"
+#undef malloc
 
 client_state_t cl;
 entity_t cl_entities[MAX_EDICTS];
@@ -16,11 +20,23 @@ cvar_t r_fullbright, r_drawentities, r_drawviewmodel, chase_active;
 
 static xgl_vertex_t captured[4096];
 static int captured_count, native_lit, material_seen, coverage_mode;
+static int sample_calls, test_light;
+static unsigned int material_revision;
+static int allocation_fail_after = -1;
+static int audio_lock_depth, audio_locks, audio_unlocks, expect_alias_lock;
+static int test_cull;
 static int weapon_scope[8], weapon_scope_count;
 static scoreboard_t scores[MAX_SCOREBOARD];
 static byte base_colormap[256], player_colormap[256];
 static union { double alignment; byte bytes[8192]; } alias_storage;
 static model_t alias_model;
+
+static void *entity_test_malloc(size_t bytes)
+{
+    if (allocation_fail_after == 0) return NULL;
+    if (allocation_fail_after > 0) --allocation_fail_after;
+    return malloc(bytes);
+}
 
 void Cvar_RegisterVariable(cvar_t *variable) { (void)variable; }
 void Con_DPrintf(char *format, ...) { (void)format; }
@@ -32,9 +48,22 @@ void Sys_Error(char *format, ...)
     va_end(args);
     abort();
 }
-void *Mod_Extradata(model_t *model) { return model->cache.data; }
-qboolean R_CullBox(vec3_t mins, vec3_t maxs) { (void)mins; (void)maxs; return false; }
-int R_LightPoint(vec3_t point) { (void)point; return 128; }
+void XGL_AudioLock(void) { ++audio_lock_depth; ++audio_locks; }
+void XGL_AudioUnlock(void)
+{
+    assert(audio_lock_depth > 0);
+    --audio_lock_depth; ++audio_unlocks;
+}
+void *Mod_Extradata(model_t *model)
+{
+    assert(audio_lock_depth > 0);
+    expect_alias_lock = 1;
+    return model->cache.data;
+}
+qboolean R_CullBox(vec3_t mins, vec3_t maxs) { (void)mins; (void)maxs; return test_cull; }
+int R_LightPoint(vec3_t point) { (void)point; return test_light; }
+unsigned int XGL_TextureRevision(int material) { return material > 0 ? material_revision : 0; }
+qboolean XGL_TextureHasAlpha(int material) { (void)material; return coverage_mode != 0; }
 void XGL_DrawBrushModel(entity_t *entity) { (void)entity; }
 void XGL_SetViewModel(int enabled)
 {
@@ -45,6 +74,7 @@ void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
                        float opacity, int zwrite)
 {
     int i;
+    if (expect_alias_lock) assert(audio_lock_depth > 0);
     assert(count > 0 && count % 3 == 0);
     assert(captured_count + count <= 4096);
     assert(opacity == 1 && zwrite == 1);
@@ -57,6 +87,7 @@ void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
 qboolean XGL_SampleTexture(int material, float s, float t, float rgb[3],
                            const byte *translation)
 {
+    ++sample_calls;
     material_seen = material;
     rgb[0] = s; rgb[1] = t; rgb[2] = translation ? translation[TOP_RANGE] / 255.0f : .5f;
     if (coverage_mode == 1) return false;
@@ -66,6 +97,7 @@ qboolean XGL_SampleTexture(int material, float s, float t, float rgb[3],
 
 static void reset_test(void)
 {
+    assert(!audio_lock_depth && audio_locks == audio_unlocks);
     memset(&cl, 0, sizeof(cl));
     memset(cl_entities, 0, sizeof(cl_entities));
     memset(&vid, 0, sizeof(vid));
@@ -85,6 +117,9 @@ static void reset_test(void)
     xgl_playercolors.value = 1;
     xgl_entity_extra_used = 0;
     captured_count = native_lit = material_seen = coverage_mode = weapon_scope_count = 0;
+    sample_calls = 0; test_light = 128; material_revision = 1;
+    allocation_fail_after = -1;
+    audio_locks = audio_unlocks = expect_alias_lock = test_cull = 0;
     XGL_EntitiesInit();
 }
 
@@ -262,12 +297,213 @@ static void test_view_weapon_scope(void)
     assert(captured_count == 3 && weapon_scope_count == 2);
 }
 
+static void test_alias_color_cache(void)
+{
+    aliashdr_t *header, *moved;
+    trivertx_t *poses;
+    union { double alignment; byte bytes[8192]; } moved_storage;
+    xgl_vertex_t previous;
+    float changed_uv;
+    int *commands;
+    int i, sampled;
+    reset_test();
+    header = make_alias(3);
+    for (i = 0; i < 4; ++i) header->gl_texturenum[0][i] = 10;
+    poses = (trivertx_t *)((byte *)header + header->posedata);
+    poses[3].v[0] = 10;
+    scores[0].colors = 0x21;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 3); /* no centroid test for an opaque alias skin */
+    previous = captured[0];
+    captured_count = 0; sample_calls = 0;
+    cl.time = .15;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 0 && captured_count == 3);
+    assert(captured[0].position[0] == previous.position[0] + 10);
+    assert(captured[0].color[0] == previous.color[0]);
+
+    /* Quake may move a cached model. No retained header/command pointers
+     * may be required to reuse skin colors or animate the new allocation. */
+    memcpy(moved_storage.bytes, alias_storage.bytes, sizeof(alias_storage.bytes));
+    moved = (aliashdr_t *)moved_storage.bytes;
+    alias_model.cache.data = moved;
+    captured_count = 0; sample_calls = 0; test_light = 64;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 0 && captured_count == 3);
+    assert(fabs(captured[0].color[0] - previous.color[0] * .5f) < .0001);
+    assert(captured[0].position[0] == previous.position[0] + 10);
+
+    captured_count = 0; sample_calls = 0;
+    moved->gl_texturenum[0][1] = 11;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 3 && material_seen == 11);
+    captured_count = 0; sample_calls = 0;
+    moved->gl_texturenum[0][1] = 10;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 0 && captured_count == 3);
+
+    captured_count = 0; sample_calls = 0; test_light = 128;
+    scores[0].colors = 0x41;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 3);
+    assert(fabs(captured[0].color[2] - 64.0 / 255) < .0001);
+    captured_count = 0; sample_calls = 0; xgl_playercolors.value = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 3 && captured[0].color[2] == .5f);
+    captured_count = 0; sample_calls = 0; xgl_playercolors.value = 1;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 0 && fabs(captured[0].color[2] - 64.0 / 255) < .0001);
+    captured_count = 0; sample_calls = 0; ++material_revision;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 3);
+
+    /* A recycled model slot can have different UV commands with the same
+     * material ID and revision. Owned command bytes distinguish that case. */
+    commands = (int *)((byte *)moved + moved->commands);
+    changed_uv = .75f;
+    memcpy(commands + 1, &changed_uv, sizeof(changed_uv));
+    captured_count = 0; sample_calls = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 3 && captured[0].color[0] == .75f);
+
+    captured_count = 0; sample_calls = 0;
+    xgl_alias_subdivide.value = 1;
+    XGL_DrawAlias(&cl_entities[1]);
+    sampled = sample_calls;
+    assert(sampled == 12 && captured_count == 12);
+    captured_count = 0; sample_calls = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(!sample_calls && captured_count == 12);
+    assert(xgl_alias_cache_bytes > sizeof(xgl_alias_cache));
+    assert(xgl_alias_cache_bytes <= XGL_ALIAS_CACHE_BYTES);
+    XGL_EntitiesShutdown();
+    assert(xgl_alias_cache_bytes == sizeof(xgl_alias_cache));
+}
+
+static void test_alias_cache_coverage_and_capacity(void)
+{
+    aliashdr_t *header, *large;
+    xgl_alias_cache_t *cache;
+    int *commands;
+    int i, sampled, entries;
+    size_t old_bytes;
+    reset_test();
+    header = make_alias(3);
+    coverage_mode = 1;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(captured_count == 0 && sample_calls == 1);
+    sample_calls = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(captured_count == 0 && sample_calls == 0);
+    ++material_revision; coverage_mode = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(captured_count == 3 && sample_calls == 3);
+
+    /* Exhaust entry slots using different materials; eviction must remain
+     * bounded, and evicted colors must be sampled again when revisited. */
+    for (i = 0; i < XGL_ALIAS_CACHE_SLOTS + 2; ++i) {
+        captured_count = 0;
+        header->gl_texturenum[0][0] = 100 + i;
+        XGL_DrawAlias(&cl_entities[1]);
+        assert(captured_count == 3 && xgl_alias_cache_bytes <= XGL_ALIAS_CACHE_BYTES);
+    }
+    sampled = sample_calls;
+    captured_count = 0;
+    header->gl_texturenum[0][0] = 10;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == sampled + 3 && captured_count == 3);
+
+    /* Large valid models force byte-budget eviction before the slot table
+     * fills. A single oversized model is declined before allocation. */
+    large = (aliashdr_t *)calloc(1, sizeof(*large) +
+                                (2 + (MAXALIASTRIS + 2) * 2) * sizeof(int));
+    assert(large);
+    large->commands = sizeof(*large);
+    large->poseverts = 258; large->numtris = 256;
+    commands = (int *)((byte *)large + large->commands);
+    commands[0] = large->poseverts;
+    XGL_EntitiesShutdown();
+    for (i = 0; i < 10; ++i) {
+        cache = XGL_AliasColors(large, 200 + i, 2, NULL);
+        assert(cache && xgl_alias_cache_bytes <= XGL_ALIAS_CACHE_BYTES);
+    }
+    entries = 0;
+    for (i = 0; i < XGL_ALIAS_CACHE_SLOTS; ++i)
+        if (xgl_alias_cache[i].colors) ++entries;
+    assert(entries > 0 && entries < 10);
+    large->poseverts = MAXALIASTRIS + 2; large->numtris = MAXALIASTRIS;
+    commands[0] = large->poseverts;
+    old_bytes = xgl_alias_cache_bytes;
+    cache = XGL_AliasColors(large, 10, 2, NULL);
+    assert(!cache && xgl_alias_cache_bytes == old_bytes);
+    free(large);
+
+    /* The ordinary path still supplies complete geometry without a usable
+     * material revision/cache, and preserves its original sampling rules. */
+    material_revision = 0; sample_calls = 0; captured_count = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(sample_calls == 4 && captured_count == 3);
+    XGL_EntitiesShutdown();
+}
+
+static void test_alias_cache_allocation_failure(void)
+{
+    int failure;
+    for (failure = 0; failure < 2; ++failure) {
+        reset_test();
+        make_alias(3);
+        allocation_fail_after = failure;
+        XGL_DrawAlias(&cl_entities[1]);
+        assert(captured_count == 3 && sample_calls == 3);
+        assert(xgl_alias_cache_bytes == sizeof(xgl_alias_cache));
+        allocation_fail_after = -1; captured_count = 0; sample_calls = 0;
+        XGL_DrawAlias(&cl_entities[1]);
+        assert(captured_count == 3 && sample_calls == 3);
+        captured_count = 0; sample_calls = 0;
+        XGL_DrawAlias(&cl_entities[1]);
+        assert(captured_count == 3 && sample_calls == 0);
+        XGL_EntitiesShutdown();
+    }
+}
+
+static void test_alias_audio_lock_cleanup(void)
+{
+    aliashdr_t *header;
+    int *commands;
+    reset_test();
+    header = make_alias(3);
+    test_cull = 1;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(!audio_lock_depth && !audio_locks && !audio_unlocks);
+    test_cull = 0; alias_model.cache.data = NULL;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(!audio_lock_depth && audio_locks == 1 && audio_unlocks == 1);
+    alias_model.cache.data = header; header->poseverts = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(!audio_lock_depth && audio_locks == 2 && audio_unlocks == 2);
+    header->poseverts = 3;
+    commands = (int *)((byte *)header + header->commands);
+    commands[0] = 4;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(!audio_lock_depth && audio_locks == 3 && audio_unlocks == 3);
+    assert(!captured_count);
+    commands[0] = 3;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(!audio_lock_depth && audio_locks == 4 && audio_unlocks == 4);
+    assert(captured_count == 3);
+    XGL_EntitiesShutdown();
+}
+
 int main(void)
 {
     test_alias_pose_transform_translation();
     test_alias_primitive_winding();
     test_sprite_groups_coverage_axes();
     test_view_weapon_scope();
+    test_alias_color_cache();
+    test_alias_cache_coverage_and_capacity();
+    test_alias_cache_allocation_failure();
+    test_alias_audio_lock_cleanup();
     puts("XGL entity contracts passed (CPU geometry; no native rendering)");
     return 0;
 }

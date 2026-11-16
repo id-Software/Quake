@@ -403,6 +403,7 @@ void VID_Shutdown(void)
     IN_Shutdown();
     XGLB_Shutdown();
     XGL_WorldShutdown();
+    XGL_EntitiesShutdown();
     XGL_TextureShutdown();
     if (!xgl_display) return;
     if (xgl_cursor) XFreeCursor(xgl_display, xgl_cursor);

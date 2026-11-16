@@ -21,8 +21,11 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
  * texture objects. Native lighting supplies moving-light illumination. */
 #include "quakedef.h"
 #include "xgl_local.h"
+#include "xgl_audio.h"
 
 #define XGL_VERTEX_NORMALS 162
+#define XGL_ALIAS_CACHE_SLOTS 16
+#define XGL_ALIAS_CACHE_BYTES (1024UL * 1024UL)
 
 /* Particle effects also use this original Quake normal table. */
 float r_avertexnormals[XGL_VERTEX_NORMALS][3] = {
@@ -43,6 +46,135 @@ typedef struct {
     float s, t;
 } xgl_entity_vertex_t;
 
+typedef struct {
+    float rgb[3][3];
+    int visible;
+} xgl_alias_color_t;
+
+typedef struct {
+    int material, depth, command_words, triangle_count, translated, ready;
+    unsigned int revision, used;
+    byte translation[256];
+    int *commands;
+    xgl_alias_color_t *colors;
+    size_t bytes;
+} xgl_alias_cache_t;
+
+typedef struct {
+    xgl_alias_cache_t *cache;
+    int index, building, opaque;
+} xgl_alias_draw_t;
+
+typedef struct {
+    vec3_t normals[XGL_VERTEX_NORMALS];
+    byte valid[XGL_VERTEX_NORMALS];
+} xgl_alias_normals_t;
+
+/* Keep only owned command bytes and sampled colors, never pointers into the
+ * engine's movable alias cache. The cap includes the fixed entry table. */
+static xgl_alias_cache_t xgl_alias_cache[XGL_ALIAS_CACHE_SLOTS];
+static size_t xgl_alias_cache_bytes = sizeof(xgl_alias_cache);
+static unsigned int xgl_alias_cache_used;
+
+static void XGL_FreeAliasColors(xgl_alias_cache_t *cache)
+{
+    free(cache->commands);
+    free(cache->colors);
+    xgl_alias_cache_bytes -= cache->bytes;
+    memset(cache, 0, sizeof(*cache));
+}
+
+void XGL_EntitiesShutdown(void)
+{
+    int i;
+    for (i = 0; i < XGL_ALIAS_CACHE_SLOTS; ++i)
+        XGL_FreeAliasColors(&xgl_alias_cache[i]);
+    xgl_alias_cache_used = 0;
+}
+
+static int XGL_OldestAliasColors(void)
+{
+    int i, oldest;
+    oldest = -1;
+    for (i = 0; i < XGL_ALIAS_CACHE_SLOTS; ++i) {
+        if (!xgl_alias_cache[i].colors) continue;
+        if (oldest < 0 || xgl_alias_cache[i].used < xgl_alias_cache[oldest].used)
+            oldest = i;
+    }
+    return oldest;
+}
+
+static xgl_alias_cache_t *XGL_AliasColors(const aliashdr_t *header,
+                                       int material, int depth,
+                                       const byte *translation)
+{
+    const int *commands, *cursor;
+    xgl_alias_cache_t *cache;
+    unsigned int revision;
+    size_t bytes;
+    int count, consumed, triangles, words, i, slot;
+    revision = XGL_TextureRevision(material);
+    if (!revision || depth < 0 || depth > 2 || header->poseverts < 3 ||
+        header->poseverts > MAXALIASTRIS * 3 ||
+        header->numtris < 1 || header->numtris > MAXALIASTRIS) return NULL;
+    commands = (const int *)((const byte *)header + header->commands);
+    cursor = commands;
+    consumed = triangles = 0;
+    while ((count = *cursor++) != 0) {
+        if (count > header->poseverts - consumed || count < -(header->poseverts - consumed))
+            return NULL;
+        if (count < 0) count = -count;
+        if (count < 3) return NULL;
+        consumed += count; triangles += count - 2;
+        cursor += count * 2;
+    }
+    if (triangles != header->numtris) return NULL;
+    words = (int)(cursor - commands);
+    triangles *= 1 << (2 * depth);
+    if (++xgl_alias_cache_used == 0) {
+        for (i = 0; i < XGL_ALIAS_CACHE_SLOTS; ++i) xgl_alias_cache[i].used = 0;
+        xgl_alias_cache_used = 1;
+    }
+    slot = -1;
+    for (i = 0; i < XGL_ALIAS_CACHE_SLOTS; ++i) {
+        cache = &xgl_alias_cache[i];
+        if (!cache->colors) { if (slot < 0) slot = i; continue; }
+        if (cache->material != material || cache->revision != revision ||
+            cache->depth != depth || cache->command_words != words ||
+            cache->translated != (translation != NULL) ||
+            cache->triangle_count != triangles) continue;
+        if (translation && memcmp(cache->translation, translation, 256)) continue;
+        if (memcmp(cache->commands, commands, (size_t)words * sizeof(int))) continue;
+        cache->used = xgl_alias_cache_used;
+        return cache;
+    }
+    bytes = (size_t)words * sizeof(int) + (size_t)triangles * sizeof(xgl_alias_color_t);
+    if (bytes > XGL_ALIAS_CACHE_BYTES - sizeof(xgl_alias_cache)) return NULL;
+    if (slot < 0) slot = XGL_OldestAliasColors();
+    if (slot < 0) return NULL;
+    XGL_FreeAliasColors(&xgl_alias_cache[slot]);
+    while (bytes > XGL_ALIAS_CACHE_BYTES - xgl_alias_cache_bytes) {
+        i = XGL_OldestAliasColors();
+        if (i < 0) return NULL;
+        XGL_FreeAliasColors(&xgl_alias_cache[i]);
+    }
+    cache = &xgl_alias_cache[slot];
+    cache->commands = (int *)malloc((size_t)words * sizeof(int));
+    cache->colors = (xgl_alias_color_t *)malloc((size_t)triangles * sizeof(xgl_alias_color_t));
+    if (!cache->commands || !cache->colors) {
+        XGL_FreeAliasColors(cache);
+        return NULL;
+    }
+    memcpy(cache->commands, commands, (size_t)words * sizeof(int));
+    if (translation) memcpy(cache->translation, translation, 256);
+    cache->translated = translation != NULL;
+    cache->material = material; cache->revision = revision; cache->depth = depth;
+    cache->command_words = words; cache->triangle_count = triangles;
+    cache->used = xgl_alias_cache_used; cache->bytes = bytes;
+    xgl_alias_cache_bytes += bytes;
+    return cache;
+}
+
 static int XGL_EntitySetting(float value, int low, int high)
 {
     if (!(value >= low)) return low;
@@ -53,6 +185,7 @@ static int XGL_EntitySetting(float value, int low, int high)
 void XGL_EntitiesInit(void)
 {
     int i;
+    XGL_EntitiesShutdown();
     Cvar_RegisterVariable(&xgl_alias_subdivide);
     Cvar_RegisterVariable(&xgl_sprite_cells);
     Cvar_RegisterVariable(&xgl_entity_triangles);
@@ -109,42 +242,68 @@ static void XGL_EntityMidpoint(const xgl_entity_vertex_t *a,
     out->t = (a->t + b->t) * .5f;
 }
 
+static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
+                              const xgl_entity_vertex_t *b,
+                              const xgl_entity_vertex_t *c,
+                              int material, const byte *translation,
+                              float light, int lit, int depth,
+                              xgl_alias_draw_t *draw)
+{
+    const xgl_entity_vertex_t *source[3];
+    xgl_entity_vertex_t ab, bc, ca;
+    xgl_vertex_t vertices[3];
+    xgl_alias_color_t sampled, *colors;
+    float center[3];
+    int i, j;
+    if (depth > 0) {
+        XGL_EntityMidpoint(a, b, &ab);
+        XGL_EntityMidpoint(b, c, &bc);
+        XGL_EntityMidpoint(c, a, &ca);
+        XGL_EntityTriangleCached(a, &ab, &ca, material, translation, light, lit, depth - 1, draw);
+        XGL_EntityTriangleCached(&ab, b, &bc, material, translation, light, lit, depth - 1, draw);
+        XGL_EntityTriangleCached(&ca, &bc, c, material, translation, light, lit, depth - 1, draw);
+        XGL_EntityTriangleCached(&ab, &bc, &ca, material, translation, light, lit, depth - 1, draw);
+        return;
+    }
+    colors = &sampled;
+    if (draw && draw->cache && draw->index < draw->cache->triangle_count)
+        colors = &draw->cache->colors[draw->index++];
+    /* Alpha index 255 is coverage, not a black vertex. The centroid decides
+     * coverage of each small sprite triangle. Transparent corners inherit
+     * its opaque color so that interpolation cannot introduce black fringes. */
+    source[0] = a; source[1] = b; source[2] = c;
+    if (colors == &sampled || draw->building) {
+        colors->visible = 0;
+        center[0] = center[1] = center[2] = 0;
+        /* Opaque alias skins need no coverage sample. Sprites retain their
+         * centroid coverage rule; cached aliases also retain alpha holes. */
+        if ((!draw || !draw->opaque) &&
+            !XGL_SampleTexture(material, (a->s + b->s + c->s) / 3,
+                               (a->t + b->t + c->t) / 3, center, translation)) return;
+        for (i = 0; i < 3; ++i) {
+            if (!XGL_SampleTexture(material, source[i]->s, source[i]->t,
+                                   colors->rgb[i], translation)) {
+                VectorCopy(center, colors->rgb[i]);
+            }
+        }
+        colors->visible = 1;
+    }
+    if (!colors->visible) return;
+    for (i = 0; i < 3; ++i) {
+        VectorCopy(source[i]->position, vertices[i].position);
+        VectorCopy(source[i]->normal, vertices[i].normal);
+        for (j = 0; j < 3; ++j) vertices[i].color[j] = colors->rgb[i][j] * light;
+    }
+    XGL_DrawTriangles(vertices, 3, lit, 1.0f, 1);
+}
+
 static void XGL_EntityTriangle(const xgl_entity_vertex_t *a,
                               const xgl_entity_vertex_t *b,
                               const xgl_entity_vertex_t *c,
                               int material, const byte *translation,
                               float light, int lit, int depth)
 {
-    const xgl_entity_vertex_t *source[3];
-    xgl_entity_vertex_t ab, bc, ca;
-    xgl_vertex_t vertices[3];
-    float center[3], rgb[3];
-    int i, j;
-    if (depth > 0) {
-        XGL_EntityMidpoint(a, b, &ab);
-        XGL_EntityMidpoint(b, c, &bc);
-        XGL_EntityMidpoint(c, a, &ca);
-        XGL_EntityTriangle(a, &ab, &ca, material, translation, light, lit, depth - 1);
-        XGL_EntityTriangle(&ab, b, &bc, material, translation, light, lit, depth - 1);
-        XGL_EntityTriangle(&ca, &bc, c, material, translation, light, lit, depth - 1);
-        XGL_EntityTriangle(&ab, &bc, &ca, material, translation, light, lit, depth - 1);
-        return;
-    }
-    /* Alpha index 255 is coverage, not a black vertex. The centroid decides
-     * coverage of each small sprite triangle. Transparent corners inherit
-     * its opaque color so that interpolation cannot introduce black fringes. */
-    if (!XGL_SampleTexture(material, (a->s + b->s + c->s) / 3,
-                          (a->t + b->t + c->t) / 3, center, translation)) return;
-    source[0] = a; source[1] = b; source[2] = c;
-    for (i = 0; i < 3; ++i) {
-        VectorCopy(source[i]->position, vertices[i].position);
-        VectorCopy(source[i]->normal, vertices[i].normal);
-        if (!XGL_SampleTexture(material, source[i]->s, source[i]->t, rgb, translation)) {
-            VectorCopy(center, rgb);
-        }
-        for (j = 0; j < 3; ++j) vertices[i].color[j] = rgb[j] * light;
-    }
-    XGL_DrawTriangles(vertices, 3, lit, 1.0f, 1);
+    XGL_EntityTriangleCached(a, b, c, material, translation, light, lit, depth, NULL);
 }
 
 static int XGL_AliasDepth(entity_t *entity, int triangles)
@@ -172,7 +331,8 @@ static int XGL_AliasDepth(entity_t *entity, int triangles)
 static void XGL_AliasVertex(const trivertx_t *pose, const aliashdr_t *header,
                            const vec3_t forward, const vec3_t right,
                            const vec3_t up, const vec3_t origin,
-                           const int *uv, xgl_entity_vertex_t *out)
+                           const int *uv, xgl_entity_vertex_t *out,
+                           xgl_alias_normals_t *normals)
 {
     vec3_t local, normal;
     int i, index;
@@ -184,15 +344,22 @@ static void XGL_AliasVertex(const trivertx_t *pose, const aliashdr_t *header,
     if (index >= XGL_VERTEX_NORMALS) index = 0;
     for (i = 0; i < 3; ++i) {
         local[i] = pose->v[i] * header->scale[i] + header->scale_origin[i];
-        normal[i] = header->scale[i] != 0 ?
-            r_avertexnormals[index][i] / header->scale[i] : r_avertexnormals[index][i];
+    }
+    if (!normals->valid[index]) {
+        for (i = 0; i < 3; ++i)
+            normal[i] = header->scale[i] != 0 ?
+                r_avertexnormals[index][i] / header->scale[i] : r_avertexnormals[index][i];
+        for (i = 0; i < 3; ++i)
+            normals->normals[index][i] = forward[i] * normal[0] -
+                right[i] * normal[1] + up[i] * normal[2];
+        VectorNormalize(normals->normals[index]);
+        normals->valid[index] = 1;
     }
     for (i = 0; i < 3; ++i) {
         out->position[i] = origin[i] + forward[i] * local[0] -
             right[i] * local[1] + up[i] * local[2];
-        out->normal[i] = forward[i] * normal[0] - right[i] * normal[1] + up[i] * normal[2];
+        out->normal[i] = normals->normals[index][i];
     }
-    VectorNormalize(out->normal);
 }
 
 static void XGL_DrawAlias(entity_t *entity)
@@ -202,6 +369,8 @@ static void XGL_DrawAlias(entity_t *entity)
     const byte *translation;
     const int *order;
     xgl_entity_vertex_t a, b, v;
+    xgl_alias_draw_t draw;
+    xgl_alias_normals_t normals;
     vec3_t angles, forward, right, up, mins, maxs;
     float light, radius;
     double time;
@@ -216,9 +385,16 @@ static void XGL_DrawAlias(entity_t *entity)
          * to a point for culling. The XGL loader computes pose-wide bounds. */
         if (radius > 0 && R_CullBox(mins, maxs)) return;
     }
+    /* A sound cache miss can move or evict Quake alias-cache allocations.
+     * Service audio before acquiring pointers, then defer mixer calls until
+     * the last header/pose/command access. Native batches still submit as
+     * usual; their audio hooks respect this short, nestable cache lock. */
+    XGL_AudioLock();
     header = (aliashdr_t *)Mod_Extradata(entity->model);
-    if (!header || header->poseverts <= 0 || header->numposes <= 0 || header->numskins <= 0)
+    if (!header || header->poseverts <= 0 || header->numposes <= 0 || header->numskins <= 0) {
+        XGL_AudioUnlock();
         return;
+    }
     frame = entity->frame;
     if (frame < 0 || frame >= header->numframes) frame = 0;
     posenum = header->frames[frame].firstpose;
@@ -250,30 +426,38 @@ static void XGL_DrawAlias(entity_t *entity)
     pose = (const trivertx_t *)((const byte *)header + header->posedata) + posenum * header->poseverts;
     order = (const int *)((const byte *)header + header->commands);
     depth = XGL_AliasDepth(entity, header->numtris);
+    memset(&draw, 0, sizeof(draw));
+    memset(normals.valid, 0, sizeof(normals.valid));
+    draw.cache = XGL_AliasColors(header, material, depth, translation);
+    draw.building = draw.cache && !draw.cache->ready;
+    draw.opaque = XGL_TextureRevision(material) != 0 && !XGL_TextureHasAlpha(material);
     consumed = 0;
     c_alias_polys += header->numtris;
     while ((count = *order++) != 0) {
         if (count > header->poseverts - consumed || count < -(header->poseverts - consumed)) {
+            XGL_AudioUnlock();
             Con_DPrintf("XGL: invalid alias commands in %s\n", entity->model->name);
             return;
         }
         fan = count < 0;
         if (fan) count = -count;
         for (i = 0; i < count; ++i) {
-            XGL_AliasVertex(pose++, header, forward, right, up, entity->origin, order, &v);
+            XGL_AliasVertex(pose++, header, forward, right, up, entity->origin, order, &v, &normals);
             order += 2;
             if (i == 0) a = v;
             else if (i == 1) b = v;
             else {
                 if (!fan && (i & 1))
-                    XGL_EntityTriangle(&b, &a, &v, material, translation, light, lit, depth);
-                else XGL_EntityTriangle(&a, &b, &v, material, translation, light, lit, depth);
+                    XGL_EntityTriangleCached(&b, &a, &v, material, translation, light, lit, depth, &draw);
+                else XGL_EntityTriangleCached(&a, &b, &v, material, translation, light, lit, depth, &draw);
                 if (!fan) a = b;
                 b = v;
             }
         }
         consumed += count;
     }
+    if (draw.cache && draw.index == draw.cache->triangle_count) draw.cache->ready = 1;
+    XGL_AudioUnlock();
 }
 
 static mspriteframe_t *XGL_SpriteFrame(entity_t *entity, msprite_t *sprite)
