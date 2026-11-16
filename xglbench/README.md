@@ -12,11 +12,10 @@ benchmark does not assume that every XGL operation is hardware accelerated.
 No measured ZX results from this program are supplied with the source. The
 historical rates discussed below are reference points from the Leo whitepaper.
 
-The reference workstation has two 60 MHz processors and 512 MB RAM, but every
-case uses **one application thread**. There are no SMP tests or worker threads.
-That workstation is an upper-end example, not a minimum requirement: start
-with the default 512 base triangles, 320x240, and a small queue on slower or
-smaller systems. No allocation is sized from the reference machine's RAM.
+The target workstation has a 60 MHz processor, 64 MB RAM, and Sun ZX/Leo
+24-bit 3D graphics. Every case uses **one application thread**; there are no
+SMP tests or worker threads. Start with the default 512 base triangles,
+320x240, and a small queue. No allocation is sized from the machine's RAM.
 The initial goal is 15 FPS, a 66.667 ms whole-engine frame budget. Full-frame
 results report their share of that budget; gameplay, visibility, audio and
 other engine work still require time.
@@ -50,8 +49,10 @@ UltraSPARC instructions, 64-bit code, fast-math, or architecture-specific
 assembly. There are no dependencies on engine objects or changes to the
 engine makefiles. Runtime library paths are embedded with Solaris `-R`;
 the XGL device pipeline must also be installed for the selected framebuffer.
-The default GCC options use `-ansi` and `-W` for older toolchain compatibility.
-`__EXTENSIONS__` exposes Solaris interfaces such as `gethrtime()` in that mode.
+`LANGFLAGS` defaults to empty so the compiler's normal language mode can
+expose the installed Solaris/XGL interfaces. `__EXTENSIONS__` remains enabled
+for Solaris interfaces such as `gethrtime()`. The source remains compatible
+with C90; no strict-language flag is required.
 
 `gmake sdk-check` checks the configured header locations. Compilation and
 linking against the real installed SDK remain the authoritative API check.
@@ -67,47 +68,61 @@ requires builds and readback checks against those installed SDKs/runtimes.
 
 ## Run
 
-Version 0.6 defaults to a roughly one-minute **quick** profile at **320x240**:
+Version 0.7 defaults to the **quick** profile at **320x240**, with a one-minute
+elapsed-time limit:
 
 ```sh
-./xglbench | tee zx-results.txt
-./xglbench -medium -csv zx-medium.csv | tee zx-medium.txt
-./xglbench -long -csv zx-long.csv | tee zx-long.txt
-./xglbench -extralong -csv zx-full.csv | tee zx-full.txt
+./xglbench >zx-results.txt 2>&1
+./xglbench -medium -csv zx-medium.csv >zx-medium.txt 2>&1
+./xglbench -long -csv zx-long.csv >zx-long.txt 2>&1
+./xglbench -extralong -csv zx-full.csv >zx-full.txt 2>&1
 ```
 
 The profiles prioritize comparisons, use short measurement intervals, and rest
-the graphics device after setup and between cases. Quick, medium and long aim
-for roughly one, three and seven minutes including rest. Every profile has a
-finite elapsed-time limit and a further ten-second grace period for stopping
+the graphics device after setup and between cases. Quick, medium and long
+allow at most one, three and seven minutes including rest, with headroom for
+setup and readback validation. Every profile has a finite elapsed-time limit
+and a further ten-second grace period for stopping
 and cleanup. Extra-long selects the complete case registry with a 45-minute
 limit.
 
 | Profile | Cases per resolution | Resolutions | Seconds/trial | Repeats | Warm-up/case | Minimum idle pause | Elapsed-time limit |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `-quick` (default) | 26 | 320x240 | 0.2 | 1 | 0.02 s | 1.5 s | 60 s |
-| `-medium` | 52 | 320x240 | 0.25 | 2 | 0.03 s | 2.5 s | 180 s |
-| `-long` | 52 | 320x240, 640x480 | 0.4 | 2 | 0.05 s | 3.0 s | 420 s |
+| `-quick` (default) | 16 | 320x240 | 0.2 | 1 | 0.02 s | 1.5 s | 60 s |
+| `-medium` | 34 | 320x240 | 0.25 | 2 | 0.03 s | 2.5 s | 180 s |
+| `-long` | 34 | 320x240, 640x480 | 0.4 | 2 | 0.05 s | 3.0 s | 420 s |
 | `-extralong` | 217 | 320x240, 640x480 | 0.5 | 3 | 0.1 s | 2.0 s | 2700 s (45 min) |
 
-Quick prioritizes five material/texturing draw-only modes at depth
-zero, then four primitive submission methods, five material/texturing
-complete-frame modes at depth zero, six lit-frame variants at depth zero,
-four sampled-color cases at depths one/two, and two cached-frame cases at
-depths one/two. Medium adds four culling cases,
-four single-thread cached/relight pipeline cases at depth one, six baked/style
-lighting cases at depth one, five perspective texturing comparisons, five
-depth-one texturing frame comparisons, and color/depth clears. Long runs the
-same 52 cases at both resolutions with longer trials. Extra-long selects the
-complete registry. The later sections describe all available
-families; a short profile need not include every case described there.
+Quick prioritizes sampled flat/smooth draw colors at depth zero, four
+primitive submission methods, sampled flat/smooth complete frames at depth
+zero, matched CPU/XGL flat/smooth point-light draws at depth one, cached baked
+flat/smooth lighting at depth one, and sampled flat/smooth colors at depth one.
+Medium adds sampled complete frames at depth one, four-layer lightstyle
+updates, CPU/XGL lit frames, mixed-winding culling, color/depth clears,
+depth-two sampled colors, and serialized/streaming cached/relight pairs.
+Long runs the same 34 cases at both resolutions with longer trials.
+Native texture mapping is optional: use an explicit `-test` filter or
+`-extralong`, which retains the complete 217-case registry. The later sections
+describe all available families; a short profile need not include every case
+described there.
+
+Keep both standard output and standard error when collecting a hardware run,
+as in the examples above. XGL error details and setup-stage diagnostics are
+written to standard error. After rebuilding, first check HUD/raster recovery
+and a small complete-frame group before repeating the long profile:
+
+```sh
+./xglbench -test hud/ -winsize 320 240 -csv zx-raster.csv >zx-raster.txt 2>&1
+./xglbench -test texture-map/facet-flat/frame/depth-0 -winsize 320 240 >zx-frame.txt 2>&1
+```
 
 The elapsed-time limits include opening XGL, setup, validation, measurements
 and idle pauses. At the limit, the program stops starting new work and discards
 any incomplete current case. During an orderly stop, that case is marked
-skipped with a reason, and the terminal summary reports how many selected
-cases were not run. Unattempted cases have no CSV rows. Keep that terminal
-summary with the CSV to preserve the coverage information.
+skipped with failure kind `time-limit`, and the terminal summary reports how
+many selected cases were not run. Each unattempted case has a `not-run` CSV
+summary row with empty timing fields. Keep the terminal report with the CSV
+for device metadata and error details.
 
 A POSIX `SIGALRM` timer runs in the same process, without another application
 thread or SMP work. If a blocked draw or cleanup still prevents termination
@@ -648,9 +663,12 @@ not to calculate actual bus utilization.
 
 CSV contains `trial` records and a `summary` record per successful case.
 Skipped cases contain a summary with status `skipped` and the reason; zero
-fields on those records are not measurements. Cases not attempted because a
-profile's time limit was reached have no CSV rows; their count appears in the
-terminal summary during an orderly stop. Forced termination after the
+fields on those records are not measurements. The appended `failure_kind`
+column distinguishes `api-error`, `validation-failed`, `unsupported`,
+`time-limit`, and other `error` outcomes; successful rows use `none`.
+During an orderly stop, selected cases not attempted receive summary rows
+with status and failure kind `not-run` and empty timing fields. Their count
+also appears in the terminal summary. Forced termination after the
 ten-second grace period can leave the final output record incomplete.
 The `frames_all_trials` field
 is the total completed-item count for the case even on individual trial
@@ -757,6 +775,13 @@ Those declarations are documentation-derived test scaffolding, **not the Sun
 SDK**. This check cannot validate binary ABI compatibility, the arguments
 passed through XGL's variadic attribute interfaces, native behavior, or
 performance. It is optional and separate from `make check`.
+
+`make native-contract-check` runs focused host tests of the native backend's
+memory-raster setup and readback error handling using mock XGL functions.
+It checks partial-object cleanup and retries, validated raster properties,
+and preservation of native errors. This separate target uses GNU-compatible
+section garbage collection to link only the tested backend functions; it
+does not require or emulate the XGL runtime and is not a Solaris build target.
 
 Passing portable checks does not validate compilation against the proprietary
 XGL headers, correct native rendering, or ZX performance. Those require the

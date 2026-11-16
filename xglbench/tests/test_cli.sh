@@ -934,4 +934,27 @@ grep 'injected texture mapping unavailable' "$test_dir/output" >/dev/null ||
     fail "native texture setup failure reason was lost"
 fault_case native-error texture-map/point/draw/depth-0 5
 
+# Categories come from structured backend outcomes, never wording guesses.
+check_failure_kind()
+{
+    awk -F, -v expected="$2" '
+        NR == 1 {
+            columns=NF
+            for (i=1; i<=NF; ++i) col[$i]=i
+            record=col["record"]; status=col["status"]; kind=col["failure_kind"]
+            next
+        }
+        {
+            if (NF != columns || $record != "summary" || $status != "skipped" || $kind != expected) bad++
+            rows++
+        }
+        END { if (!record || !status || !kind || rows != 1 || bad) exit 1 }
+    ' "$1" || fail "incorrect failure category: $2"
+}
+check_failure_kind "$test_dir/skipped.csv" validation-failed
+check_failure_kind "$test_dir/light-validation-failure.csv" validation-failed
+check_failure_kind "$test_dir/native-error.csv" api-error
+check_failure_kind "$test_dir/mapping-rejected.csv" unsupported
+check_failure_kind "$test_dir/light-update-failure.csv" error
+
 echo 'CLI tests: arguments, resize, geometry, queues, sampled materials, lighting, full frames, culling, native texture scheduling and fault rejection passed'

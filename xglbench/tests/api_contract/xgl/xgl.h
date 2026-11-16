@@ -1,4 +1,4 @@
-/* Syntax-only handwritten Sun XGL API contract. NOT SDK/ABI; NOT linkable.
+/* Handwritten Sun XGL API contract. NOT SDK/ABI; never link to real XGL.
  * Data members/prototypes: Sun Reference Manual 802-5864. Numeric values below
  * are deliberately arbitrary and must never be used to call a real library.
  */
@@ -29,6 +29,11 @@ typedef int Xgl_flush_action;
 typedef int Xgl_texture_boundary;
 typedef int Xgl_texture_interp_method;
 typedef int Xgl_texture_persp_correction;
+/* The SDK takes an enum, not a pointer, as xgl_open's fixed argument. */
+typedef enum { XGL_UNUSED = 0 } Xgl_attribute;
+typedef enum {
+    XGL_COLOR_INDEX, XGL_COLOR_GRAY, XGL_COLOR_RGB, XGL_COLOR_Z
+} Xgl_color_type;
 typedef struct { float x, y, z; } Xgl_pt_f3d;
 typedef struct { double x, y, z; } Xgl_pt_d3d;
 typedef struct { int x, y; } Xgl_pt_i2d;
@@ -126,7 +131,7 @@ enum {
     XGL_3D_CTX_SURF_FRONT_ILLUMINATION, XGL_3D_CTX_Z_BUFFER_COMP_METHOD,
     XGL_3D_CTX_Z_BUFFER_WRITE_MASK, XGL_BUFFER_SEL_DRAW,
     XGL_CLIP_XMAX, XGL_CLIP_XMIN, XGL_CLIP_YMAX, XGL_CLIP_YMIN,
-    XGL_CLIP_ZMAX, XGL_CLIP_ZMIN, XGL_COLOR_RGB, XGL_CTX_BACKGROUND_COLOR,
+    XGL_CLIP_ZMAX, XGL_CLIP_ZMIN, XGL_CTX_BACKGROUND_COLOR,
     XGL_CTX_CLIP_PLANES, XGL_CTX_DEFERRAL_MODE, XGL_CTX_DEVICE,
     XGL_CTX_GEOM_DATA_IS_VOLATILE, XGL_CTX_LOCAL_MODEL_TRANS,
     XGL_CTX_NEW_FRAME_ACTION, XGL_CTX_NEW_FRAME_CLEAR,
@@ -176,11 +181,12 @@ enum {
     XGL_3D_CTX_SURF_TMAP_PERSP_CORRECTION, XGL_TEXTURE_PERSP_PIXEL,
     XGL_TEXTURE_PERSP_NONE, XGL_SURF_COLOR_CONTEXT, XGL_CTX_SURF_FRONT_COLOR
 };
-Xgl_sys_state xgl_open(void *);
+Xgl_sys_state xgl_open(Xgl_attribute, ...);
 void xgl_close(Xgl_sys_state);
 Xgl_object xgl_object_create(Xgl_sys_state, int, Xgl_obj_desc *, ...);
 void xgl_object_get(Xgl_object, int, void *);
 void xgl_object_set(Xgl_object, ...);
+void xgl_object_destroy(Xgl_object);
 void xgl_transform_write(Xgl_trans, void *);
 Xgl_inquire *xgl_inquire(Xgl_sys_state, Xgl_obj_desc *);
 void xgl_window_raster_resize(Xgl_win_ras);

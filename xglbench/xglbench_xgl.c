@@ -55,6 +55,8 @@ typedef struct {
     Xgl_inquire inquiry;
     Xgl_usgn32 buffers;
     char device[160], error[256], version[160];
+    const char *stage;
+    enum xb_failure failure;
     Xgl_pt_f3d *points, *strip_points;
     Xgl_pt_color_f3d *color_points;
     Xgl_pt_color_normal_f3d *lit_points;
@@ -69,7 +71,7 @@ typedef struct {
     int shading, hardware_lighting, allow_fallback, light_count, cull;
     Xgl_light lights[XB_MAX_LIGHTS + 1];
     xb_light_state light_state;
-    int raster_checked, raster_ok, mask_checked, mask_ok;
+    int raster_checked, mask_checked, hud_ready;
     xb_native_slot stream[XB_MAX_QUEUE];
     int stream_active, stream_slots, stream_batch;
     Xgl_boolean stream_previous_volatile;
@@ -103,27 +105,59 @@ static void free_stream_slots(void)
 
 static void copy_text(char *dest, size_t size, const char *src)
 {
+    size_t length;
     if (!size) return;
     if (!src) src = "unknown";
-    strncpy(dest, src, size - 1);
-    dest[size - 1] = '\0';
+    length = strlen(src);
+    if (length >= size) length = size - 1;
+    memcpy(dest, src, length);
+    dest[length] = '\0';
+}
+
+static void fail_kind(enum xb_failure kind, const char *message)
+{
+    /* A later diagnostic or cleanup must not hide the first native error. */
+    if (b.errors) return;
+    b.failure = kind;
+    copy_text(b.error, sizeof(b.error), message);
 }
 
 static void fail(const char *message)
 {
-    copy_text(b.error, sizeof(b.error), message);
+    fail_kind(XB_FAILURE_ERROR, message);
+}
+
+static void error_context(const char *context)
+{
+    char previous[sizeof(b.error)];
+    if (!b.error[0]) return;
+    copy_text(previous, sizeof(previous), b.error);
+    sprintf(b.error, "%.75s: %.175s", context, previous);
 }
 
 static Xgl_sgn32 xgl_error(Xgl_sys_state system)
 {
     Xgl_error_info info;
+    const char *stage;
     memset(&info, 0, sizeof(info));
     xgl_object_get(system, XGL_SYS_ST_ERROR_INFO, &info);
+    stage = b.stage ? b.stage : "native operation";
+    if (!b.errors) {
+        b.failure = XB_FAILURE_API;
+        sprintf(b.error, "%.36s: %.20s %.100s (%.30s, %.25s, %.25s)",
+                stage, info.id ? info.id : "?",
+                info.msg ? info.msg : "XGL operation failed",
+                info.cur_obj ? info.cur_obj : "?",
+                info.operand1 ? info.operand1 : "?",
+                info.operand2 ? info.operand2 : "?");
+    }
     ++b.errors;
     if (info.type == XGL_ERROR_NONRECOVERABLE) b.fatal = 1;
-    copy_text(b.error, sizeof(b.error), info.msg ? info.msg : "XGL operation failed");
-    fprintf(stderr, "XGL error %s in %s: %s\n", info.id ? info.id : "?",
-            info.cur_op ? info.cur_op : "?", b.error);
+    fprintf(stderr, "XGL error %s during %s: op=%s object=%s operand1=%s operand2=%s: %s\n",
+            info.id ? info.id : "?", stage,
+            info.cur_op ? info.cur_op : "?", info.cur_obj ? info.cur_obj : "?",
+            info.operand1 ? info.operand1 : "?", info.operand2 ? info.operand2 : "?",
+            info.msg ? info.msg : "XGL operation failed");
     return 1;
 }
 
@@ -185,42 +219,136 @@ static void setup_view(void)
     xgl_object_set(b.ctx, XGL_3D_CTX_HLHSR_DATA, &clear, 0);
 }
 
-static int make_hud(void)
+/* Request memory-raster storage by depth, without also setting color type.
+ * This avoids the suspected creation-time attribute conflict behind the
+ * XGL 3.3/Leo di-158 reports; the correction still needs hardware validation.
+ * Inquire the result rather than assuming that every pipeline chose RGB.
+ * Only fully checked objects enter a cache; failed, unreferenced objects can
+ * be destroyed on recoverable errors. After a fatal error xgl_close owns all
+ * remaining cleanup and no further object operations are attempted.
+ */
+static void destroy_unreferenced(Xgl_object object)
 {
-    Xgl_usgn32 *pixels, *mask_address;
-    Xgl_usgn16 *mask_words;
-    int x, y;
-    pixels = mask_address = NULL;
-    b.hud = xgl_object_create(b.system, XGL_MEM_RAS, NULL,
-                XGL_RAS_DEPTH, 32, XGL_RAS_WIDTH, XB_RASTER_W,
-                XGL_RAS_HEIGHT, XB_RASTER_H,
-                XGL_DEV_COLOR_TYPE, XGL_COLOR_RGB, 0);
-    if (!b.hud || b.errors) return 0;
-    b.mask = xgl_object_create(b.system, XGL_MEM_RAS, NULL,
-                XGL_RAS_DEPTH, 1, XGL_RAS_WIDTH, XB_RASTER_W,
-                XGL_RAS_HEIGHT, XB_RASTER_H, 0);
-    if (!b.hud || !b.mask || b.errors) return 0;
-    xgl_object_get(b.hud, XGL_MEM_RAS_IMAGE_BUFFER_ADDR, &pixels);
-    if (b.errors) return 0;
-    xgl_object_get(b.mask, XGL_MEM_RAS_IMAGE_BUFFER_ADDR, &mask_address);
-    if (b.errors) return 0;
-    if (!pixels || !mask_address) return 0;
-    mask_words = (Xgl_usgn16 *)mask_address;
-    memset(mask_words, 0, (size_t)XB_RASTER_W * XB_RASTER_H / 8);
-    for (y = 0; y < XB_RASTER_H; ++y) {
-        for (x = 0; x < XB_RASTER_W; ++x) {
-            /* Canonical XGL native word, independent of host byte order. */
-            pixels[y * XB_RASTER_W + x] =
-                ((Xgl_usgn32)(64 + (y * 3) % 192) << 16) |
-                ((Xgl_usgn32)(32 + (x * 5) % 224) << 8) | 220;
-            if (((x / 8) + (y / 8)) % 2 == 0)
-                mask_words[y * (XB_RASTER_W / 16) + x / 16] |=
-                    (Xgl_usgn16)(0x8000U >> (x & 15));
+    char reason[sizeof(b.error)];
+    enum xb_failure failure;
+    if (!object || b.fatal) return;
+    copy_text(reason, sizeof(reason), b.error);
+    failure = b.failure;
+    xgl_object_destroy(object);
+    if (reason[0]) {
+        copy_text(b.error, sizeof(b.error), reason);
+        b.failure = failure;
+    }
+}
+
+static Xgl_mem_ras make_memory_raster(int depth, int width, int height,
+                                    void **address, const char *stage)
+{
+    Xgl_mem_ras raster;
+    Xgl_usgn32 actual_depth, actual_width, actual_height;
+    Xgl_color_type color_type;
+    const char *previous_stage;
+    char message[192];
+    *address = NULL;
+    if (b.errors || b.fatal || xb_cancel_requested()) return NULL;
+    previous_stage = b.stage;
+    b.stage = stage;
+    raster = xgl_object_create(b.system, XGL_MEM_RAS, NULL,
+                XGL_RAS_DEPTH, (Xgl_usgn32)depth,
+                XGL_RAS_WIDTH, (Xgl_usgn32)width,
+                XGL_RAS_HEIGHT, (Xgl_usgn32)height, 0);
+    if (!raster || b.errors) {
+        if (!b.errors) fail("XGL returned no memory raster");
+        goto bad;
+    }
+    actual_depth = actual_width = actual_height = 0;
+    xgl_object_get(raster, XGL_RAS_DEPTH, &actual_depth);
+    if (b.errors) goto bad;
+    xgl_object_get(raster, XGL_RAS_WIDTH, &actual_width);
+    if (b.errors) goto bad;
+    xgl_object_get(raster, XGL_RAS_HEIGHT, &actual_height);
+    if (b.errors) goto bad;
+    if (actual_depth != (Xgl_usgn32)depth || actual_width != (Xgl_usgn32)width ||
+        actual_height != (Xgl_usgn32)height) {
+        sprintf(message, "memory raster dimensions/depth: wanted %dx%dx%d, got %lux%lux%lu",
+                width, height, depth, (unsigned long)actual_width,
+                (unsigned long)actual_height, (unsigned long)actual_depth);
+        fail_kind(XB_FAILURE_VALIDATION, message);
+        goto bad;
+    }
+    if (depth == 32) {
+        color_type = XGL_COLOR_INDEX;
+        xgl_object_get(raster, XGL_DEV_COLOR_TYPE, &color_type);
+        if (b.errors) goto bad;
+        if (color_type != XGL_COLOR_RGB) {
+            fail_kind(XB_FAILURE_VALIDATION, "32-bit memory raster did not select RGB color");
+            goto bad;
         }
     }
+    xgl_object_get(raster, XGL_MEM_RAS_IMAGE_BUFFER_ADDR, address);
+    if (b.errors) goto bad;
+    if (!*address) {
+        fail_kind(XB_FAILURE_VALIDATION, "memory raster has no image buffer");
+        goto bad;
+    }
+    b.stage = previous_stage;
+    return raster;
+bad:
+    if (b.failure != XB_FAILURE_API) error_context(stage);
+    destroy_unreferenced(raster);
+    *address = NULL;
+    b.stage = previous_stage;
+    return NULL;
+}
+
+static int make_hud(void)
+{
+    Xgl_mem_ras hud, mask;
+    Xgl_usgn32 *pixels;
+    Xgl_usgn16 *mask_words;
+    void *image_address, *mask_address;
+    const char *previous_stage;
+    int x, y;
+    if (b.errors || b.fatal || xb_cancel_requested()) return 0;
+    if (!b.hud || !b.mask) {
+        image_address = mask_address = NULL;
+        hud = make_memory_raster(32, XB_RASTER_W, XB_RASTER_H,
+                                 &image_address, "HUD RGB raster creation");
+        if (!hud) return 0;
+        mask = make_memory_raster(1, XB_RASTER_W, XB_RASTER_H,
+                                  &mask_address, "HUD mask raster creation");
+        if (!mask) {
+            destroy_unreferenced(hud);
+            return 0;
+        }
+        pixels = (Xgl_usgn32 *)image_address;
+        mask_words = (Xgl_usgn16 *)mask_address;
+        memset(mask_words, 0, (size_t)XB_RASTER_W * XB_RASTER_H / 8);
+        for (y = 0; y < XB_RASTER_H; ++y) {
+            for (x = 0; x < XB_RASTER_W; ++x) {
+                /* Canonical XGL native word, independent of host byte order. */
+                pixels[y * XB_RASTER_W + x] =
+                    ((Xgl_usgn32)(64 + (y * 3) % 192) << 16) |
+                    ((Xgl_usgn32)(32 + (x * 5) % 224) << 8) | 220;
+                if (((x / 8) + (y / 8)) % 2 == 0)
+                    mask_words[y * (XB_RASTER_W / 16) + x / 16] |=
+                        (Xgl_usgn16)(0x8000U >> (x & 15));
+            }
+        }
+        /* Both buffers are initialized before exposing either cached handle.
+         * Once attached to the context, keep these valid objects even if a
+         * later attribute fails; retry attachment without reallocating them.
+         */
+        b.hud = hud;
+        b.mask = mask;
+    }
+    previous_stage = b.stage;
+    b.stage = "HUD mask attachment";
     xgl_object_set(b.ctx, XGL_CTX_RASTER_FPAT, b.mask,
                    XGL_CTX_ROP, XGL_ROP_COPY, 0);
-    return !b.errors;
+    b.hud_ready = !b.errors;
+    b.stage = previous_stage;
+    return b.hud_ready;
 }
 
 /* XGL 3.1+ Texture Map objects, Reference pp.106-110,118,339-340,374-378,
@@ -239,17 +367,27 @@ static int texture_enable(int enabled)
 
 static Xgl_usgn32 *texture_raster_pixels(int level)
 {
-    Xgl_usgn32 *pixels;
+    Xgl_mem_ras raster;
+    void *pixels;
     int side;
+    if (b.errors || b.fatal || xb_cancel_requested()) return NULL;
+    if (level < 0 || level >= 7) {
+        fail("invalid texture mip level");
+        return NULL;
+    }
     side = XB_TEXTURE_WIDTH >> level;
-    if (!b.texture_rasters[level])
-        b.texture_rasters[level] = xgl_object_create(b.system, XGL_MEM_RAS, NULL,
-                XGL_RAS_DEPTH, 32, XGL_RAS_WIDTH, side, XGL_RAS_HEIGHT, side,
-                XGL_DEV_COLOR_TYPE, XGL_COLOR_RGB, 0);
-    if (!b.texture_rasters[level] || b.errors) return NULL;
     pixels = NULL;
-    xgl_object_get(b.texture_rasters[level], XGL_MEM_RAS_IMAGE_BUFFER_ADDR, &pixels);
-    return b.errors ? NULL : pixels;
+    if (!b.texture_rasters[level]) {
+        raster = make_memory_raster(32, side, side, &pixels,
+                                    "texture raster creation");
+        if (!raster) return NULL;
+        b.texture_rasters[level] = raster;
+    } else {
+        xgl_object_get(b.texture_rasters[level], XGL_MEM_RAS_IMAGE_BUFFER_ADDR, &pixels);
+        if (b.errors) return NULL;
+        if (!pixels) fail("cached texture raster has no image buffer");
+    }
+    return (Xgl_usgn32 *)pixels;
 }
 
 static Xgl_usgn32 texture_word(const xb_rgb *rgb)
@@ -263,10 +401,11 @@ static int texture_build_image(int pattern)
 {
     xb_rgb image[XB_TEXTURE_WIDTH * XB_TEXTURE_WIDTH], rgb;
     Xgl_usgn32 *pixels;
+    Xgl_mipmap_texture mipmap;
     int x, y;
     if (xb_cancel_requested()) return 0;
     pixels = texture_raster_pixels(0);
-    if (!pixels) { if (!b.errors) fail("cannot access texture memory raster"); return 0; }
+    if (!pixels) return 0;
     if (!pattern && !xb_texture_image(image, XB_TEXTURE_WIDTH * XB_TEXTURE_WIDTH)) {
         fail("cannot obtain benchmark texture image");
         return 0;
@@ -287,10 +426,17 @@ static int texture_build_image(int pattern)
         }
     }
     if (xb_cancel_requested()) return 0;
-    if (!b.texture_mipmap)
-        b.texture_mipmap = xgl_object_create(b.system, XGL_MIPMAP_TEXTURE, NULL,
-                             XGL_MIPMAP_TEXTURE_LEVELS, 7, 0);
-    if (!b.texture_mipmap || b.errors || xb_cancel_requested()) return 0;
+    if (!b.texture_mipmap) {
+        mipmap = xgl_object_create(b.system, XGL_MIPMAP_TEXTURE, NULL,
+                                  XGL_MIPMAP_TEXTURE_LEVELS, (Xgl_usgn32)7, 0);
+        if (!mipmap || b.errors) {
+            if (!b.errors) fail("XGL returned no mipmap texture");
+            destroy_unreferenced(mipmap);
+            return 0;
+        }
+        b.texture_mipmap = mipmap;
+    }
+    if (xb_cancel_requested()) return 0;
     xgl_mipmap_texture_build(b.texture_mipmap, b.texture_rasters[0],
                              XGL_TEXTURE_BOUNDARY_WRAP, XGL_TEXTURE_BOUNDARY_WRAP);
     return !b.errors;
@@ -354,17 +500,27 @@ static int texture_probe(float *points)
     return !b.errors && !xb_cancel_requested();
 }
 
-static int texture_read(int x, int y, xb_rgb *rgb)
+static int read_pixel(int x, int y, xb_rgb *rgb)
 {
     Xgl_pt_i2d point;
     Xgl_color color;
+    Xgl_boolean obscured;
+    char context[96];
     point.x = x; point.y = y;
     if (b.errors || xb_cancel_requested()) return 0;
-    if (xgl_context_get_pixel(b.ctx, &point, &color)) {
-        fail("texture validation pixel is obscured");
+    memset(&color, 0, sizeof(color));
+    obscured = xgl_context_get_pixel(b.ctx, &point, &color);
+    if (b.errors) {
+        sprintf(context, "pixel (%d,%d)", x, y);
+        error_context(context);
         return 0;
     }
-    if (b.errors || xb_cancel_requested()) return 0;
+    if (xb_cancel_requested()) return 0;
+    if (obscured) {
+        sprintf(context, "validation pixel (%d,%d) obscured; keep the entire window visible", x, y);
+        fail_kind(XB_FAILURE_VALIDATION, context);
+        return 0;
+    }
     rgb->r = color.rgb.r; rgb->g = color.rgb.g; rgb->b = color.rgb.b;
     return 1;
 }
@@ -380,6 +536,7 @@ static int validate_texture(void)
     static const double weights[3] = {.27,.58,.15};
     static const double footprint[4] = {1.1,1.25,1.5,1.75};
     int i, j, phase, level, side, middle, mixed;
+    char context[96];
     memset(&fallback, 0, sizeof(fallback));
     fallback.rgb.r = fallback.rgb.b = 1;
     xgl_object_set(b.ctx, XGL_CTX_SURF_FRONT_COLOR_SELECTOR, XGL_SURF_COLOR_CONTEXT,
@@ -410,8 +567,10 @@ static int validate_texture(void)
             px = (-.9 + 1.8 * bary[i][0] + 1) * .5 * (b.width - 1);
             py = (-.9 + 1.8 * bary[i][1] + 1) * .5 * (b.height - 1);
             if (!pixel_matches((int)px, (int)py, &expected)) {
-                if (!b.errors && !xb_cancel_requested())
-                    fail("texture RGB, UV orientation or wrapping readback failed");
+                if (!xb_cancel_requested()) {
+                    sprintf(context, "texture UV (%.4g,%.4g), wrap phase %d", u, v, phase);
+                    error_context(context);
+                }
                 return 0;
             }
         }
@@ -435,8 +594,7 @@ static int validate_texture(void)
         expected.r = expected.b = 0; expected.g = 1;
         if (!pixel_matches((int)((px + 1) * .5 * (b.width - 1)),
                            (int)((py + 1) * .5 * (b.height - 1)), &expected)) {
-            if (!b.errors && !xb_cancel_requested())
-                fail("texture perspective-correction readback failed");
+            if (!xb_cancel_requested()) error_context("texture perspective correction");
             return 0;
         }
         view_matrix(0);
@@ -454,16 +612,16 @@ static int validate_texture(void)
     for (i = 0; i < 17; ++i) {
         px = (-.72 + 1.28 * i / 16 + 1) * .5 * (b.width - 1);
         py = .15 * (b.height - 1);
-        if (!texture_read((int)px, (int)py, &sample)) return 0;
+        if (!read_pixel((int)px, (int)py, &sample)) return 0;
         if (sample.r < lo) lo = sample.r;
         if (sample.r > hi) hi = sample.r;
         if (sample.r > .1 && sample.r < .9) ++middle;
         if (fabs(sample.r - sample.g) > .065 || fabs(sample.r - sample.b) > .065) {
-            fail("texture filter calibration is not grayscale"); return 0;
+            fail_kind(XB_FAILURE_VALIDATION, "texture filter calibration is not grayscale"); return 0;
         }
     }
     if (hi - lo < .5 || (b.texture_filter == XB_TEXTURE_POINT ? middle != 0 : middle < 3)) {
-        fail("texture point/bilinear magnification readback failed"); return 0;
+        fail_kind(XB_FAILURE_VALIDATION, "texture point/bilinear magnification readback failed"); return 0;
     }
     if (b.texture_filter == XB_TEXTURE_TRILINEAR) {
         /* Diagnostic pyramid: red base, green lower levels. This proves
@@ -489,17 +647,16 @@ static int validate_texture(void)
                 points[i * 5 + 4] = i == 2 ? (float)dv : 0;
             }
             if (!texture_probe(points) ||
-                !texture_read(b.width / 3, b.height / 3, &sample)) return 0;
+                !read_pixel(b.width / 3, b.height / 3, &sample)) return 0;
             if (sample.r > .1 && sample.r < .9 && sample.g > .1 && sample.g < .9 &&
                 sample.b < .065 && fabs(sample.r + sample.g - 1) < .1) mixed = 1;
         }
-        if (!mixed) { fail("trilinear mip-level blending readback failed"); return 0; }
+        if (!mixed) { fail_kind(XB_FAILURE_VALIDATION, "trilinear mip-level blending readback failed"); return 0; }
     }
     if (!texture_enable(0) || !texture_probe(points)) return 0;
     expected.r = expected.b = 1; expected.g = 0;
     if (!pixel_matches(b.width / 3, b.height / 3, &expected)) {
-        if (!b.errors && !xb_cancel_requested())
-            fail("texture-off recovery readback failed");
+        if (!xb_cancel_requested()) error_context("texture-off recovery");
         return 0;
     }
     view_matrix(b.perspective);
@@ -515,11 +672,11 @@ static int configure_texture(const xb_case *test)
         test->xgl_lighting || test->cull || test->retained || test->streaming ||
         (test->work != XB_DRAW && test->work != XB_FRAME) ||
         (test->update != XB_STATIC && test->update != XB_TRANSFORM)) {
-        fail("native texturing requires unlit static/transformed multi draws or frames, without culling/retention/streaming");
+        fail_kind(XB_FAILURE_UNSUPPORTED, "native texturing requires unlit static/transformed multi draws or frames, without culling/retention/streaming");
         return 0;
     }
     if (b.width < 128 || b.height < 128) {
-        fail("texture readback gates require at least a 128x128 drawable"); return 0;
+        fail_kind(XB_FAILURE_UNSUPPORTED, "texture readback gates require at least a 128x128 drawable"); return 0;
     }
     b.texture_filter = test->texture_filter;
     if (!texture_build_image(1) || !texture_set_descriptor() || !validate_texture()) return 0;
@@ -669,6 +826,11 @@ int xb_backend_open(const xb_options *options, int width, int height)
     XSizeHints hints;
     char *version;
     memset(&b, 0, sizeof(b));
+    b.stage = "native initialization";
+    if (sizeof(Xgl_usgn32) != 4 || sizeof(void *) != 4 || sizeof(float) != 4) {
+        fail("native XGL requires the 32-bit ABI (4-byte pointers, Xgl_usgn32 and float)");
+        return 0;
+    }
     if (xb_cancel_requested()) {
         copy_text(b.error, sizeof(b.error), "profile time budget reached");
         return 0;
@@ -681,7 +843,7 @@ int xb_backend_open(const xb_options *options, int width, int height)
     }
     if (xb_cancel_requested()) return 0;
     b.screen = DefaultScreen(b.display);
-    b.system = xgl_open(NULL);
+    b.system = xgl_open((Xgl_attribute)NULL);
     if (!b.system) { fail("xgl_open failed"); return 0; }
     if (xb_cancel_requested()) return 0;
     xgl_object_set(b.system, XGL_SYS_ST_ERROR_NOTIFICATION_FUNCTION, xgl_error,
@@ -1347,22 +1509,22 @@ static int configure_lighting(const xb_case *test)
     b.light_count = test->xgl_lighting ? test->lights : 0;
     if ((test->shade != XB_FLAT || test->lighting != XB_LIGHT_OFF) &&
         (test->method != XB_MULTI && test->method != XB_POLYGON)) {
-        fail("lighting and smooth-color cases require polygon or multi-polygon draws");
+        fail_kind(XB_FAILURE_UNSUPPORTED, "lighting and smooth-color cases require polygon or multi-polygon draws");
         return 0;
     }
     if (test->work == XB_PIPELINE &&
         (test->method != XB_MULTI || test->xgl_lighting)) {
-        fail("streaming requires multi-polygon CPU colors; hardware-lighting streams are not validated");
+        fail_kind(XB_FAILURE_UNSUPPORTED, "streaming requires multi-polygon CPU colors; hardware-lighting streams are not validated");
         return 0;
     }
     if (b.hardware_lighting && (test->lighting != XB_LIGHT_LAMBERT ||
         b.light_count < 1 || b.light_count > XB_MAX_LIGHTS)) {
-        fail("native lighting requires the Lambert model and 1..4 diffuse lights");
+        fail_kind(XB_FAILURE_UNSUPPORTED, "native lighting requires the Lambert model and 1..4 diffuse lights");
         return 0;
     }
     if (b.hardware_lighting && b.inquiry.lighting != XGL_INQ_HARDWARE &&
         (!b.allow_fallback || b.inquiry.lighting == XGL_INQ_NOT_SUPPORTED)) {
-        fail("XGL does not report hardware lighting; use -allow-fallback for supported software lighting");
+        fail_kind(XB_FAILURE_UNSUPPORTED, "XGL does not report hardware lighting; use -allow-fallback for supported software lighting");
         return 0;
     }
     illumination = b.hardware_lighting ?
@@ -1403,6 +1565,7 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
                          char *reason, size_t size)
 {
     if (xb_cancel_requested()) {
+        b.failure = XB_FAILURE_TIME_LIMIT;
         copy_text(reason, size, "profile time budget reached");
         return 0;
     }
@@ -1411,12 +1574,15 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
      * reconfiguration boundary; nonrecoverable errors never resume drawing.
      */
     b.errors = 0;
+    b.failure = XB_FAILURE_NONE;
     b.error[0] = '\0';
+    b.stage = "case reconfiguration";
     /* Complete any retained data from a preceding recoverable error before
      * changing attributes or releasing the previous native mesh arrays.
      */
     xb_backend_sync();
     if (xb_cancel_requested()) {
+        b.failure = XB_FAILURE_TIME_LIMIT;
         copy_text(reason, size, "profile time budget reached");
         return 0;
     }
@@ -1435,14 +1601,17 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
     if (b.cull < 0 || b.cull > 1 ||
         (b.cull && (test->method != XB_MULTI || test->shade != XB_FLAT ||
                     test->lighting != XB_LIGHT_OFF || test->work == XB_PIPELINE))) {
+        b.failure = XB_FAILURE_UNSUPPORTED;
         copy_text(reason, size, "back-face culling is validated only for unlit flat multi-polygon cases");
         return 0;
     }
     if (test->retained && (test->method != XB_MULTI || test->update != XB_STATIC)) {
+        b.failure = XB_FAILURE_UNSUPPORTED;
         copy_text(reason, size, "retained-array test requires static multi-polygon geometry");
         return 0;
     }
     if ((test->work == XB_SWAP || test->work == XB_FRAME) && b.buffers < 2) {
+        b.failure = XB_FAILURE_UNSUPPORTED;
         copy_text(reason, size, "two window buffers were not allocated");
         return 0;
     }
@@ -1454,20 +1623,24 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
                    b.current_z ? XGL_HLHSR_Z_BUFFER : XGL_HLHSR_NONE, 0);
     identity(b.model);
     view_matrix(test->perspective);
+    b.stage = "lighting setup/readback";
     if (!configure_lighting(test) || !validate_lighting()) {
         copy_text(reason, size, b.error);
         return 0;
     }
+    b.stage = "culling readback";
     if (b.cull && !validate_culling()) {
         copy_text(reason, size, b.error);
         return 0;
     }
     xgl_object_set(b.ctx, XGL_3D_CTX_SURF_FACE_CULL,
                    b.cull ? XGL_CULL_BACK : XGL_CULL_OFF, 0);
+    b.stage = "texture setup/readback";
     if (!configure_texture(test)) {
         copy_text(reason, size, b.error);
         return 0;
     }
+    b.stage = "native geometry upload";
     if (mesh && mesh->triangles && !xb_backend_upload(mesh)) {
         copy_text(reason, size, b.error);
         return 0;
@@ -1475,12 +1648,14 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
     xb_backend_clear(1, 1);
     xb_backend_sync();
     if (xb_cancel_requested()) {
+        b.failure = XB_FAILURE_TIME_LIMIT;
         copy_text(reason, size, "profile time budget reached");
         return 0;
     }
     if (b.errors) { copy_text(reason, size, b.error); return 0; }
     if (test->work == XB_RASTER || test->work == XB_MASKED_RASTER ||
         test->work == XB_FRAME) {
+        b.stage = "HUD raster readback";
         if (!validate_raster(0) ||
             ((test->work == XB_MASKED_RASTER || test->work == XB_FRAME) &&
              !validate_raster(1))) {
@@ -1497,9 +1672,11 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
         copy_text(reason, size,
             "texture RGB/UV/wrap/filter/off gates passed; execution unclassified, may use software");
     if (xb_cancel_requested()) {
+        b.failure = XB_FAILURE_TIME_LIMIT;
         copy_text(reason, size, "profile time budget reached");
         return 0;
     }
+    b.stage = "rendering";
     return 1;
 }
 
@@ -1654,16 +1831,25 @@ int xb_backend_events(void)
         if (event.type == ClientMessage &&
             (Atom)event.xclient.data.l[0] == b.wm_delete) {
             b.quit = 1;
-            if (!b.errors) b.error[0] = '\0';
+            if (!b.errors) {
+                b.error[0] = '\0';
+                b.failure = XB_FAILURE_NONE;
+            }
         }
         if (event.type == DestroyNotify) {
             b.quit = 1; b.window = 0;
-            if (!b.errors) b.error[0] = '\0';
+            if (!b.errors) {
+                b.error[0] = '\0';
+                b.failure = XB_FAILURE_NONE;
+            }
         }
         if (event.type == KeyPress &&
             XLookupKeysym(&event.xkey, 0) == XK_Escape) {
             b.quit = 1;
-            if (!b.errors) b.error[0] = '\0';
+            if (!b.errors) {
+                b.error[0] = '\0';
+                b.failure = XB_FAILURE_NONE;
+            }
         }
         if (b.quit) break;
         if (event.type == ConfigureNotify &&
@@ -1700,26 +1886,29 @@ void xb_backend_label(const char *name)
 int xb_backend_has_double_buffer(void) { return b.buffers >= 2; }
 int xb_backend_has_hardware(void) { return b.hardware; }
 const char *xb_backend_error(void) { return b.error; }
+enum xb_failure xb_backend_failure(void)
+{
+    return b.failure != XB_FAILURE_NONE ? b.failure :
+           (b.error[0] ? XB_FAILURE_ERROR : XB_FAILURE_NONE);
+}
 
 static int pixel_matches(int x, int y, const xb_rgb *expected)
 {
-    Xgl_pt_i2d point;
-    Xgl_color color;
-    if (b.errors || xb_cancel_requested()) return 0;
-    point.x = x; point.y = y;
-    memset(&color, 0, sizeof(color));
-    if (xgl_context_get_pixel(b.ctx, &point, &color)) {
-        fail("validation pixel is obscured; keep the entire benchmark window visible");
+    xb_rgb actual;
+    char message[256];
+    if (!read_pixel(x, y, &actual)) return 0;
+    if (!(fabs(actual.r - expected->r) <= 0.065) ||
+        !(fabs(actual.g - expected->g) <= 0.065) ||
+        !(fabs(actual.b - expected->b) <= 0.065)) {
+        /* Bounded general formats also handle unexpected non-finite values
+         * without allowing a diagnostic to overflow its fixed buffer. */
+        sprintf(message, "pixel (%d,%d): expected RGB (%.5g,%.5g,%.5g), got (%.5g,%.5g,%.5g)",
+                x, y, (double)expected->r, (double)expected->g, (double)expected->b,
+                (double)actual.r, (double)actual.g, (double)actual.b);
+        fail_kind(XB_FAILURE_VALIDATION, message);
         return 0;
     }
-    if (xb_cancel_requested()) return 0;
-    if (fabs(color.rgb.r - expected->r) > 0.065 ||
-        fabs(color.rgb.g - expected->g) > 0.065 ||
-        fabs(color.rgb.b - expected->b) > 0.065) {
-        fail("RGB pixel readback disagrees with expected facet/depth/mask result");
-        return 0;
-    }
-    return !b.errors;
+    return 1;
 }
 
 static int lighting_probe_draw(const xb_mesh *mesh)
@@ -1798,8 +1987,7 @@ static int validate_culling(void)
                        .5 * (b.width - 1));
             py = (int)(.4 * (b.height - 1));
             if (!pixel_matches(px, py, mode && i ? &black : &expected[i])) {
-                if (!b.errors && !xb_cancel_requested())
-                    fail("front/back winding readback failed with culling off or back-face culling");
+                if (!xb_cancel_requested()) error_context("front/back winding readback");
                 goto done;
             }
         }
@@ -2058,16 +2246,12 @@ static int validate_raster(int masked)
 {
     xb_rgb black, hud;
     int px, py, result;
-    if ((masked && b.mask_checked) || (!masked && b.raster_checked)) {
-        result = masked ? b.mask_ok : b.raster_ok;
-        if (!result) fail("raster readback validation failed earlier at this resolution");
-        return result;
-    }
+    if ((masked && b.mask_checked) || (!masked && b.raster_checked)) return 1;
     if (b.width < XB_RASTER_W || b.height < XB_RASTER_H) {
-        fail("raster benchmark requires at least a 128x64 drawable");
+        fail_kind(XB_FAILURE_UNSUPPORTED, "raster benchmark requires at least a 128x64 drawable");
         return 0;
     }
-    if ((!b.hud || !b.mask) && !make_hud()) return 0;
+    if (!b.hud_ready && !make_hud()) return 0;
     xb_backend_clear(1, 1);
     xb_backend_raster(masked);
     xb_backend_sync();
@@ -2077,8 +2261,14 @@ static int validate_raster(int masked)
     hud.r = 220.0f / 255; hud.g = 32.0f / 255; hud.b = 64.0f / 255;
     result = pixel_matches(px, py, &hud);
     if (result && masked) result = pixel_matches(px + 9, py, &black);
-    if (masked) { b.mask_checked = 1; b.mask_ok = result; }
-    else { b.raster_checked = 1; b.raster_ok = result; }
+    /* Cache success only. API errors, cancellation and obscured pixels may
+     * recover at the next case boundary; never relabel them as a cached RGB
+     * mismatch. Rechecking a real mismatch also preserves its precise reason.
+     */
+    if (result) {
+        if (masked) b.mask_checked = 1;
+        else b.raster_checked = 1;
+    }
     return result;
 }
 

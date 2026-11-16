@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#define XB_VERSION "0.6"
+#define XB_VERSION "0.7"
 #define XB_MAX_QUEUE 8
 #define XB_MAX_LIGHTS 4
 #define XB_STYLE_LAYERS 4
@@ -46,6 +46,9 @@ enum xb_light_model { XB_LIGHT_OFF, XB_LIGHT_BAKED, XB_LIGHT_LAMBERT, XB_LIGHT_Q
 enum xb_texture_filter { XB_TEXTURE_OFF, XB_TEXTURE_POINT,
                          XB_TEXTURE_BILINEAR, XB_TEXTURE_TRILINEAR };
 enum xb_profile { XB_QUICK, XB_MEDIUM, XB_LONG, XB_EXTRALONG };
+enum xb_failure { XB_FAILURE_NONE, XB_FAILURE_ERROR, XB_FAILURE_API,
+                  XB_FAILURE_VALIDATION, XB_FAILURE_UNSUPPORTED,
+                  XB_FAILURE_TIME_LIMIT, XB_FAILURE_NOT_RUN };
 
 typedef struct {
     int count, directional;
@@ -85,6 +88,7 @@ typedef struct {
 typedef struct {
     xb_case test;
     int width, height, passed, samples;
+    enum xb_failure failure;
     unsigned long frames;
     size_t triangles, calls, bytes;
     double total[XB_MAX_REPEATS];
@@ -153,6 +157,7 @@ int xb_watchdog_expired(void);
 int xb_cancel_requested(void);
 
 /* Backend owns all native arrays; these functions never retain mesh pointers. */
+enum xb_failure xb_backend_failure(void);
 int xb_backend_open(const xb_options *options, int width, int height);
 void xb_backend_close(void);
 int xb_backend_resize(int width, int height);

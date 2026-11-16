@@ -37,7 +37,7 @@ XB_TEST_LOG="$test_dir/list.log" "$bench" -list >"$test_dir/default.list"
 test ! -e "$test_dir/list.log" || fail "default listing opened the display"
 for profile in quick medium long extralong; do
     "$bench" "-$profile" -list >"$test_dir/$profile.list"
-    case "$profile" in quick) count=26 ;; medium|long) count=52 ;; *) count=217 ;; esac
+    case "$profile" in quick) count=16 ;; medium|long) count=34 ;; *) count=217 ;; esac
     test "$(wc -l <"$test_dir/$profile.list" | tr -d ' ')" = "$count" ||
         fail "$profile selected the wrong number of cases"
     sort "$test_dir/$profile.list" >"$test_dir/$profile.sorted"
@@ -52,6 +52,28 @@ comm -23 "$test_dir/long.sorted" "$test_dir/extralong.sorted" >"$test_dir/missin
 test ! -s "$test_dir/missing" || fail "extralong dropped a long comparison"
 "$bench" -quick -quick -list >"$test_dir/repeated.list"
 cmp "$test_dir/repeated.list" "$test_dir/quick.list" >/dev/null || fail "repeated same profile changed selection"
+
+# Normal profiles exercise sampled colors and preserve paired lighting cases;
+# native texture mapping is opt-in and expensive depth-2/pipeline work is last.
+for profile in quick medium long; do
+    if grep -E '^texture-map/(point|bilinear|trilinear)/' "$test_dir/$profile.list" >/dev/null; then
+        fail "$profile selected optional native texture mapping"
+    fi
+    for compute in cpu-flat xgl-flat cpu-smooth xgl-smooth; do
+        grep -x "lighting/matched/$compute/point-1/depth-1" "$test_dir/$profile.list" >/dev/null ||
+            fail "$profile lost matched $compute lighting"
+    done
+done
+awk '
+    /^frame\/lighting\// { frame=NR }
+    /^lighting\/baked\/.*\/styles-4\// { style=NR }
+    /^texture\/.*\/depth-2$/ { if (!frame || !style) bad++; depth=NR }
+    /^pipeline\// { if (!depth) bad++; pipeline++ }
+    END { if (!frame || !style || !depth || pipeline != 4 || bad) exit 1 }
+' "$test_dir/long.list" || fail "long profile priority order changed"
+"$bench" -quick -test texture-map/point/draw/depth-0 -list >"$test_dir/native.list"
+grep -x 'texture-map/point/draw/depth-0' "$test_dir/native.list" >/dev/null ||
+    fail "optional native texture case became inaccessible"
 
 # A filter addresses the full registry, not just the selected profile subset.
 "$bench" -quick -test lighting/matched/xgl-flat/point-4/depth-1 -list \
@@ -81,7 +103,7 @@ for profile in quick medium long extralong; do
     awk '/^clock-sleep / { if ($2 <= 0 || $2 > .100001) bad++; sleeps++ }
          END { if (!sleeps || bad) exit 1 }' "$test_dir/$profile.log" ||
         fail "$profile disabled mandatory rest or used uninterruptible sleep chunks"
-    case "$profile" in quick) completed=26 ;; medium) completed=52 ;; long) completed=104 ;; *) completed=434 ;; esac
+    case "$profile" in quick) completed=16 ;; medium) completed=34 ;; long) completed=68 ;; *) completed=434 ;; esac
     grep "Completed $completed cases; 0 skipped/failed" "$test_dir/output" >/dev/null ||
         fail "$profile omitted short samples from its selection"
 done
@@ -160,14 +182,34 @@ awk -F, '
 # overrides. Once opening exhausts it, no workload should be configured.
 if XB_TEST_OPEN_ADVANCE=70 XB_TEST_LOG="$test_dir/open-expiry.log" \
     "$bench" -quick -seconds .001 -warmup 0 -repeats 1 -pause 0 -triangles 8 \
-    >"$test_dir/output" 2>&1; then
+    -csv "$test_dir/open-expiry.csv" >"$test_dir/output" 2>&1; then
     fail "explicit timing overrides removed the protective deadline"
 fi
 grep 'Profile time budget reached' "$test_dir/output" >/dev/null || fail "opening delay escaped the budget"
-grep '26 selected cases not run' "$test_dir/output" >/dev/null || fail "opening expiry lost remaining cases"
+grep '16 selected cases not run' "$test_dir/output" >/dev/null || fail "opening expiry lost remaining cases"
 if grep '^lighting-configure ' "$test_dir/open-expiry.log" >/dev/null; then
     fail "expired profile continued configuring workloads"
 fi
+
+# CSV coverage includes every selected case even if setup exhausts the budget.
+# Blank timings distinguish never-attempted work from a measured zero.
+awk -F, '
+    NR == 1 {
+        columns=NF
+        for (i=1; i<=NF; ++i) col[$i]=i
+        record=col["record"]; status=col["status"]; kind=col["failure_kind"]
+        total=col["total_ms"]; render=col["render_ms"]; rate=col["triangles_per_second"]
+        enqueue=col["enqueue_ms"]; drain=col["drain_ms"]
+        next
+    }
+    {
+        if (NF != columns || $record != "summary" || $status != "not-run" ||
+            $kind != "not-run" || $total != "" || $render != "" || $rate != "" ||
+            $enqueue != "" || $drain != "") bad++
+        rows++
+    }
+    END { if (!record || !status || !kind || !total || !render || !rate || !enqueue || !drain || rows != 16 || bad) exit 1 }
+' "$test_dir/open-expiry.csv" || fail "unattempted cases missing or reported timing"
 
 # The fourth/fifth draw is inside the first timed trial after preview and one
 # warm-up item. A blocking call can overrun the deadline, but its incomplete
@@ -184,14 +226,14 @@ for draw in 4 5; do
     awk -F, '
         NR == 1 {
             for (i=1; i<=NF; ++i) { gsub(/"/, "", $i); col[$i]=i }
-            record=col["record"]; status=col["status"]; reason=col["reason"]
+            record=col["record"]; status=col["status"]; reason=col["reason"]; kind=col["failure_kind"]
             next
         }
         {
-            if ($record != "summary" || $status != "skipped" || $reason !~ /profile time budget reached/) bad++
+            if ($record != "summary" || $status != "skipped" || $kind != "time-limit" || $reason !~ /profile time budget reached/) bad++
             rows++
         }
-        END { if (!record || !status || !reason || rows != 1 || bad) exit 1 }
+        END { if (!record || !status || !reason || !kind || rows != 1 || bad) exit 1 }
     ' "$test_dir/expiry-$draw.csv" || fail "timed-out partial work produced a measurement"
 done
 

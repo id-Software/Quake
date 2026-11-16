@@ -407,56 +407,41 @@ static int make_cases(xb_case *cases)
     return n;
 }
 
-/* Keep comparison groups together and put native texturing early: a slow
- * machine can exhaust a short profile before reaching the registry's tail.
- * Medium adds complete groups; long repeats that set at both sizes.
+/* Sampled-color defaults keep related comparisons together. Native texture
+ * mapping remains available through -test and the full extralong registry.
+ * Leave setup/readback headroom within the unchanged cooling/time budgets.
  */
 static int select_cases(const xb_case *cases, int count, const xb_options *o, int *order)
 {
     static const char *quick[] = {
         "texture-map/facet-flat/draw/depth-0",
         "texture-map/vertex-smooth/draw/depth-0",
-        "texture-map/point/draw/depth-0",
-        "texture-map/bilinear/draw/depth-0",
-        "texture-map/trilinear/draw/depth-0",
         "submit/polygon/batch-1", "submit/multi_polygon/batch-128",
         "submit/triangle_list/batch-128", "submit/strip/natural-length",
         "texture-map/facet-flat/frame/depth-0",
         "texture-map/vertex-smooth/frame/depth-0",
-        "texture-map/point/frame/depth-0",
-        "texture-map/bilinear/frame/depth-0",
-        "texture-map/trilinear/frame/depth-0",
-        "frame/lighting/cpu-flat/point-1/depth-0",
-        "frame/lighting/cpu-smooth/point-1/depth-0",
-        "frame/lighting/xgl-flat/point-1/depth-0",
-        "frame/lighting/xgl-smooth/point-1/depth-0",
-        "frame/lighting/cpu-flat/quake-point-1/depth-0",
-        "frame/lighting/cpu-smooth/quake-point-1/depth-0",
-        "texture/facet-flat/depth-1", "texture/vertex-smooth/depth-1",
-        "texture/facet-flat/depth-2", "texture/vertex-smooth/depth-2",
-        "frame/cached/depth-1", "frame/cached/depth-2"
-    };
-    static const char *long_extra[] = {
-        "cull/all-front/off", "cull/all-front/back", "cull/mixed/off", "cull/mixed/back",
-        "pipeline/serialized/cached/depth-1", "pipeline/streaming/cached/depth-1",
-        "pipeline/serialized/relight/depth-1", "pipeline/streaming/relight/depth-1",
+        "lighting/matched/cpu-flat/point-1/depth-1",
+        "lighting/matched/xgl-flat/point-1/depth-1",
+        "lighting/matched/cpu-smooth/point-1/depth-1",
+        "lighting/matched/xgl-smooth/point-1/depth-1",
         "lighting/baked/cpu-flat/cached/depth-1",
         "lighting/baked/cpu-smooth/cached/depth-1",
-        "lighting/baked/cpu-flat/styles-1/depth-1",
-        "lighting/baked/cpu-smooth/styles-1/depth-1",
-        "lighting/baked/cpu-flat/styles-4/depth-1",
-        "lighting/baked/cpu-smooth/styles-4/depth-1",
-        "texture-map/facet-flat/perspective-motion/depth-1",
-        "texture-map/vertex-smooth/perspective-motion/depth-1",
-        "texture-map/point/perspective-motion/depth-1",
-        "texture-map/bilinear/perspective-motion/depth-1",
-        "texture-map/trilinear/perspective-motion/depth-1",
+        "texture/facet-flat/depth-1", "texture/vertex-smooth/depth-1"
+    };
+    static const char *long_extra[] = {
         "texture-map/facet-flat/frame/depth-1",
         "texture-map/vertex-smooth/frame/depth-1",
-        "texture-map/point/frame/depth-1",
-        "texture-map/bilinear/frame/depth-1",
-        "texture-map/trilinear/frame/depth-1",
-        "overhead/color-clear", "overhead/depth-clear"
+        "lighting/baked/cpu-flat/styles-4/depth-1",
+        "lighting/baked/cpu-smooth/styles-4/depth-1",
+        "frame/lighting/cpu-flat/point-1/depth-0",
+        "frame/lighting/xgl-flat/point-1/depth-0",
+        "frame/lighting/cpu-smooth/point-1/depth-0",
+        "frame/lighting/xgl-smooth/point-1/depth-0",
+        "cull/mixed/off", "cull/mixed/back",
+        "overhead/color-clear", "overhead/depth-clear",
+        "texture/facet-flat/depth-2", "texture/vertex-smooth/depth-2",
+        "pipeline/serialized/cached/depth-1", "pipeline/streaming/cached/depth-1",
+        "pipeline/serialized/relight/depth-1", "pipeline/streaming/relight/depth-1"
     };
     const char *name;
     int i, j, n, quick_count, wanted;
@@ -607,11 +592,19 @@ cancelled:
     return 0;
 }
 
+static enum xb_failure backend_failure(void)
+{
+    enum xb_failure failure;
+    failure = xb_backend_failure();
+    return failure == XB_FAILURE_NONE ? XB_FAILURE_ERROR : failure;
+}
+
 static int events(xb_result *r)
 {
     int result, width, height;
     result = xb_backend_events();
     if (!result) {
+        r->failure = backend_failure();
         xb_quit = 1;
         if (*xb_backend_error()) {
             strncpy(r->reason, xb_backend_error(), sizeof(r->reason) - 1);
@@ -620,6 +613,7 @@ static int events(xb_result *r)
         return 0;
     }
     if (result < 0) {
+        r->failure = backend_failure();
         xb_backend_dimensions(&width, &height);
         if (width != r->width || height != r->height) {
             strcpy(r->reason, "drawable changed size during trial; run stopped to preserve size labels");
@@ -631,6 +625,7 @@ static int events(xb_result *r)
         return 0;
     }
     if (budget_expired()) {
+        r->failure = XB_FAILURE_TIME_LIMIT;
         strcpy(r->reason, "profile time budget reached");
         return 0;
     }
@@ -693,9 +688,11 @@ static void backend_reason(xb_result *r, const char *fallback)
 {
     const char *message;
     if (budget_expired()) {
+        r->failure = XB_FAILURE_TIME_LIMIT;
         strcpy(r->reason, "profile time budget reached");
         return;
     }
+    r->failure = backend_failure();
     message = xb_backend_error();
     if (!*message) message = fallback;
     strncpy(r->reason, message, sizeof(r->reason) - 1);
@@ -769,7 +766,10 @@ static int measure_pipeline(const xb_options *o, xb_result *r, xb_mesh *mesh)
     unsigned long sequence, items, drains, maximum;
     int trial, okay;
     r->queue_limit = r->test.streaming ? o->queue : 1;
-    if (!xb_backend_stream_begin(mesh, r->queue_limit, r->reason, sizeof(r->reason))) return 0;
+    if (!xb_backend_stream_begin(mesh, r->queue_limit, r->reason, sizeof(r->reason))) {
+        r->failure = backend_failure();
+        return 0;
+    }
     okay = 0;
     sequence = 0;
     start = xb_now();
@@ -808,6 +808,7 @@ done:
 }
 
 static void measure(const xb_options *o, xb_result *r, const int *valid,
+                    const enum xb_failure *validation_failure,
                     char validation[XB_METHODS][160])
 {
     xb_mesh mesh;
@@ -818,22 +819,34 @@ static void measure(const xb_options *o, xb_result *r, const int *valid,
     int trial, uses_mesh, preview, style_changes, animated_styles;
     const xb_case *c;
     c = &r->test;
+    r->failure = XB_FAILURE_ERROR;
     animated_styles = c->lighting == XB_LIGHT_BAKED && c->styles > 0;
     memset(&mesh, 0, sizeof(mesh));
     uses_mesh = c->work == XB_DRAW || c->work == XB_FRAME || c->work == XB_PIPELINE;
     if (uses_mesh && !valid[c->method]) {
+        r->failure = validation_failure[c->method];
         strcpy(r->reason, validation[c->method]); return;
     }
     if ((c->work == XB_SWAP || c->work == XB_FRAME) && !xb_backend_has_double_buffer()) {
+        r->failure = XB_FAILURE_UNSUPPORTED;
         strcpy(r->reason, "two hardware/window buffers not allocated"); return;
     }
     if (uses_mesh && !build_mesh(&mesh, o, c, r->width, r->height)) {
         strcpy(r->reason, c->area > 0 ? "calibrated triangle does not fit, or allocation/input limit failure" :
                                       "geometry allocation or input limit failure"); return;
     }
-    if (budget_expired()) { strcpy(r->reason, "profile time budget reached"); goto done; }
-    if (!xb_backend_configure(c, &mesh, r->reason, sizeof(r->reason))) goto done;
-    if (budget_expired()) { strcpy(r->reason, "profile time budget reached"); goto done; }
+    if (budget_expired()) {
+        r->failure = XB_FAILURE_TIME_LIMIT;
+        strcpy(r->reason, "profile time budget reached"); goto done;
+    }
+    if (!xb_backend_configure(c, &mesh, r->reason, sizeof(r->reason))) {
+        r->failure = backend_failure();
+        goto done;
+    }
+    if (budget_expired()) {
+        r->failure = XB_FAILURE_TIME_LIMIT;
+        strcpy(r->reason, "profile time budget reached"); goto done;
+    }
     /* configure() owns the initial upload; updates upload inside one_frame(). */
     r->triangles = mesh.triangles;
     r->bytes = mesh.bytes;
@@ -855,6 +868,7 @@ static void measure(const xb_options *o, xb_result *r, const int *valid,
     xb_backend_sync();
     preview = xb_backend_events();
     if (!preview) {
+        r->failure = backend_failure();
         xb_quit = 1;
         if (*xb_backend_error()) {
             strncpy(r->reason, xb_backend_error(), sizeof(r->reason) - 1);
@@ -920,6 +934,7 @@ summarize:
         if (r->total[trial] > r->high) r->high = r->total[trial];
     }
     r->passed = 1;
+    r->failure = XB_FAILURE_NONE;
 done:
     xb_mesh_free(&mesh);
 }
@@ -969,6 +984,22 @@ static const char *texture_filter_name(enum xb_texture_filter filter)
     }
 }
 
+static const char *failure_name(enum xb_failure failure)
+{
+    static const char *names[] = {
+        "none", "error", "api-error", "validation-failed", "unsupported", "time-limit", "not-run"
+    };
+    return names[failure];
+}
+
+static const char *failure_label(enum xb_failure failure)
+{
+    static const char *labels[] = {
+        "PASS", "ERROR", "API ERROR", "VALIDATION FAILED", "UNSUPPORTED", "TIME LIMIT", "NOT RUN"
+    };
+    return labels[failure];
+}
+
 static void csv_row(FILE *f, const xb_result *r, const char *record, int trial,
                     double total, double prep, double render, double present, double cpu)
 {
@@ -985,21 +1016,27 @@ static void csv_row(FILE *f, const xb_result *r, const char *record, int trial,
     }
     fprintf(f, "%s,%d,%d,", record, r->width, r->height);
     csv_text(f, r->test.name);
-    fprintf(f, ",%s,%d,%s,%d,%d,%d,%d,%d,%lu,%lu,%lu,%lu,%.9f,%.9f,",
-            r->passed ? "ok" : "skipped", trial, xb_method_name(r->test.method),
+    fprintf(f, ",%s,%d,%s,%d,%d,%d,%d,%d,%lu,%lu,%lu,%lu,",
+            r->passed ? "ok" : (r->failure == XB_FAILURE_NOT_RUN ? "not-run" : "skipped"), trial, xb_method_name(r->test.method),
             r->test.batch, r->test.depth, r->test.zbuffer, r->test.connected,
             pipeline || r->test.retained,
             (unsigned long)r->triangles, (unsigned long)r->calls,
-            (unsigned long)r->bytes, r->frames,
-            total * 1000, prep * 1000);
-    if (!pipeline) fprintf(f, "%.9f", render * 1000);
-    fprintf(f, ",%.9f,%.9f,%.3f,", present * 1000, cpu * 1000, rate);
+            (unsigned long)r->bytes, r->frames);
+    if (r->failure == XB_FAILURE_NOT_RUN) fputs(",,,,,,", f);
+    else {
+        fprintf(f, "%.9f,%.9f,", total * 1000, prep * 1000);
+        if (!pipeline) fprintf(f, "%.9f", render * 1000);
+        fprintf(f, ",%.9f,%.9f,%.3f,", present * 1000, cpu * 1000, rate);
+    }
     csv_text(f, r->reason);
-    fprintf(f, ",%s,%d,%lu,%lu,%.9f,%.9f,%.6f,%.6f,%.6f,%lu,",
+    fprintf(f, ",%s,%d,%lu,%lu,",
         pipeline ? (r->test.streaming ? "pipeline-streaming" : "pipeline-serialized") :
             (r->test.lighting != XB_LIGHT_OFF ? "lighting-serialized" : "serialized"),
-        r->queue_limit, r->max_outstanding, r->drains, enqueue * 1000, drain * 1000,
-        r->area_mean, r->area_min, r->area_max, (unsigned long)r->input_bytes);
+        r->queue_limit, r->max_outstanding, r->drains);
+    if (r->failure == XB_FAILURE_NOT_RUN) fputs(",,", f);
+    else fprintf(f, "%.9f,%.9f,", enqueue * 1000, drain * 1000);
+    fprintf(f, "%.6f,%.6f,%.6f,%lu,", r->area_mean, r->area_min,
+            r->area_max, (unsigned long)r->input_bytes);
     fprintf(f, "%s,%s,%s,%d,%d,%d,%s,%s,%s,%s,", r->test.shade == XB_SMOOTH ? "smooth" : "flat",
         lighting_name(&r->test), lighting_compute(&r->test), r->test.lights,
         r->test.moving, style_layers(&r->test), lighting_sample(&r->test),
@@ -1017,7 +1054,7 @@ static void csv_row(FILE *f, const xb_result *r, const char *record, int trial,
     if (r->test.texture_filter != XB_TEXTURE_OFF)
         fprintf(f, "%d,%d", XB_TEXTURE_WIDTH, XB_TEXTURE_WIDTH);
     else fputc(',', f);
-    fputc('\n', f);
+    fprintf(f, ",%s\n", failure_name(r->failure));
 }
 
 static void print_result(FILE *csv, const xb_result *r)
@@ -1026,7 +1063,7 @@ static void print_result(FILE *csv, const xb_result *r)
     double rate, duration;
     const char *unit;
     if (!r->passed) {
-        printf("%-38s SKIPPED: %s\n", r->test.name, r->reason);
+        printf("%-38s %s: %s\n", r->test.name, failure_label(r->failure), r->reason);
         csv_row(csv, r, "summary", -1, 0, 0, 0, 0, 0);
         return;
     }
@@ -1255,7 +1292,8 @@ int main(int argc, char **argv)
     xb_result *results, *r;
     FILE *csv;
     int parsed, count, selected, i, s, m, nresult, w, h, successes, sizes;
-    int valid[XB_METHODS], order[XB_MAX_CASES], planned;
+    int valid[XB_METHODS], order[XB_MAX_CASES], planned, attempted, failures[XB_FAILURE_NOT_RUN + 1];
+    enum xb_failure validation_failure[XB_METHODS];
     double run_start, active_start, active, nominal, budget;
     char validation[XB_METHODS][160];
     struct utsname host;
@@ -1298,7 +1336,7 @@ int main(int argc, char **argv)
                      "nominal_area_mean_px,nominal_area_min_px,nominal_area_max_px,input_payload_bytes,");
         fprintf(csv, "shading,lighting_model,lighting_compute,light_count,light_motion,style_layers,lighting_sample,"
                      "material_sample,cull,winding,frame_budget_ms,frame_budget_fraction,"
-                     "texture_mapping,texture_filter,texture_execution,texture_width,texture_height\n");
+                     "texture_mapping,texture_filter,texture_execution,texture_width,texture_height,failure_kind\n");
     }
     results = (xb_result *)calloc(XB_MAX_RESULTS, sizeof(*results));
     if (!results) { if (csv) fclose(csv); fprintf(stderr, "Out of memory.\n"); return 1; }
@@ -1376,6 +1414,9 @@ int main(int argc, char **argv)
         for (m = 0; m < XB_METHODS && !budget_expired(); ++m) {
             validation[m][0] = '\0';
             valid[m] = xb_backend_validate((enum xb_method)m, validation[m], sizeof(validation[m]));
+            validation_failure[m] = valid[m] ? XB_FAILURE_NONE : xb_backend_failure();
+            if (!valid[m] && validation_failure[m] == XB_FAILURE_NONE)
+                validation_failure[m] = XB_FAILURE_VALIDATION;
             printf("Validation %-8s: %s %s\n", xb_method_name((enum xb_method)m),
                 valid[m] ? "PASS" : "FAIL", validation[m]);
         }
@@ -1386,7 +1427,7 @@ int main(int argc, char **argv)
             r = &results[nresult++]; r->test = cases[order[i]]; r->width = w; r->height = h;
             fprintf(stderr, "[%dx%d] %s\n", w, h, r->test.name);
             active_start = xb_now();
-            measure(&o, r, valid, validation);
+            measure(&o, r, valid, validation_failure, validation);
             active = xb_now() - active_start;
             print_result(csv, r);
             if (r->passed) ++successes;
@@ -1399,11 +1440,30 @@ int main(int argc, char **argv)
         findings(results, nresult, w, h);
     }
     if (sizes > 1 && !xb_quit) compare_sizes(results, nresult);
+    attempted = nresult;
+    while (nresult < planned) {
+        r = &results[nresult];
+        r->test = cases[order[nresult % selected]];
+        r->width = o.force_size ? o.width : (nresult / selected ? 640 : 320);
+        r->height = o.force_size ? o.height : (nresult / selected ? 480 : 240);
+        r->failure = XB_FAILURE_NOT_RUN;
+        strcpy(r->reason, xb_budget_reached ? "not run: profile time budget reached" :
+                                           "not run: run interrupted or setup failed");
+        csv_row(csv, r, "summary", -1, 0, 0, 0, 0, 0);
+        ++nresult;
+    }
+    memset(failures, 0, sizeof(failures));
+    for (i = 0; i < nresult; ++i) ++failures[results[i].failure];
     if (xb_budget_reached)
-        printf("\nProfile time budget reached; %d selected cases not run.\n", planned - nresult);
-    printf("\nCompleted %d cases; %d skipped/failed. %s\n", successes, nresult - successes,
+        printf("\nProfile time budget reached; %d selected cases not run.\n", planned - attempted);
+    printf("\nCompleted %d cases; %d skipped/failed. %s\n", successes, attempted - successes,
         xb_quit ? "Run interrupted or output/resize failed." :
         xb_budget_reached ? "Stopped at profile time limit." : "Run finished.");
+    printf("Coverage: %d planned; %d passed; %d API errors; %d validation failures; "
+           "%d unsupported; %d other errors; %d time-limit discards; %d not run.\n",
+           planned, successes, failures[XB_FAILURE_API], failures[XB_FAILURE_VALIDATION],
+           failures[XB_FAILURE_UNSUPPORTED], failures[XB_FAILURE_ERROR],
+           failures[XB_FAILURE_TIME_LIMIT], failures[XB_FAILURE_NOT_RUN]);
     printf("Elapsed run time: %.1f seconds (including setup and idle).\n", xb_now() - run_start);
     xb_backend_close();
     free(results);

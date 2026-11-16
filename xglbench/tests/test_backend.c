@@ -22,6 +22,7 @@ static int test_fault_pending;
 static int test_fault_fired;
 static const char *test_fault;
 static const char *test_error = "";
+static enum xb_failure test_failure;
 static int test_batch = 128;
 static int test_zbuffer;
 static xb_case test_case;
@@ -104,6 +105,7 @@ int xb_backend_open(const xb_options *options, int width, int height)
     test_draws = 0;
     test_fault_pending = test_fault_fired = 0;
     test_error = "";
+    test_failure = XB_FAILURE_NONE;
     test_stream_bad = 0;
     test_lighting_bad = 0;
     test_light_updates = 0;
@@ -176,8 +178,11 @@ void xb_backend_info(FILE *out)
 int xb_backend_validate(enum xb_method method, char *reason, size_t size)
 {
     const char *failed;
+    test_failure = XB_FAILURE_NONE;
+    test_error = "";
     failed = getenv("XB_TEST_FAIL_METHOD");
     if (failed && !strcmp(failed, xb_method_name(method))) {
+        test_failure = XB_FAILURE_VALIDATION;
         if (size) {
             strncpy(reason, "injected test-only validation failure", size - 1);
             reason[size - 1] = '\0';
@@ -255,6 +260,7 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
     test_zbuffer = test->zbuffer;
     test_lighting_bad = 0;
     test_error = "";
+    test_failure = XB_FAILURE_NONE;
     test_light_updates = 0;
     test_texture_active = 0;
     test_texture_bad = 0;
@@ -282,8 +288,10 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
             return test_texture_fail("unsupported mock native texture workload", reason, size);
         failed = getenv("XB_TEST_FAIL_TEXTURE");
         if (failed && (!strcmp(failed, "all") ||
-                       !strcmp(failed, test_filter_name(test->texture_filter))))
+                       !strcmp(failed, test_filter_name(test->texture_filter)))) {
+            test_failure = XB_FAILURE_UNSUPPORTED;
             return test_texture_fail("injected texture mapping unavailable; no untextured fallback", reason, size);
+        }
         test_log("texture-setup", (int)test->texture_filter, XB_TEXTURE_WIDTH);
     }
     if (!strncmp(test->name, "cull/", 5)) {
@@ -303,6 +311,7 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
     if (size) reason[0] = '\0';
     failed = getenv("XB_TEST_FAIL_LIGHTING");
     if (test->lighting != XB_LIGHT_OFF && failed && *failed) {
+        test_failure = XB_FAILURE_VALIDATION;
         test_lighting_fail("injected lighting readback validation failure");
         if (size) {
             strncpy(reason, test_error, size - 1);
@@ -505,6 +514,7 @@ int xb_backend_events(void)
     if (getenv("XB_TEST_CANCEL_ON_PAUSE") && xb_test_paused()) {
         test_log("pause-cancel", test_width, test_height);
         test_error = "";
+    test_failure = XB_FAILURE_NONE;
         return 0;
     }
 #endif
@@ -515,6 +525,7 @@ int xb_backend_events(void)
     if (!test_fault_pending) return 1;
     test_fault_pending = 0;
     if (!strcmp(test_fault, "native-error")) {
+        test_failure = XB_FAILURE_API;
         test_error = "injected native completion failure";
         return 0;
     }
@@ -530,6 +541,11 @@ void xb_backend_label(const char *name) { (void)name; }
 int xb_backend_has_double_buffer(void) { return 1; }
 int xb_backend_has_hardware(void) { return 0; }
 const char *xb_backend_error(void) { return test_error; }
+enum xb_failure xb_backend_failure(void)
+{
+    return test_failure != XB_FAILURE_NONE ? test_failure :
+           (*test_error ? XB_FAILURE_ERROR : XB_FAILURE_NONE);
+}
 
 size_t xb_backend_input_bytes(enum xb_method method, int batch)
 {

@@ -4,7 +4,7 @@
 CC = gcc
 CFLAGS ?= -O2
 CPPFLAGS ?=
-LANGFLAGS ?= -ansi
+LANGFLAGS ?=
 WARNFLAGS ?= -Wall -W -Wstrict-prototypes
 LDFLAGS ?=
 
@@ -25,7 +25,7 @@ COMMON = xglbench.c xglbench_scene.c xglbench_lighting.c xglbench_timer.c xglben
 NATIVE_OBJS = build/xglbench.o build/xglbench_scene.o \
               build/xglbench_lighting.o build/xglbench_timer.o build/xglbench_watchdog.o build/xglbench_xgl.o
 
-.PHONY: all native sdk-check check syntax-check clean
+.PHONY: all native sdk-check check syntax-check native-contract-check clean
 all: native
 native: sdk-check
 	$(MAKE) xglbench
@@ -89,8 +89,20 @@ check: build/test_scene build/test_timer build/test_lighting build/test_watchdog
 
 # Modern development host only. The contract headers are NOT the Sun SDK.
 syntax-check:
-	$(CC) $(CPPFLAGS) $(API_CPPFLAGS) -ansi -pedantic -Wall -W -Werror \
+	$(CC) $(CPPFLAGS) $(API_CPPFLAGS) $(LANGFLAGS) -pedantic -Wall -W -Werror \
 	    -Itests/api_contract -I. -fsyntax-only xglbench_xgl.c
+
+# Modern host with a GNU-compatible linker only; links mock XGL functions.
+# Keep this separate from portable checks and the native Solaris build.
+build/test_native_raster: tests/test_native_raster.c xglbench_xgl.c xglbench.h \
+                         $(wildcard tests/api_contract/X11/*.h) tests/api_contract/xgl/xgl.h
+	@mkdir -p build
+	$(CC) $(CPPFLAGS) $(API_CPPFLAGS) -Itests/api_contract -I. \
+	    $(CFLAGS) $(LANGFLAGS) $(WARNFLAGS) -ffunction-sections -fdata-sections \
+	    $(LDFLAGS) -o $@ tests/test_native_raster.c -Wl,--gc-sections -lm
+
+native-contract-check: build/test_native_raster
+	./build/test_native_raster
 
 clean:
 	rm -rf build xglbench
