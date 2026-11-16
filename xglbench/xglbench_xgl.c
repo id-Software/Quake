@@ -78,6 +78,59 @@ typedef struct {
 } xb_native;
 
 static xb_native b;
+
+/* Requested payload bytes for arrays owned by this backend. XGL objects,
+ * framebuffer/raster storage, allocator bookkeeping and the inquiry result
+ * returned by XGL are outside this count. The union keeps the returned array
+ * aligned for the scalar types used in native point/descriptor structures.
+ * These counters are independent of b: clearing backend state must never
+ * erase the accounting for allocations that still exist.
+ */
+typedef union {
+    size_t bytes;
+    long double align_float;
+    void *align_pointer;
+} xb_native_allocation;
+
+static size_t native_memory_current, native_memory_peak;
+
+static void *native_calloc(size_t count, size_t size)
+{
+    xb_native_allocation *allocation;
+    size_t bytes;
+    if (size && count > ((size_t)-1 - sizeof(*allocation)) / size)
+        return NULL;
+    bytes = count * size;
+    if (bytes > (size_t)-1 - native_memory_current) return NULL;
+    allocation = (xb_native_allocation *)calloc(1, sizeof(*allocation) + bytes);
+    if (!allocation) return NULL;
+    allocation->bytes = bytes;
+    native_memory_current += bytes;
+    if (native_memory_current > native_memory_peak)
+        native_memory_peak = native_memory_current;
+    return allocation + 1;
+}
+
+static void native_free(void *pointer)
+{
+    xb_native_allocation *allocation;
+    if (!pointer) return;
+    allocation = (xb_native_allocation *)pointer - 1;
+    native_memory_current -= allocation->bytes;
+    free(allocation);
+}
+
+void xb_backend_memory(size_t *current, size_t *peak)
+{
+    if (current) *current = native_memory_current;
+    if (peak) *peak = native_memory_peak;
+}
+
+void xb_backend_memory_reset_peak(void)
+{
+    native_memory_peak = native_memory_current;
+}
+
 /* The cancellation query reads latched flags only: no clock or XGL call in
  * the per-primitive hot loops. Cancellation must not set b.errors/fatal,
  * because synchronization and retained-buffer cleanup still have to run. */
@@ -88,16 +141,19 @@ static int validate_culling(void);
 static int pixel_matches(int x, int y, const xb_rgb *expected);
 static int configure_texture(const xb_case *test);
 static int texture_enable(int enabled);
+static int set_transparency(int enabled, double opacity, int zwrite);
+static int validate_transparency(void);
+static int validate_combined_clear(void);
 
 static void free_stream_slots(void)
 {
     int i;
     for (i = 0; i < XB_MAX_QUEUE; ++i) {
-        free(b.stream[i].points);
-        free(b.stream[i].color_points);
-        free(b.stream[i].lists);
-        free(b.stream[i].facets);
-        free(b.stream[i].batch_facets);
+        native_free(b.stream[i].points);
+        native_free(b.stream[i].color_points);
+        native_free(b.stream[i].lists);
+        native_free(b.stream[i].facets);
+        native_free(b.stream[i].batch_facets);
         memset(&b.stream[i], 0, sizeof(b.stream[i]));
     }
     b.stream_slots = 0;
@@ -680,7 +736,7 @@ static int configure_texture(const xb_case *test)
     if (test->texture_filter < XB_TEXTURE_POINT || test->texture_filter > XB_TEXTURE_TRILINEAR ||
         test->method != XB_MULTI || test->shade != XB_FLAT || test->lighting != XB_LIGHT_OFF ||
         test->xgl_lighting || test->cull || test->retained || test->streaming ||
-        (test->work != XB_DRAW && test->work != XB_FRAME) ||
+        (test->work != XB_DRAW && test->work != XB_FRAME && test->work != XB_SCENE_FRAME) ||
         (test->update != XB_STATIC && test->update != XB_TRANSFORM)) {
         fail_kind(XB_FAILURE_UNSUPPORTED, "native texturing requires unlit static/transformed multi draws or frames, without culling/retention/streaming");
         return 0;
@@ -952,12 +1008,12 @@ int xb_backend_open(const xb_options *options, int width, int height)
 
 static void free_geometry(void)
 {
-    free(b.texture_points);
+    native_free(b.texture_points);
     b.texture_points = NULL;
-    free(b.points); free(b.strip_points); free(b.lists);
-    free(b.color_points); free(b.lit_points); free(b.lit_facets);
-    free(b.facets); free(b.restart_facets); free(b.strips);
-    free(b.batch_facets);
+    native_free(b.points); native_free(b.strip_points); native_free(b.lists);
+    native_free(b.color_points); native_free(b.lit_points); native_free(b.lit_facets);
+    native_free(b.facets); native_free(b.restart_facets); native_free(b.strips);
+    native_free(b.batch_facets);
     b.points = b.strip_points = NULL;
     b.color_points = NULL;
     b.lit_points = NULL;
@@ -1080,10 +1136,10 @@ int xb_backend_upload(const xb_mesh *mesh)
                    b.texture_filter == XB_TEXTURE_OFF;
     needs_lists = b.method == XB_POLYGON || b.method == XB_MULTI;
     if (needs_points)
-        b.points = (Xgl_pt_f3d *)calloc(mesh->point_count, sizeof(*b.points));
+        b.points = (Xgl_pt_f3d *)native_calloc(mesh->point_count, sizeof(*b.points));
     if (b.texture_filter != XB_TEXTURE_OFF) {
         if (!mesh->texcoords) { fail("texturing requires per-corner UV data"); return 0; }
-        b.texture_points = (float *)calloc(mesh->point_count * 5, sizeof(float));
+        b.texture_points = (float *)native_calloc(mesh->point_count, 5 * sizeof(float));
     }
     if (b.shading == XB_SMOOTH) {
         if (!mesh->vertex_colors || (b.hardware_lighting && !mesh->vertex_normals)) {
@@ -1091,29 +1147,29 @@ int xb_backend_upload(const xb_mesh *mesh)
             return 0;
         }
         if (b.hardware_lighting)
-            b.lit_points = (Xgl_pt_color_normal_f3d *)calloc(mesh->point_count,
+            b.lit_points = (Xgl_pt_color_normal_f3d *)native_calloc(mesh->point_count,
                                                            sizeof(*b.lit_points));
-        else b.color_points = (Xgl_pt_color_f3d *)calloc(mesh->point_count,
+        else b.color_points = (Xgl_pt_color_f3d *)native_calloc(mesh->point_count,
                                                        sizeof(*b.color_points));
     } else if (b.hardware_lighting) {
         if (!mesh->facet_normals) { fail("facet lighting requires supplied normals"); return 0; }
-        b.lit_facets = (Xgl_color_normal_facet *)calloc(mesh->triangles,
+        b.lit_facets = (Xgl_color_normal_facet *)native_calloc(mesh->triangles,
                                                       sizeof(*b.lit_facets));
     }
     if (b.method == XB_STRIP) {
-        b.strip_points = (Xgl_pt_f3d *)calloc(mesh->strip_point_count,
+        b.strip_points = (Xgl_pt_f3d *)native_calloc(mesh->strip_point_count,
                                             sizeof(*b.strip_points));
-        b.strips = (xb_strip *)calloc(mesh->strip_count, sizeof(*b.strips));
+        b.strips = (xb_strip *)native_calloc(mesh->strip_count, sizeof(*b.strips));
     }
     if (needs_lists)
-        b.lists = (Xgl_pt_list *)calloc(mesh->triangles, sizeof(*b.lists));
-    b.facets = (Xgl_color_facet *)calloc(mesh->triangles, sizeof(*b.facets));
+        b.lists = (Xgl_pt_list *)native_calloc(mesh->triangles, sizeof(*b.lists));
+    b.facets = (Xgl_color_facet *)native_calloc(mesh->triangles, sizeof(*b.facets));
     if (b.method == XB_TLIST)
-        b.restart_facets = (Xgl_color_facet *)calloc(mesh->triangles * 3,
-                                                   sizeof(*b.restart_facets));
+        b.restart_facets = (Xgl_color_facet *)native_calloc(mesh->triangles,
+                                                   3 * sizeof(*b.restart_facets));
     batch_count = (mesh->triangles + (size_t)b.batch - 1) / (size_t)b.batch;
     if (b.method == XB_MULTI)
-        b.batch_facets = (Xgl_facet_list *)calloc(batch_count, sizeof(*b.batch_facets));
+        b.batch_facets = (Xgl_facet_list *)native_calloc(batch_count, sizeof(*b.batch_facets));
     if ((needs_points && !b.points) || (needs_lists && !b.lists) || !b.facets ||
         (b.texture_filter != XB_TEXTURE_OFF && !b.texture_points) ||
         (b.shading == XB_SMOOTH && !(b.hardware_lighting ? (void *)b.lit_points :
@@ -1269,13 +1325,13 @@ static int allocate_stream_slot(int index, const xb_mesh *mesh)
     batches = (mesh->triangles + (size_t)b.stream_batch - 1) /
               (size_t)b.stream_batch;
     if (b.shading == XB_SMOOTH)
-        slot->color_points = (Xgl_pt_color_f3d *)calloc(mesh->point_count,
+        slot->color_points = (Xgl_pt_color_f3d *)native_calloc(mesh->point_count,
                                                       sizeof(*slot->color_points));
-    else slot->points = (Xgl_pt_f3d *)calloc(mesh->point_count, sizeof(*slot->points));
-    slot->lists = (Xgl_pt_list *)calloc(mesh->triangles, sizeof(*slot->lists));
+    else slot->points = (Xgl_pt_f3d *)native_calloc(mesh->point_count, sizeof(*slot->points));
+    slot->lists = (Xgl_pt_list *)native_calloc(mesh->triangles, sizeof(*slot->lists));
     if (b.shading != XB_SMOOTH) {
-        slot->facets = (Xgl_color_facet *)calloc(mesh->triangles, sizeof(*slot->facets));
-        slot->batch_facets = (Xgl_facet_list *)calloc(batches, sizeof(*slot->batch_facets));
+        slot->facets = (Xgl_color_facet *)native_calloc(mesh->triangles, sizeof(*slot->facets));
+        slot->batch_facets = (Xgl_facet_list *)native_calloc(batches, sizeof(*slot->batch_facets));
     }
     if (!(slot->points || slot->color_points) || !slot->lists ||
         (b.shading != XB_SMOOTH && (!slot->facets || !slot->batch_facets))) {
@@ -1620,12 +1676,17 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
         copy_text(reason, size, "retained-array test requires static multi-polygon geometry");
         return 0;
     }
-    if ((test->work == XB_SWAP || test->work == XB_FRAME) && b.buffers < 2) {
+    if ((test->work == XB_SWAP || test->work == XB_FRAME || test->work == XB_SCENE_FRAME) && b.buffers < 2) {
         b.failure = XB_FAILURE_UNSUPPORTED;
         copy_text(reason, size, "two window buffers were not allocated");
         return 0;
     }
     b.current_z = test->zbuffer;
+    b.stage = "opaque state reset";
+    if (!set_transparency(0, 1.0, 1)) {
+        copy_text(reason, size, b.error);
+        return 0;
+    }
     xgl_object_set(b.ctx, XGL_CTX_GEOM_DATA_IS_VOLATILE,
                    test->retained ? FALSE : TRUE,
                    XGL_3D_CTX_SURF_FACE_CULL, XGL_CULL_OFF,
@@ -1649,6 +1710,39 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
     if (!configure_texture(test)) {
         copy_text(reason, size, b.error);
         return 0;
+    }
+    if (test->work == XB_COLOR_DEPTH_CLEAR) {
+        b.stage = "combined color/Z clear readback";
+        if (!validate_combined_clear()) {
+            copy_text(reason, size, b.error);
+            return 0;
+        }
+    }
+    if (test->transparency) {
+        if (test->transparency != 1 || !(test->opacity >= 0 && test->opacity <= 1) ||
+            (test->blend_zwrite != 0 && test->blend_zwrite != 1) ||
+            test->method != XB_MULTI || test->work != XB_DRAW || !test->zbuffer ||
+            test->shade != XB_FLAT || test->lighting != XB_LIGHT_OFF ||
+            test->texture_filter != XB_TEXTURE_OFF || test->cull ||
+            test->retained || test->streaming) {
+            fail_kind(XB_FAILURE_UNSUPPORTED,
+                "blending requires unlit flat multi-polygon draws with Z and no texture/culling/retention/streaming");
+            copy_text(reason, size, b.error);
+            return 0;
+        }
+        if (b.inquiry.transparency != XGL_INQ_HARDWARE &&
+            (!b.allow_fallback || b.inquiry.transparency == XGL_INQ_NOT_SUPPORTED)) {
+            fail_kind(XB_FAILURE_UNSUPPORTED,
+                "XGL does not report hardware transparency; use -allow-fallback for a diagnostic path");
+            copy_text(reason, size, b.error);
+            return 0;
+        }
+        b.stage = "blending opacity/order/Z readback";
+        if (!validate_transparency() ||
+            !set_transparency(1, (double)test->opacity, test->blend_zwrite)) {
+            copy_text(reason, size, b.error);
+            return 0;
+        }
     }
     b.stage = "native geometry upload";
     if (mesh && mesh->triangles && !xb_backend_upload(mesh)) {
@@ -1675,6 +1769,12 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
         xb_backend_clear(1, 1);
         xb_backend_sync();
     }
+    if (test->work == XB_COLOR_DEPTH_CLEAR)
+        copy_text(reason, size, "combined color/Z clear readback passed");
+    if (test->transparency)
+        copy_text(reason, size, b.inquiry.transparency == XGL_INQ_HARDWARE ?
+            "blended opacity/order/Z readback passed; transparency reported in hardware" :
+            "blended opacity/order/Z readback passed; diagnostic transparency fallback");
     if (test->xgl_lighting && b.inquiry.lighting != XGL_INQ_HARDWARE)
         copy_text(reason, size,
             "diagnostic fallback: lighting not reported in hardware; readback passed");
@@ -1900,6 +2000,171 @@ enum xb_failure xb_backend_failure(void)
 {
     return b.failure != XB_FAILURE_NONE ? b.failure :
            (b.error[0] ? XB_FAILURE_ERROR : XB_FAILURE_NONE);
+}
+
+/* Transparency is a surface property, distinct from CPU RGB interpolation.
+ * The normal alpha convention is exposed to the harness; XGL takes the
+ * complementary transparency (zero means opaque). Arbitrary-background
+ * blending is proved by readback before any performance result is accepted.
+ */
+static int set_transparency(int enabled, double opacity, int zwrite)
+{
+    if (b.errors || xb_cancel_requested()) return 0;
+    xgl_object_set(b.ctx,
+        XGL_3D_CTX_SURF_TRANSP_METHOD, enabled ? XGL_TRANSP_BLENDED : XGL_TRANSP_NONE,
+        XGL_3D_CTX_SURF_TRANSP_BLEND_EQ, enabled ? XGL_BLEND_ARBITRARY_BG : XGL_BLEND_NONE,
+        XGL_3D_CTX_SURF_FRONT_TRANSP, enabled ? 1.0 - opacity : 0.0,
+        XGL_3D_CTX_SURF_BACK_TRANSP, enabled ? 1.0 - opacity : 0.0,
+        XGL_3D_CTX_BLEND_FREEZE_Z_BUFFER, enabled && !zwrite ? TRUE : FALSE,
+        XGL_3D_CTX_BLEND_DRAW_MODE, XGL_BLEND_DRAW_ALL,
+        XGL_3D_CTX_Z_BUFFER_WRITE_MASK, (Xgl_usgn32)0xffffffffUL, 0);
+    return !b.errors;
+}
+
+static int begin_color_probe(Xgl_boolean *previous_volatile, int *previous_z)
+{
+    *previous_volatile = TRUE;
+    *previous_z = b.current_z;
+    if (b.errors || xb_cancel_requested()) return 0;
+    xgl_object_get(b.ctx, XGL_CTX_GEOM_DATA_IS_VOLATILE, previous_volatile);
+    if (b.errors) return 0;
+    b.current_z = 1;
+    xgl_object_set(b.ctx,
+        XGL_CTX_GEOM_DATA_IS_VOLATILE, TRUE,
+        XGL_CTX_SURF_FRONT_COLOR_SELECTOR, XGL_SURF_COLOR_FACET,
+        XGL_3D_CTX_SURF_FRONT_ILLUMINATION, XGL_ILLUM_NONE,
+        XGL_3D_CTX_SURF_FACE_CULL, XGL_CULL_OFF,
+        XGL_3D_CTX_HLHSR_MODE, XGL_HLHSR_Z_BUFFER,
+        XGL_3D_CTX_Z_BUFFER_COMP_METHOD, XGL_Z_COMP_LESS_THAN_OR_EQUAL, 0);
+    identity(b.model);
+    view_matrix(0);
+    return set_transparency(0, 1.0, 1);
+}
+
+static int end_color_probe(Xgl_boolean previous_volatile, int previous_z, int result)
+{
+    /* All probe arrays are volatile and every draw is completed before return.
+     * Failed state is recovered at the next explicit configure boundary.
+     */
+    xb_backend_sync();
+    b.current_z = previous_z;
+    if (!b.errors && !xb_cancel_requested()) {
+        if (!set_transparency(0, 1.0, 1)) return 0;
+        xgl_object_set(b.ctx, XGL_CTX_GEOM_DATA_IS_VOLATILE, previous_volatile,
+            XGL_3D_CTX_HLHSR_MODE, previous_z ? XGL_HLHSR_Z_BUFFER : XGL_HLHSR_NONE, 0);
+        view_matrix(b.perspective);
+    }
+    return result && !b.errors && !xb_cancel_requested();
+}
+
+static int validation_triangle(float z, float r, float g, float blue)
+{
+    Xgl_pt_f3d points[3];
+    Xgl_pt_list list;
+    Xgl_color_facet color;
+    Xgl_facet_list facets;
+    if (b.errors || xb_cancel_requested()) return 0;
+    memset(&list, 0, sizeof(list));
+    memset(&facets, 0, sizeof(facets));
+    memset(&color, 0, sizeof(color));
+    points[0].x = -.8f; points[0].y = -.8f; points[0].z = z;
+    points[1].x = .8f; points[1].y = -.8f; points[1].z = z;
+    points[2].x = 0; points[2].y = .8f; points[2].z = z;
+    list.pt_type = XGL_PT_F3D; list.num_pts = 3; list.pts.f3d = points;
+    color.color.rgb.r = r; color.color.rgb.g = g; color.color.rgb.b = blue;
+    facets.facet_type = XGL_FACET_COLOR; facets.num_facets = 1;
+    facets.facets.color_facets = &color;
+    xgl_multi_simple_polygon(b.ctx,
+        XGL_FACET_FLAG_SIDES_ARE_3 | XGL_FACET_FLAG_SHAPE_CONVEX,
+        &facets, NULL, 1, &list);
+    xb_backend_sync();
+    return !b.errors && !xb_cancel_requested();
+}
+
+static int probe_pixel(float r, float g, float blue, const char *stage)
+{
+    xb_rgb expected;
+    expected.r = r; expected.g = g; expected.b = blue;
+    if (pixel_matches(b.width / 2, b.height / 2, &expected)) return 1;
+    if (!xb_cancel_requested()) error_context(stage);
+    return 0;
+}
+
+static int validate_combined_clear(void)
+{
+    Xgl_boolean previous_volatile;
+    int previous_z, result;
+    result = 0;
+    if (!begin_color_probe(&previous_volatile, &previous_z)) goto done;
+    xb_backend_clear(1, 1);
+    if (!validation_triangle(.2f, 1, 0, 0) ||
+        !probe_pixel(1, 0, 0, "combined-clear initial color/Z")) goto done;
+    xb_backend_clear(1, 1);
+    xb_backend_sync();
+    if (!probe_pixel(0, 0, 0, "combined-clear color reset")) goto done;
+    if (!validation_triangle(.8f, 0, 1, 0) ||
+        !probe_pixel(0, 1, 0, "combined-clear depth reset")) goto done;
+    result = 1;
+done:
+    return end_color_probe(previous_volatile, previous_z, result);
+}
+
+static int validate_transparency(void)
+{
+    Xgl_boolean previous_volatile;
+    int previous_z, result, step, zwrite, reverse;
+    float opacity;
+    result = 0;
+    if (!begin_color_probe(&previous_volatile, &previous_z)) goto done;
+    for (step = 0; step < 3; ++step) {
+        opacity = (float)step * .5f;
+        if (!set_transparency(0, 1.0, 1)) goto done;
+        xb_backend_clear(1, 1);
+        if (!validation_triangle(.8f, 0, 0, 1) ||
+            !set_transparency(1, (double)opacity, 0) ||
+            !validation_triangle(.2f, 1, 0, 0) ||
+            !probe_pixel(opacity, 0, 1 - opacity, "blend opacity 0/0.5/1")) goto done;
+    }
+    /* A blended fragment must still fail against nearer opaque depth. */
+    if (!set_transparency(0, 1.0, 1)) goto done;
+    xb_backend_clear(1, 1);
+    if (!validation_triangle(.2f, 1, 0, 0) ||
+        !set_transparency(1, .5, 0) ||
+        !validation_triangle(.8f, 0, 1, 0) ||
+        !probe_pixel(1, 0, 0, "blended depth rejection")) goto done;
+    /* Use the actual freeze flag with a full Z write mask: a separate zero
+     * mask would conceal a broken FREEZE_Z_BUFFER implementation. */
+    for (zwrite = 0; zwrite <= 1; ++zwrite) {
+        if (!set_transparency(0, 1.0, 1)) goto done;
+        xb_backend_clear(1, 1);
+        if (!set_transparency(1, .5, zwrite) ||
+            !validation_triangle(.2f, 1, 0, 0) ||
+            !set_transparency(0, 1.0, 1) ||
+            !validation_triangle(.5f, 0, 1, 0) ||
+            !probe_pixel(zwrite ? .5f : 0, zwrite ? 0 : 1, 0,
+                         "blended depth write/freeze")) goto done;
+    }
+    for (reverse = 0; reverse <= 1; ++reverse) {
+        if (!set_transparency(0, 1.0, 1)) goto done;
+        xb_backend_clear(1, 1);
+        if (!set_transparency(1, .5, 0)) goto done;
+        if (reverse) {
+            if (!validation_triangle(.8f, 0, 0, 1) ||
+                !validation_triangle(.2f, 1, 0, 0)) goto done;
+        } else {
+            if (!validation_triangle(.2f, 1, 0, 0) ||
+                !validation_triangle(.8f, 0, 0, 1)) goto done;
+        }
+        if (!probe_pixel(reverse ? .5f : .25f, 0, reverse ? .25f : .5f,
+                         "blended submission order")) goto done;
+    }
+    if (!set_transparency(0, 1.0, 1)) goto done;
+    xb_backend_clear(1, 1);
+    if (!validation_triangle(.5f, 0, 1, 0) ||
+        !probe_pixel(0, 1, 0, "opaque state recovery")) goto done;
+    result = 1;
+done:
+    return end_color_probe(previous_volatile, previous_z, result);
 }
 
 static int pixel_matches(int x, int y, const xb_rgb *expected)

@@ -51,6 +51,13 @@ expect_fail -queue -1
 expect_fail -queue 9
 expect_fail -queue 2garbage
 expect_fail -queue nan
+expect_fail -sim-fps
+expect_fail -sim-fps 0
+expect_fail -sim-fps -1
+expect_fail -sim-fps 241
+expect_fail -sim-fps 15.5
+expect_fail -sim-fps 60garbage
+expect_fail -sim-fps nan
 expect_fail -test __no_such_case__
 
 XB_TEST_LOG="$test_dir/help.log" run_bench -help >"$test_dir/output" 2>&1
@@ -144,10 +151,29 @@ for path in facet-flat vertex-smooth point bilinear trilinear; do
         fail "missing moving perspective texture-map $path case"
 done
 
+for path in facet-flat vertex-smooth; do
+    for depth in 0 1; do
+        grep -x "scene/texture/$path/depth-$depth" "$test_dir/output" >/dev/null ||
+            fail "missing scene-only sampled material $path/depth-$depth case"
+    done
+done
+for path in cpu-flat cpu-smooth; do
+    grep -x "scene/lighting/$path/quake-point-1/depth-1" "$test_dir/output" >/dev/null ||
+        fail "missing scene-only Quake lighting $path case"
+done
+for path in opaque blended-zfreeze blended-zwrite; do
+    for order in near-to-far far-to-near; do
+        grep -x "transparency/$path/$order" "$test_dir/output" >/dev/null ||
+            fail "missing transparency $path/$order case"
+    done
+done
+grep -x 'overhead/color-depth-clear' "$test_dir/output" >/dev/null || fail "missing combined clear case"
+
 XB_TEST_LOG="$test_dir/default.log" run_bench -long -allow-fallback \
     -test submit/multi_polygon/batch-128 -triangles 8 -seconds .002 -warmup 0 \
     -repeats 1 -csv "$test_dir/default.csv" >"$test_dir/output" 2>&1
 grep '^open 320 240$' "$test_dir/default.log" >/dev/null || fail "default initial size"
+grep '^simulation-fps 15 0$' "$test_dir/default.log" >/dev/null || fail "default simulation rate is not 15 FPS"
 grep '^resize 640 480$' "$test_dir/default.log" >/dev/null || fail "default second size"
 test "$(grep -c '^resize ' "$test_dir/default.log")" = 1 || fail "unexpected resize sequence"
 grep 'NO VALID HARDWARE PERFORMANCE DATA' "$test_dir/output" >/dev/null || fail "missing mock warning"
@@ -585,34 +611,38 @@ for path in cpu-flat cpu-smooth; do
     check_lighting_csv "$csv" "$path" 2 quake-like 1 1
 done
 
-# Every animated-style trial must reach real 10 Hz style changes, even when a
-# draw itself exceeds the requested duration. Reuse the mock's existing
-# pre-fault delay with an unreachable fault index; no error is injected.
-XB_TEST_LOG="$test_dir/style-minimum.log" XB_TEST_FAULT=native-error \
-    XB_TEST_FAULT_DRAW=1000000 run_bench -winsize 320 240 -allow-fallback \
-    -test lighting/baked/cpu-flat/styles-1/depth-0 -triangles 8 \
-    -seconds .001 -warmup 0 -repeats 2 -csv "$test_dir/style-minimum.csv" \
-    >"$test_dir/output" 2>&1
-check_lighting_log "$test_dir/style-minimum.log" 0 0 1
-awk -F, '
-    NR == 1 {
-        for (i=1; i<=NF; ++i) { gsub(/"/, "", $i); col[$i]=i }
-        record=col["record"]; status=col["status"]; frames=col["frames_all_trials"]
-        next
-    }
-    {
-        if ($status != "ok" || $frames < 48 || $frames % 6 != 0) bad++
-        if ($record == "trial") trials++
-        else if ($record == "summary") summaries++
-        else bad++
-    }
-    END { if (!record || !status || !frames || trials != 2 || summaries != 1 || bad) exit 1 }
-' "$test_dir/style-minimum.csv" || fail "short animated-style trials omitted a complete changing tick"
-awk '
-    /^lighting-colors / { updates++; changed+=$3 }
-    /^native-error / { bad++ }
-    END { if (updates < 4 || changed < 4 || bad) exit 1 }
-' "$test_dir/style-minimum.log" || fail "short repeated style trials exercised only cached colors"
+# Short style trials cover changing 10 Hz styles and complete their cadence
+# at both default 15 simulated FPS and the optional historical 60 FPS.
+for fps in 15 60; do
+    case "$fps" in 15) minimum=12; cycle=3 ;; *) minimum=48; cycle=6 ;; esac
+    XB_TEST_LOG="$test_dir/style-minimum-$fps.log" XB_TEST_FAULT=native-error \
+        XB_TEST_FAULT_DRAW=1000000 run_bench -winsize 320 240 -allow-fallback \
+        -test lighting/baked/cpu-flat/styles-1/depth-0 -triangles 8 \
+        -sim-fps "$fps" -seconds .001 -warmup 0 -repeats 2 \
+        -csv "$test_dir/style-minimum-$fps.csv" >"$test_dir/output" 2>&1
+    check_lighting_log "$test_dir/style-minimum-$fps.log" 0 0 1
+    grep "^simulation-fps $fps 0$" "$test_dir/style-minimum-$fps.log" >/dev/null ||
+        fail "explicit simulation rate $fps did not reach the workload"
+    awk -F, -v minimum="$minimum" -v cycle="$cycle" '
+        NR == 1 {
+            for (i=1; i<=NF; ++i) { gsub(/"/, "", $i); col[$i]=i }
+            record=col["record"]; status=col["status"]; frames=col["frames_all_trials"]
+            next
+        }
+        {
+            if ($status != "ok" || $frames < minimum || $frames % cycle != 0) bad++
+            if ($record == "trial") trials++
+            else if ($record == "summary") summaries++
+            else bad++
+        }
+        END { if (!record || !status || !frames || trials != 2 || summaries != 1 || bad) exit 1 }
+    ' "$test_dir/style-minimum-$fps.csv" || fail "short style trials omitted a complete changing cadence at $fps FPS"
+    awk '
+        /^lighting-colors / { updates++; changed+=$3 }
+        /^native-error / { bad++ }
+        END { if (updates < 4 || changed < 4 || bad) exit 1 }
+    ' "$test_dir/style-minimum-$fps.log" || fail "short repeated style trials exercised only cached colors"
+done
 
 XB_TEST_LOG="$test_dir/style-cached-control.log" XB_TEST_FAULT=native-error \
     XB_TEST_FAULT_DRAW=1000000 run_bench -winsize 320 240 -allow-fallback \
@@ -666,11 +696,15 @@ awk -F, '
         for (i=1; i<=NF; ++i) { gsub(/"/, "", $i); col[$i]=i }
         record=col["record"]; status=col["status"]; shade=col["shading"]
         material=col["material_sample"]; payload=col["input_payload_bytes"]
-        depth=col["depth"]; model=col["lighting_model"]; budget=col["frame_budget_ms"]
+        depth=col["depth"]; model=col["lighting_model"]; budget=col["frame_budget_ms"]; name=col["test"]
         next
     }
     $record == "summary" {
-        if ($status != "ok" || $model != "none" || $payload <= 0 || $budget != "") bad++
+        if ($status != "ok" || $model != "none" || $payload <= 0) bad++
+        if ($name ~ /scene\/texture\//) {
+            if ($budget < 66.666 || $budget > 66.667) bad++
+            scenes++
+        } else if ($budget != "") bad++
         if ($shade == "smooth") {
             if ($material != "vertices") bad++
             smooth[$depth]=$payload
@@ -683,7 +717,7 @@ awk -F, '
     END {
         for (d=0; d<=2; ++d) if (!(smooth[d] > flat[d] && flat[d] > 0)) bad++
         if (!record || !status || !shade || !material || !payload || !depth ||
-            !model || !budget || rows != 6 || bad) exit 1
+            !model || !budget || !name || rows != 10 || scenes != 4 || bad) exit 1
     }
 ' "$test_dir/texture.csv" || fail "texture modes lost sampled-material or payload semantics"
 for count in 24 96 384; do
@@ -736,6 +770,102 @@ awk -F, '
             !total || !present || !model || !facets || !rate || rows != 18 || bad) exit 1
     }
 ' "$test_dir/lit-frame.csv" || fail "lit frame budget or completed-work metadata is invalid"
+
+# A failing HUD validation must not suppress scene clear/draw/swap timings.
+XB_TEST_FAIL_HUD=1 XB_TEST_LOG="$test_dir/scene.log" run_bench \
+    -winsize 320 240 -allow-fallback -test scene/ -triangles 8 \
+    -seconds .001 -warmup 0 -repeats 1 -csv "$test_dir/scene.csv" \
+    >"$test_dir/output" 2>&1
+awk '
+    /^frame-kind / { if ($2 != 1 || phase) bad++; cases++ }
+    /^frame-clear / { if ($2 != 1 || $3 != 1 || phase) bad++; phase=1; clears++ }
+    /^frame-draw / { if (phase != 1) bad++; phase=2; draws++ }
+    /^frame-swap / { if (phase != 2) bad++; phase=0; swaps++ }
+    /^frame-hud / { bad++ }
+    /^lighting-error / { bad++ }
+    END { if (cases != 6 || clears != draws || swaps != draws || !draws || phase || bad) exit 1 }
+' "$test_dir/scene.log" || fail "scene-only frames omitted clear/draw/swap or depended on the HUD"
+awk -F, '
+    NR == 1 {
+        for (i=1; i<=NF; ++i) col[$i]=i
+        record=col["record"]; status=col["status"]; path=col["frame_path"]
+        total=col["total_ms"]; budget=col["frame_budget_ms"]; rate=col["completed_facets_sec"]
+        facets=col["triangles"]; basis=col["rate_basis"]
+        next
+    }
+    $record == "summary" {
+        expected=$facets*1000/$total
+        if ($status != "ok" || $path != "scene-swap" || $total <= 0 ||
+            $budget < 66.666 || $budget > 66.667 ||
+            $rate < expected*.999 || $rate > expected*1.001) bad++
+        rows++
+    }
+    END { if (!record || !status || !path || !total || !budget || !rate || !facets || !basis || rows != 6 || bad) exit 1 }
+' "$test_dir/scene.csv" || fail "scene-only completed-work metadata is invalid"
+if XB_TEST_FAIL_HUD=1 run_bench -winsize 320 240 -allow-fallback \
+    -test frame/lighting/cpu-flat/quake-point-1/depth-1 -triangles 8 \
+    -seconds .001 -warmup 0 -repeats 1 -csv "$test_dir/hud-rejected.csv" \
+    >"$test_dir/output" 2>&1; then
+    fail "a HUD-dependent frame ignored failed HUD validation"
+fi
+check_lighting_rejected "$test_dir/hud-rejected.csv"
+
+XB_TEST_LOG="$test_dir/combined-clear.log" run_bench -winsize 320 240 \
+    -test overhead/color-depth-clear -seconds .001 -warmup 0 -repeats 1 \
+    -csv "$test_dir/combined-clear.csv" >"$test_dir/output" 2>&1
+awk '/^combined-clear / { if ($2 != 1 || $3 != 1) bad++; calls++ }
+     END { if (calls < 5 || bad) exit 1 }' "$test_dir/combined-clear.log" ||
+    fail "combined clear omitted color or depth in an actual clear call"
+
+# Every blend ordering has a matched opaque control. Failed blend readback
+# rejects blend timings while independent opaque cases remain usable.
+XB_TEST_LOG="$test_dir/transparency.log" run_bench -winsize 320 240 \
+    -test transparency/ -triangles 8 -seconds .001 -warmup 0 -repeats 1 \
+    -csv "$test_dir/transparency.csv" >"$test_dir/output" 2>&1
+awk '
+    /^transparency-configure / { if ($2 != 50 || ($3 != 0 && $3 != 1)) bad++; writes[$3]++; configs++ }
+    /^transparency-draw / { if ($2 != 50 || ($3 != 0 && $3 != 1)) bad++; orders[$3]++ }
+    END { if (configs != 4 || writes[0] != 2 || writes[1] != 2 || !orders[0] || !orders[1] || bad) exit 1 }
+' "$test_dir/transparency.log" || fail "transparency sweep omitted an ordering or depth-write mode"
+awk -F, '
+    NR == 1 {
+        for (i=1; i<=NF; ++i) col[$i]=i
+        record=col["record"]; status=col["status"]; name=col["test"]
+        blend=col["transparency"]; opacity=col["opacity"]; write=col["blend_zwrite"]
+        next
+    }
+    $record == "summary" {
+        if ($status != "ok") bad++
+        if ($name ~ /\/opaque\//) {
+            if ($blend != "opaque" || $opacity != "" || $write != "") bad++
+            opaque++
+        } else {
+            if ($blend != "blended" || $opacity != .5 ||
+                $write != ($name ~ /blended-zwrite/ ? 1 : 0)) bad++
+            blended++
+        }
+    }
+    END { if (!record || !status || !name || !blend || !opacity || !write || opaque != 2 || blended != 4 || bad) exit 1 }
+' "$test_dir/transparency.csv" || fail "transparency metadata mislabeled opacity or depth writes"
+XB_TEST_FAIL_TRANSPARENCY=1 run_bench -winsize 320 240 \
+    -test transparency/ -triangles 8 -seconds .001 -warmup 0 -repeats 1 \
+    -csv "$test_dir/transparency-rejected.csv" >"$test_dir/output" 2>&1
+awk -F, '
+    NR == 1 {
+        for (i=1; i<=NF; ++i) col[$i]=i
+        record=col["record"]; status=col["status"]; blend=col["transparency"]
+        kind=col["failure_kind"]; rate=col["completed_facets_sec"]
+        next
+    }
+    $record == "summary" {
+        if ($blend == "opaque") { if ($status != "ok") bad++; opaque++ }
+        else {
+            if ($status != "skipped" || $kind != "validation-failed" || $rate != "") bad++
+            rejected++
+        }
+    }
+    END { if (!record || !status || !blend || !kind || !rate || opaque != 2 || rejected != 4 || bad) exit 1 }
+' "$test_dir/transparency-rejected.csv" || fail "blend validation failure produced a measurement or rejected opaque controls"
 
 # Independent polygons and polygon batches use matching lighting workloads;
 # their API call counts must reflect the actual submitted primitive method.
@@ -957,4 +1087,84 @@ check_failure_kind "$test_dir/native-error.csv" api-error
 check_failure_kind "$test_dir/mapping-rejected.csv" unsupported
 check_failure_kind "$test_dir/light-update-failure.csv" error
 
-echo 'CLI tests: arguments, resize, geometry, queues, sampled materials, lighting, full frames, culling, native texture scheduling and fault rejection passed'
+# Counters count only timed items and distinguish changed from cached work.
+# Reported conditional preparation means must agree with each trial mean.
+awk -F, '
+    FNR == 1 {
+        columns=NF
+        for (i=1; i<=NF; ++i) col[$i]=i
+        status=col["status"]; record=col["record"]; name=col["test"]; width=col["width"]
+        frames=col["frames_all_trials"]; colors=col["color_update_items"]; lights=col["light_update_items"]
+        updated=col["updated_color_light_items"]; cached=col["cached_color_light_items"]
+        uprep=col["updated_prepare_ms"]; cprep=col["cached_prepare_ms"]; prep=col["prepare_ms"]
+        motion=col["light_motion"]; styles=col["style_layers"]; model=col["lighting_model"]
+        fps=col["sim_fps"]; complete=col["completed_facets_sec"]; legacy=col["triangles_per_second"]
+        total=col["total_ms"]; render=col["render_ms"]; facets=col["triangles"]; basis=col["rate_basis"]
+        current=col["native_current_bytes"]; peak=col["native_peak_bytes"]
+        if (!status || !record || !name || !width || !frames || !colors || !lights || !updated ||
+            !cached || !uprep || !cprep || !prep || !motion || !styles || !model || !fps ||
+            !complete || !legacy || !total || !render || !facets || !basis || !current || !peak) bad++
+        next
+    }
+    {
+        if (NF != columns) bad++
+        if ($status != "ok") {
+            if ($record != "summary" || $complete != "" || $colors != "" || $lights != "" ||
+                $updated != "" || $cached != "" || $uprep != "" || $cprep != "") bad++
+            rejected++; next
+        }
+        if ($current < 0 || $peak < $current || $fps < 1 || $fps > 240) bad++
+        expected=$facets && $total > 0 ? $facets*1000/$total : 0
+        if ($complete < expected*.999-.001 || $complete > expected*1.001+.001) bad++
+        divisor=$basis == "total_ms" ? $total : $render
+        if ($basis != "total_ms" && $basis != "render_ms") bad++
+        expected=$facets && divisor > 0 ? $facets*1000/divisor : 0
+        if ($legacy < expected*.999-.001 || $legacy > expected*1.001+.001) bad++
+        if ($colors == "") {
+            if ($lights != "" || $updated != "" || $cached != "" || $uprep != "" || $cprep != "") bad++
+            next
+        }
+        count=$updated+$cached
+        if (count <= 0 || $colors < 0 || $lights < 0 || $cached < 0 ||
+            $updated < $colors || $updated < $lights || $updated > $colors+$lights ||
+            ($updated > 0 ? $uprep == "" || $uprep < 0 : $uprep != "") ||
+            ($cached > 0 ? $cprep == "" || $cprep < 0 : $cprep != "")) bad++
+        if ($motion && (count % 8 || $cached || $updated != count)) bad++
+        if ($model == "baked" && $name ~ /\/styles-[14]\//) {
+            cadence=$fps == 60 ? 6 : 3
+            if (count % cadence || !$updated || !$cached) bad++
+        }
+        key=FILENAME ":" $name ":" $width
+        if ($record == "trial") {
+            sumcolors[key]+=$colors; sumlights[key]+=$lights
+            sumupdated[key]+=$updated; sumcached[key]+=$cached
+            expected=($uprep*$updated+$cprep*$cached)/count
+            if ($prep < expected*.999-.000001 || $prep > expected*1.001+.000001) bad++
+            trials++
+        } else if ($record == "summary") {
+            if ($colors != sumcolors[key] || $lights != sumlights[key] ||
+                $updated != sumupdated[key] || $cached != sumcached[key] || count != $frames) bad++
+            summaries++
+        } else bad++
+    }
+    END { if (!trials || !summaries || !rejected || bad) exit 1 }
+' "$test_dir"/*.csv || fail "CSV completion, update/cached counts, preparation means or memory bounds are inconsistent"
+
+# Queue memory reports this mock actual allocated RGB slots. Increasing the
+# queue must increase the peak, without claims about native driver storage.
+for queue in 1 2 8; do
+    awk -F, -v queue="$queue" '
+        NR == 1 {
+            for (i=1; i<=NF; ++i) col[$i]=i
+            record=col["record"]; peak=col["native_peak_bytes"]; current=col["native_current_bytes"]
+            facets=col["triangles"]; next
+        }
+        $record == "summary" {
+            if ($peak != queue*$facets*12 || $current != $peak) bad++
+            rows++
+        }
+        END { if (!record || !peak || !current || !facets || rows != 1 || bad) exit 1 }
+    ' "$test_dir/queue-$queue-relight.csv" || fail "mock queue memory did not reflect allocated RGB slots"
+done
+
+echo 'CLI tests: arguments, resize, geometry, queues, sampled materials, lighting, full frames, culling, native texture scheduling, scene/HUD isolation, transparency, counters, memory and fault rejection passed'

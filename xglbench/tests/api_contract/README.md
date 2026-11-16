@@ -32,4 +32,16 @@ used. This target is separate from the Solaris build and portable `make check`.
 It verifies selected resource and error-handling contracts, not rendering or
 device support.
 
+The raster tests check creation-time RGB ordering, resource cleanup and retry,
+readback errors, and requested native-array allocation accounting (including
+geometry and stream-slot teardown). The clear/transparency tests use a scalar
+pixel and depth model for the backend's centered flat-triangle probes. They
+check that missing color/depth clears, reversed opacity, incorrect blending,
+broken depth freeze/write or testing, and native readback errors reject the
+probe. They also check state restoration. This small model does not implement
+XGL rasterization, lighting, quantization, or hardware execution. Passing it
+does not establish native correctness or acceleration; real XGL readback gates
+still run before timings are accepted. New-frame action constants use
+independent bits so the mock can distinguish color and depth clearing.
+
 Compilation against the installed Solaris XGL SDK remains mandatory.

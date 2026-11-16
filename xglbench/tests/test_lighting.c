@@ -3,6 +3,7 @@
 
 #include <assert.h>
 #include <float.h>
+#include <limits.h>
 #include <math.h>
 #include <stdlib.h>
 #include <string.h>
@@ -184,7 +185,7 @@ static void smoothing_and_native_materials(void)
     for (i = 0; i < mesh.point_count; ++i) assert(same_color(mesh.vertex_colors[i], mesh.base_colors[i / 3]));
     xb_lighting_state(&test, 0, &first);
     assert(!same_point(first.position[0], later.position[0]));
-    xb_lighting_state(&test, 360, &later);
+    xb_lighting_state(&test, 8, &later);
     assert(!memcmp(&first, &later, sizeof(first)));
     test.moving = 0;
     assert(xb_lighting_update(&mesh, &test, 50, &later) == 0);
@@ -215,6 +216,7 @@ static void lightstyles(void)
             memset(&mesh, 0, sizeof(mesh));
             assert(xb_mesh_build(&mesh, 8, 1, 0.85f, 0));
             test_case(&test, XB_LIGHT_BAKED, (enum xb_shade)shade);
+            test.sim_fps = 60; /* Explicit legacy cadence remains available. */
             test.styles = styles;
             assert(xb_lighting_init(&mesh, &test));
             count = shade == XB_SMOOTH ? mesh.point_count : mesh.triangles;
@@ -253,6 +255,106 @@ static void lightstyles(void)
             free(colors); free(materials); free(samples); xb_mesh_free(&mesh);
         }
     }
+}
+
+static void simulation_cadence(void)
+{
+    static const char *patterns[XB_STYLE_LAYERS] = {
+        "mmnmmommommnonmmonqnmmo", "abcdefghijklmnopqrstuvwxyzyxwvutsrqponmlkjihgfedcba",
+        "mmamammmmammamamaaamammma", "abcdefghijklmnopqrrqponmlkjihgfedcba"
+    };
+    static const int rates[3] = {0, 15, 60};
+    xb_mesh mesh;
+    xb_case test;
+    xb_light_state state;
+    float previous;
+    unsigned long frame, fps, tick, period, cycle, minimum;
+    int rate, layer, changes, seen_change;
+    for (rate = 0; rate < 3; ++rate) {
+        memset(&mesh, 0, sizeof(mesh));
+        assert(xb_mesh_build(&mesh, 8, 0, 0.85f, 0));
+        test_case(&test, XB_LIGHT_BAKED, XB_FLAT);
+        test.styles = 4; test.sim_fps = rates[rate];
+        fps = rates[rate] ? (unsigned long)rates[rate] : 15UL;
+        assert(xb_lighting_init(&mesh, &test));
+        assert(xb_lighting_cycle_frames(&test) == (fps == 15 ? 3UL : 6UL));
+        assert(xb_lighting_min_frames(&test) == (fps == 15 ? 6UL : 24UL));
+        for (frame = 0; frame < fps * 3; ++frame) {
+            assert(xb_lighting_update(&mesh, &test, frame, &state) >= 0);
+            tick = frame * 10UL / fps;
+            for (layer = 0; layer < XB_STYLE_LAYERS; ++layer)
+                close_value(mesh.style_weights[layer],
+                    (patterns[layer][tick % strlen(patterns[layer])] - 'a') / 12.0);
+        }
+        /* The timestamp may exceed the multiplication range on 32-bit SPARC.
+         * A known whole-string period supplies an independent bounded oracle. */
+        assert(xb_lighting_update(&mesh, &test, ULONG_MAX, &state) >= 0);
+        for (layer = 0; layer < XB_STYLE_LAYERS; ++layer) {
+            period = fps * (unsigned long)strlen(patterns[layer]);
+            tick = ((ULONG_MAX % period) * 10UL / fps) % strlen(patterns[layer]);
+            close_value(mesh.style_weights[layer], (patterns[layer][tick] - 'a') / 12.0);
+        }
+        xb_mesh_free(&mesh);
+    }
+    /* A complete minimum trial must exercise a real update at every accepted
+     * rate, including low rates that skip over some 10 Hz style values. */
+    for (rate = 1; rate <= 240; ++rate) {
+        memset(&mesh, 0, sizeof(mesh));
+        assert(xb_mesh_build(&mesh, 2, 0, 0.85f, 0));
+        test_case(&test, XB_LIGHT_BAKED, XB_FLAT);
+        test.styles = 1; test.sim_fps = rate;
+        assert(xb_lighting_init(&mesh, &test));
+        cycle = xb_lighting_cycle_frames(&test);
+        minimum = xb_lighting_min_frames(&test);
+        minimum = ((minimum + cycle - 1) / cycle) * cycle;
+        assert((cycle * 10UL) % (unsigned long)rate == 0);
+        seen_change = 0;
+        for (frame = 0; frame < minimum; ++frame) {
+            previous = mesh.style_weights[0];
+            changes = xb_lighting_update(&mesh, &test, frame, &state);
+            if (mesh.style_weights[0] == previous) assert(changes == 0);
+            else { assert(changes == XB_UPDATE_COLORS); seen_change = 1; }
+        }
+        assert(seen_change);
+        xb_mesh_free(&mesh);
+    }
+}
+
+static void animation_cycles(void)
+{
+    xb_case test;
+    xb_light_state phases[8], state;
+    unsigned long frame;
+    int directional, model, native;
+    for (model = XB_LIGHT_LAMBERT; model <= XB_LIGHT_QUAKE; ++model) {
+        for (directional = 0; directional <= (model == XB_LIGHT_LAMBERT); ++directional) {
+            test_case(&test, (enum xb_light_model)model, XB_SMOOTH);
+            test.directional = directional;
+            assert(xb_lighting_cycle_frames(&test) == 8);
+            assert(xb_lighting_min_frames(&test) == 8);
+            for (frame = 0; frame < 8; ++frame) {
+                xb_lighting_state(&test, frame, &phases[frame]);
+                if (frame) assert(memcmp(&phases[0], &phases[frame], sizeof(state)) != 0);
+            }
+            for (native = 0; native <= (model == XB_LIGHT_LAMBERT); ++native) {
+                test.xgl_lighting = native;
+                for (frame = 0; frame < 24; ++frame) {
+                    xb_lighting_state(&test, frame, &state);
+                    assert(!memcmp(&state, &phases[frame % 8], sizeof(state)));
+                }
+                xb_lighting_state(&test, ULONG_MAX, &state);
+                assert(!memcmp(&state, &phases[ULONG_MAX % 8], sizeof(state)));
+            }
+            test.moving = 0;
+            assert(xb_lighting_cycle_frames(&test) == 1);
+            assert(xb_lighting_min_frames(&test) == 3);
+            xb_lighting_state(&test, 7, &state);
+            assert(!memcmp(&state, &phases[0], sizeof(state)));
+        }
+    }
+    test_case(&test, XB_LIGHT_BAKED, XB_FLAT);
+    assert(xb_lighting_cycle_frames(&test) == 1);
+    assert(xb_lighting_min_frames(&test) == 3);
 }
 
 static void quake_falloff(void)
@@ -305,6 +407,9 @@ static void invalid_inputs(void)
     points = mesh.points; bytes = mesh.bytes;
     test.lights = XB_MAX_LIGHTS + 1;
     assert(!xb_lighting_init(&mesh, &test)); test.lights = 1;
+    test.sim_fps = -1;
+    assert(!xb_lighting_init(&mesh, &test)); test.sim_fps = 241;
+    assert(!xb_lighting_init(&mesh, &test)); test.sim_fps = 0;
     test.shade = (enum xb_shade)99;
     assert(!xb_lighting_init(&mesh, &test)); test.shade = XB_FLAT;
     test.lighting = XB_LIGHT_BAKED; test.xgl_lighting = 1;
@@ -377,7 +482,8 @@ static void vertex_texture_lighting(void)
 int main(void)
 {
     equations(); geometry_and_materials(); smoothing_and_native_materials();
-    lightstyles(); quake_falloff(); invalid_inputs(); vertex_texture_lighting();
-    puts("lighting tests: reference equations, smooth normals/colors, material boundaries, style caches, finite falloff and cleanup passed");
+    lightstyles(); simulation_cadence(); animation_cycles(); quake_falloff();
+    invalid_inputs(); vertex_texture_lighting();
+    puts("lighting tests: equations, materials, 15/60 FPS style cadence/cache, overflow, complete animation phases, finite falloff and cleanup passed");
     return 0;
 }

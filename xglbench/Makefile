@@ -94,15 +94,16 @@ syntax-check:
 
 # Modern host with a GNU-compatible linker only; links mock XGL functions.
 # Keep this separate from portable checks and the native Solaris build.
-build/test_native_raster: tests/test_native_raster.c xglbench_xgl.c xglbench.h \
-                         $(wildcard tests/api_contract/X11/*.h) tests/api_contract/xgl/xgl.h
+build/test_native_%: tests/test_native_%.c xglbench_xgl.c xglbench.h \
+                     $(wildcard tests/api_contract/X11/*.h) tests/api_contract/xgl/xgl.h
 	@mkdir -p build
 	$(CC) $(CPPFLAGS) $(API_CPPFLAGS) -Itests/api_contract -I. \
 	    $(CFLAGS) $(LANGFLAGS) $(WARNFLAGS) -ffunction-sections -fdata-sections \
-	    $(LDFLAGS) -o $@ tests/test_native_raster.c -Wl,--gc-sections -lm
+	    $(LDFLAGS) -o $@ $< -Wl,--gc-sections -lm
 
-native-contract-check: build/test_native_raster
+native-contract-check: build/test_native_raster build/test_native_render
 	./build/test_native_raster
+	./build/test_native_render
 
 clean:
 	rm -rf build xglbench

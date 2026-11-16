@@ -56,6 +56,7 @@ static void usage(FILE *f)
         "  -warmup S          Warm-up per case, outside measurements\n"
         "  -repeats N         Repeated trials, 1..31 (profile default)\n"
         "  -pause S           Minimum idle seconds (always also >= 2x active time)\n");
+    fprintf(f, "  -sim-fps N         Simulated FPS for 10 Hz lightstyles, 1..240 (default 15)\n");
     fprintf(f, "  -queue N           Streaming window, 1..8 work items (default 2)\n");
     fprintf(f,
         "  -triangles N       Base count, positive even number <=16384 (default 512)\n"
@@ -110,7 +111,7 @@ static int options(int argc, char **argv, xb_options *o)
     o->seconds = o->warmup = o->pause = -1;
     o->profile = XB_QUICK;
     o->base_triangles = 512;
-    o->queue = 2;
+    o->queue = 2; o->sim_fps = 15;
     profile_seen = 0;
     for (i = 1; i < argc; ++i) {
         if (!strcmp(argv[i], "-help") || !strcmp(argv[i], "--help")) {
@@ -146,6 +147,8 @@ static int options(int argc, char **argv, xb_options *o)
             o->custom_timing = 1;
         } else if (!strcmp(argv[i], "-queue")) {
             if (++i >= argc || !parse_long(argv[i], 1, XB_MAX_QUEUE, &o->queue)) goto invalid;
+        } else if (!strcmp(argv[i], "-sim-fps")) {
+            if (++i >= argc || !parse_long(argv[i], 1, 240, &o->sim_fps)) goto invalid;
         } else if (!strcmp(argv[i], "-triangles")) {
             if (++i >= argc || !parse_long(argv[i], 2, 16384, &o->base_triangles) ||
                 (o->base_triangles & 1)) goto invalid;
@@ -267,6 +270,7 @@ static int make_cases(xb_case *cases)
     }
     c = add_case(cases, &n, "overhead/color-clear"); c->work = XB_COLOR_CLEAR;
     c = add_case(cases, &n, "overhead/depth-clear"); c->work = XB_DEPTH_CLEAR;
+    c = add_case(cases, &n, "overhead/color-depth-clear"); c->work = XB_COLOR_DEPTH_CLEAR;
     c = add_case(cases, &n, "overhead/swap"); c->work = XB_SWAP;
     c = add_case(cases, &n, "hud/opaque-copy"); c->work = XB_RASTER; c->zbuffer = 0;
     c = add_case(cases, &n, "hud/masked-copy"); c->work = XB_MASKED_RASTER; c->zbuffer = 0;
@@ -404,6 +408,30 @@ static int make_cases(xb_case *cases)
         c->texture_filter = mode < 2 ? XB_TEXTURE_OFF :
                               (enum xb_texture_filter)(mode - 1);
     }
+    /* Scene presentation is independent of the strict masked-HUD path.
+     * These controls otherwise match the corresponding full-frame cases. */
+    for (path = 0; path < 2; ++path) {
+        for (d = 0; d <= 1; ++d) {
+            sprintf(name, "scene/texture/%s/depth-%d", path ? "vertex-smooth" : "facet-flat", d);
+            c = add_case(cases, &n, name);
+            c->work = XB_SCENE_FRAME; c->depth = d; c->texture_compare = 1;
+            c->vertex_material = path; c->shade = path ? XB_SMOOTH : XB_FLAT;
+        }
+        sprintf(name, "scene/lighting/%s/quake-point-1/depth-1", paths[path]);
+        add_lighting_case(cases, &n, name, path, XB_LIGHT_QUAKE, 1, 0, 1, 0, 1, 0);
+        c = &cases[n - 1]; c->work = XB_SCENE_FRAME; c->vertex_material = path & 1;
+    }
+    for (mode = 0; mode < 3; ++mode) {
+        for (i = 0; i < 2; ++i) {
+            sprintf(name, "transparency/%s/%s", mode == 0 ? "opaque" :
+                    (mode == 1 ? "blended-zfreeze" : "blended-zwrite"),
+                    i ? "far-to-near" : "near-to-far");
+            c = add_case(cases, &n, name);
+            c->overdraw = 1; c->reverse = i;
+            c->transparency = mode != 0; c->opacity = .5f;
+            c->blend_zwrite = mode == 2;
+        }
+    }
     return n;
 }
 
@@ -414,34 +442,33 @@ static int make_cases(xb_case *cases)
 static int select_cases(const xb_case *cases, int count, const xb_options *o, int *order)
 {
     static const char *quick[] = {
-        "texture-map/facet-flat/draw/depth-0",
-        "texture-map/vertex-smooth/draw/depth-0",
         "submit/polygon/batch-1", "submit/multi_polygon/batch-128",
-        "submit/triangle_list/batch-128", "submit/strip/natural-length",
-        "texture-map/facet-flat/frame/depth-0",
-        "texture-map/vertex-smooth/frame/depth-0",
-        "lighting/matched/cpu-flat/point-1/depth-1",
-        "lighting/matched/xgl-flat/point-1/depth-1",
-        "lighting/matched/cpu-smooth/point-1/depth-1",
-        "lighting/matched/xgl-smooth/point-1/depth-1",
+        "submit/triangle_list/batch-128",
+        "texture/facet-flat/depth-1", "texture/vertex-smooth/depth-1",
+        "scene/texture/facet-flat/depth-1", "scene/texture/vertex-smooth/depth-1",
+        "texture-map/facet-flat/frame/depth-1", "texture-map/vertex-smooth/frame/depth-1",
+        "lighting/submit/multi_polygon/cpu-smooth/point-1/depth-1",
+        "lighting/submit/multi_polygon/xgl-smooth/point-1/depth-1",
+        "lighting/quake-like/cpu-flat/point-1/depth-1",
+        "lighting/quake-like/cpu-smooth/point-1/depth-1",
         "lighting/baked/cpu-flat/cached/depth-1",
         "lighting/baked/cpu-smooth/cached/depth-1",
-        "texture/facet-flat/depth-1", "texture/vertex-smooth/depth-1"
+        "overhead/color-depth-clear"
     };
     static const char *long_extra[] = {
-        "texture-map/facet-flat/frame/depth-1",
-        "texture-map/vertex-smooth/frame/depth-1",
+        "scene/lighting/cpu-flat/quake-point-1/depth-1",
+        "scene/lighting/cpu-smooth/quake-point-1/depth-1",
+        "frame/lighting/cpu-flat/quake-point-1/depth-1",
+        "frame/lighting/cpu-smooth/quake-point-1/depth-1",
         "lighting/baked/cpu-flat/styles-4/depth-1",
         "lighting/baked/cpu-smooth/styles-4/depth-1",
-        "frame/lighting/cpu-flat/point-1/depth-0",
-        "frame/lighting/xgl-flat/point-1/depth-0",
-        "frame/lighting/cpu-smooth/point-1/depth-0",
-        "frame/lighting/xgl-smooth/point-1/depth-0",
-        "cull/mixed/off", "cull/mixed/back",
+        "transparency/opaque/near-to-far", "transparency/opaque/far-to-near",
+        "transparency/blended-zfreeze/near-to-far", "transparency/blended-zfreeze/far-to-near",
+        "transparency/blended-zwrite/near-to-far", "transparency/blended-zwrite/far-to-near",
         "overhead/color-clear", "overhead/depth-clear",
         "texture/facet-flat/depth-2", "texture/vertex-smooth/depth-2",
-        "pipeline/serialized/cached/depth-1", "pipeline/streaming/cached/depth-1",
-        "pipeline/serialized/relight/depth-1", "pipeline/streaming/relight/depth-1"
+        "pipeline/serialized/quake-cpu-smooth/depth-1",
+        "pipeline/streaming/quake-cpu-smooth/depth-1"
     };
     const char *name;
     int i, j, n, quick_count, wanted;
@@ -520,7 +547,47 @@ static int build_mesh(xb_mesh *mesh, const xb_options *o, const xb_case *c,
     return ok;
 }
 
-typedef struct { double total, prepare, render, present; size_t calls; } xb_frame;
+static int presentation_case(const xb_case *c)
+{
+    return c->work == XB_FRAME || c->work == XB_SCENE_FRAME;
+}
+
+static int tracks_updates(const xb_case *c)
+{
+    return c->lighting != XB_LIGHT_OFF || c->update == XB_COLORS;
+}
+
+static void record_preparation(xb_update_stats *stats, int changes, double elapsed)
+{
+    if (changes & XB_UPDATE_COLORS) ++stats->color_updates;
+    if (changes & XB_UPDATE_LIGHTS) ++stats->light_updates;
+    if (changes) {
+        ++stats->updated_items; stats->updated_prepare += elapsed;
+    } else {
+        ++stats->cached_items; stats->cached_prepare += elapsed;
+    }
+}
+
+static void add_update_stats(xb_update_stats *to, const xb_update_stats *from)
+{
+    to->color_updates += from->color_updates;
+    to->light_updates += from->light_updates;
+    to->updated_items += from->updated_items;
+    to->cached_items += from->cached_items;
+    to->updated_prepare += from->updated_prepare;
+    to->cached_prepare += from->cached_prepare;
+}
+
+static void capture_memory(xb_result *r)
+{
+    xb_backend_memory(&r->native_current_bytes, &r->native_peak_bytes);
+}
+
+typedef struct {
+    double total, prepare, render, present;
+    size_t calls;
+    int changes;
+} xb_frame;
 
 static int one_frame(const xb_options *o, const xb_case *c, xb_mesh *mesh,
                      unsigned long sequence, xb_frame *f)
@@ -537,11 +604,13 @@ static int one_frame(const xb_options *o, const xb_case *c, xb_mesh *mesh,
     } else if (c->update == XB_COLORS) {
         xb_mesh_colors(mesh, sequence);
         xb_backend_colors(mesh);
+        f->changes = XB_UPDATE_COLORS;
     } else if (c->update == XB_TRANSFORM) {
         xb_backend_transform(sequence);
     } else if (c->update == XB_LIGHT_UPDATE) {
         changes = xb_lighting_update(mesh, c, sequence, &state);
         if (changes < 0) return 0;
+        f->changes = changes;
         if (changes & XB_UPDATE_COLORS) xb_backend_colors(mesh);
         if ((changes & XB_UPDATE_LIGHTS) && !xb_backend_lighting(&state)) return 0;
     }
@@ -558,14 +627,16 @@ static int one_frame(const xb_options *o, const xb_case *c, xb_mesh *mesh,
     case XB_DRAW:
         f->calls = xb_backend_draw(c->method, c->batch); break;
     case XB_FRAME:
+    case XB_SCENE_FRAME:
         xb_backend_clear(1, c->zbuffer);
         if (budget_expired()) goto cancelled;
         f->calls = xb_backend_draw(c->method, c->batch);
         if (budget_expired()) goto cancelled;
-        xb_backend_raster(1);
+        if (c->work == XB_FRAME) xb_backend_raster(1);
         break;
     case XB_COLOR_CLEAR: xb_backend_clear(1, 0); break;
     case XB_DEPTH_CLEAR: xb_backend_clear(0, 1); break;
+    case XB_COLOR_DEPTH_CLEAR: xb_backend_clear(1, 1); break;
     case XB_RASTER: xb_backend_raster(0); break;
     case XB_MASKED_RASTER: xb_backend_raster(1); break;
     case XB_SWAP: break;
@@ -574,7 +645,7 @@ static int one_frame(const xb_options *o, const xb_case *c, xb_mesh *mesh,
     if (c->work != XB_SWAP) xb_backend_sync();
     rendered = xb_now();
     if (budget_expired()) goto cancelled;
-    if (c->work == XB_SWAP || c->work == XB_FRAME) {
+    if (c->work == XB_SWAP || presentation_case(c)) {
         xb_backend_swap();
         xb_backend_sync();
     }
@@ -582,7 +653,7 @@ static int one_frame(const xb_options *o, const xb_case *c, xb_mesh *mesh,
     if (budget_expired()) goto cancelled;
     f->prepare = prepared - start;
     f->render = c->work == XB_SWAP ? 0 : rendered - render_start;
-    f->present = (c->work == XB_SWAP || c->work == XB_FRAME) ? end - rendered : 0;
+    f->present = (c->work == XB_SWAP || presentation_case(c)) ? end - rendered : 0;
     f->total = end - start;
     return 1;
 cancelled:
@@ -682,6 +753,7 @@ typedef struct {
     unsigned long items, drains, maximum;
     size_t calls;
     double prepare, enqueue, drain;
+    xb_update_stats updates;
 } xb_window;
 
 static void backend_reason(xb_result *r, const char *fallback)
@@ -705,14 +777,16 @@ static int pipeline_window(xb_result *r, xb_mesh *mesh,
     int slot, okay, changes;
     xb_light_state state;
     size_t calls;
-    double start;
+    double start, prepared;
     memset(window, 0, sizeof(*window));
     okay = 1;
     for (slot = 0; slot < r->queue_limit; ++slot) {
         if (!events(r)) { okay = 0; break; }
         start = xb_now();
+        changes = 0;
         if (r->test.update == XB_COLORS) {
             xb_mesh_colors(mesh, *sequence);
+            changes = XB_UPDATE_COLORS;
             if (!xb_backend_stream_prepare(slot, mesh)) {
                 backend_reason(r, "stream color preparation failed"); okay = 0; break;
             }
@@ -727,7 +801,9 @@ static int pipeline_window(xb_result *r, xb_mesh *mesh,
                 backend_reason(r, "stream lighting color preparation failed"); okay = 0; break;
             }
         }
-        window->prepare += xb_now() - start;
+        prepared = xb_now() - start;
+        window->prepare += prepared;
+        if (tracks_updates(&r->test)) record_preparation(&window->updates, changes, prepared);
         if (budget_expired()) {
             backend_reason(r, "profile time budget reached"); okay = 0; break;
         }
@@ -763,7 +839,8 @@ static int measure_pipeline(const xb_options *o, xb_result *r, xb_mesh *mesh)
 {
     xb_window window;
     double start, cpu, elapsed, prepare, enqueue, drain;
-    unsigned long sequence, items, drains, maximum;
+    unsigned long sequence, items, drains, maximum, cycle, minimum;
+    xb_update_stats updates;
     int trial, okay;
     r->queue_limit = r->test.streaming ? o->queue : 1;
     if (!xb_backend_stream_begin(mesh, r->queue_limit, r->reason, sizeof(r->reason))) {
@@ -771,6 +848,8 @@ static int measure_pipeline(const xb_options *o, xb_result *r, xb_mesh *mesh)
         return 0;
     }
     okay = 0;
+    cycle = xb_lighting_cycle_frames(&r->test);
+    minimum = xb_lighting_min_frames(&r->test);
     sequence = 0;
     start = xb_now();
     do {
@@ -779,6 +858,7 @@ static int measure_pipeline(const xb_options *o, xb_result *r, xb_mesh *mesh)
     for (trial = 0; trial < o->repeats; ++trial) {
         sequence = 0; items = 0; drains = 0; maximum = 0;
         prepare = enqueue = drain = 0;
+        memset(&updates, 0, sizeof(updates));
         cpu = xb_cpu_now();
         start = xb_now();
         do {
@@ -786,9 +866,10 @@ static int measure_pipeline(const xb_options *o, xb_result *r, xb_mesh *mesh)
             items += window.items; drains += window.drains;
             if (window.maximum > maximum) maximum = window.maximum;
             prepare += window.prepare; enqueue += window.enqueue; drain += window.drain;
+            add_update_stats(&updates, &window.updates);
             r->calls = window.calls;
             elapsed = xb_now() - start;
-        } while (items < 3 || elapsed < o->seconds);
+        } while (items < minimum || elapsed < o->seconds || items % cycle);
         /* elapsed spans first preparation through final completion, including
          * window fill/drain and event polling. No queued work is counted early. */
         r->cpu[trial] = (xb_cpu_now() - cpu) / (double)items;
@@ -796,12 +877,14 @@ static int measure_pipeline(const xb_options *o, xb_result *r, xb_mesh *mesh)
         r->prepare[trial] = prepare / (double)items;
         r->enqueue[trial] = enqueue / (double)items;
         r->drain[trial] = drain / (double)items;
+        r->updates[trial] = updates;
         r->frames += items; r->drains += drains;
         if (maximum > r->max_outstanding) r->max_outstanding = maximum;
         ++r->samples;
     }
     okay = 1;
 done:
+    capture_memory(r);
     xb_backend_stream_end();
     if (okay && !events(r)) okay = 0;
     return okay;
@@ -815,22 +898,26 @@ static void measure(const xb_options *o, xb_result *r, const int *valid,
     xb_frame f;
     xb_light_state state;
     double start, cpu, sum, prep, render, present;
-    unsigned long frames, sequence;
+    unsigned long frames, sequence, cycle, minimum;
+    xb_update_stats updates;
     int trial, uses_mesh, preview, style_changes, animated_styles;
     const xb_case *c;
     c = &r->test;
     r->failure = XB_FAILURE_ERROR;
     animated_styles = c->lighting == XB_LIGHT_BAKED && c->styles > 0;
+    cycle = xb_lighting_cycle_frames(c);
+    minimum = xb_lighting_min_frames(c);
     memset(&mesh, 0, sizeof(mesh));
-    uses_mesh = c->work == XB_DRAW || c->work == XB_FRAME || c->work == XB_PIPELINE;
+    uses_mesh = c->work == XB_DRAW || presentation_case(c) || c->work == XB_PIPELINE;
     if (uses_mesh && !valid[c->method]) {
         r->failure = validation_failure[c->method];
         strcpy(r->reason, validation[c->method]); return;
     }
-    if ((c->work == XB_SWAP || c->work == XB_FRAME) && !xb_backend_has_double_buffer()) {
+    if ((c->work == XB_SWAP || presentation_case(c)) && !xb_backend_has_double_buffer()) {
         r->failure = XB_FAILURE_UNSUPPORTED;
         strcpy(r->reason, "two hardware/window buffers not allocated"); return;
     }
+    xb_backend_memory_reset_peak();
     if (uses_mesh && !build_mesh(&mesh, o, c, r->width, r->height)) {
         strcpy(r->reason, c->area > 0 ? "calibrated triangle does not fit, or allocation/input limit failure" :
                                       "geometry allocation or input limit failure"); return;
@@ -847,6 +934,7 @@ static void measure(const xb_options *o, xb_result *r, const int *valid,
         r->failure = XB_FAILURE_TIME_LIMIT;
         strcpy(r->reason, "profile time budget reached"); goto done;
     }
+    capture_memory(r);
     /* configure() owns the initial upload; updates upload inside one_frame(). */
     r->triangles = mesh.triangles;
     r->bytes = mesh.bytes;
@@ -903,6 +991,7 @@ static void measure(const xb_options *o, xb_result *r, const int *valid,
             if (!events(r)) goto done;
         }
         frames = 0; sum = 0; prep = 0; render = 0; present = 0;
+        memset(&updates, 0, sizeof(updates));
         cpu = xb_cpu_now(); start = xb_now();
         do {
             if (!events(r)) goto done;
@@ -911,9 +1000,9 @@ static void measure(const xb_options *o, xb_result *r, const int *valid,
             }
             ++frames;
             sum += f.total; prep += f.prepare; render += f.render; present += f.present;
+            if (tracks_updates(c)) record_preparation(&updates, f.changes, f.prepare);
             r->calls = f.calls;
-        } while (frames < (unsigned long)(animated_styles ? 24 : 3) ||
-                 xb_now() - start < o->seconds || (animated_styles && frames % 6));
+        } while (frames < minimum || xb_now() - start < o->seconds || frames % cycle);
         /* A fault in the final draw/flush must not turn into a successful trial. */
         if (!events(r)) goto done;
         r->cpu[trial] = (xb_cpu_now() - cpu) / (double)frames;
@@ -921,6 +1010,7 @@ static void measure(const xb_options *o, xb_result *r, const int *valid,
         r->prepare[trial] = prep / (double)frames;
         r->render[trial] = render / (double)frames;
         r->present[trial] = present / (double)frames;
+        r->updates[trial] = updates;
         r->frames += frames; ++r->samples;
     }
 summarize:
@@ -936,6 +1026,7 @@ summarize:
     r->passed = 1;
     r->failure = XB_FAILURE_NONE;
 done:
+    if (c->work != XB_PIPELINE || !r->native_peak_bytes) capture_memory(r);
     xb_mesh_free(&mesh);
 }
 
@@ -1000,10 +1091,28 @@ static const char *failure_label(enum xb_failure failure)
     return labels[failure];
 }
 
+static const char *frame_path(const xb_case *c)
+{
+    if (c->work == XB_FRAME) return "hud-swap";
+    if (c->work == XB_SCENE_FRAME) return "scene-swap";
+    if (c->work == XB_PIPELINE) return "pipeline-no-swap";
+    if (c->work == XB_DRAW) return "draw-only";
+    return "none";
+}
+
+static void result_updates(const xb_result *r, int trial, xb_update_stats *stats)
+{
+    int i;
+    memset(stats, 0, sizeof(*stats));
+    if (trial > 0) *stats = r->updates[trial - 1];
+    else for (i = 0; i < r->samples; ++i) add_update_stats(stats, &r->updates[i]);
+}
+
 static void csv_row(FILE *f, const xb_result *r, const char *record, int trial,
                     double total, double prep, double render, double present, double cpu)
 {
     double rate, duration, enqueue, drain;
+    xb_update_stats stats;
     int pipeline;
     if (!f) return;
     pipeline = r->test.work == XB_PIPELINE;
@@ -1043,7 +1152,7 @@ static void csv_row(FILE *f, const xb_result *r, const char *record, int trial,
         r->test.texture_filter != XB_TEXTURE_OFF ? "texels" :
             (r->test.vertex_material ? "vertices" : "facet"),
         r->test.cull ? "back" : "off", r->test.mixed_winding ? "mixed" : "front");
-    if (r->passed && r->test.work == XB_FRAME)
+    if (r->passed && presentation_case(&r->test))
         fprintf(f, "%.9f,%.9f", XB_TARGET_FRAME_SECONDS * 1000,
                 total / XB_TARGET_FRAME_SECONDS);
     else fputc(',', f);
@@ -1054,22 +1163,40 @@ static void csv_row(FILE *f, const xb_result *r, const char *record, int trial,
     if (r->test.texture_filter != XB_TEXTURE_OFF)
         fprintf(f, "%d,%d", XB_TEXTURE_WIDTH, XB_TEXTURE_WIDTH);
     else fputc(',', f);
-    fprintf(f, ",%s\n", failure_name(r->failure));
+    fprintf(f, ",%s,", failure_name(r->failure));
+    if (r->passed) fprintf(f, "%.3f", r->triangles && total > 0 ? (double)r->triangles / total : 0);
+    fprintf(f, ",%s,%d,", pipeline || r->test.lighting != XB_LIGHT_OFF ? "total_ms" : "render_ms",
+            r->test.sim_fps);
+    if (r->passed && tracks_updates(&r->test)) {
+        result_updates(r, trial, &stats);
+        fprintf(f, "%lu,%lu,%lu,%lu,", stats.color_updates, stats.light_updates,
+                stats.updated_items, stats.cached_items);
+        if (stats.updated_items) fprintf(f, "%.9f", stats.updated_prepare * 1000 / stats.updated_items);
+        fputc(',', f);
+        if (stats.cached_items) fprintf(f, "%.9f", stats.cached_prepare * 1000 / stats.cached_items);
+        fputc(',', f);
+    } else fputs(",,,,,,", f);
+    if (r->failure != XB_FAILURE_NOT_RUN)
+        fprintf(f, "%lu,%lu", (unsigned long)r->native_current_bytes, (unsigned long)r->native_peak_bytes);
+    else fputc(',', f);
+    fprintf(f, ",%s,%s,", frame_path(&r->test), r->test.transparency ? "blended" : "opaque");
+    if (r->test.transparency) fprintf(f, "%.6f,%d", r->test.opacity, r->test.blend_zwrite);
+    else fputc(',', f);
+    fputc('\n', f);
 }
 
 static void print_result(FILE *csv, const xb_result *r)
 {
     int i;
-    double rate, duration;
+    double rate;
+    xb_update_stats stats;
     const char *unit;
     if (!r->passed) {
         printf("%-38s %s: %s\n", r->test.name, failure_label(r->failure), r->reason);
         csv_row(csv, r, "summary", -1, 0, 0, 0, 0, 0);
         return;
     }
-    duration = r->test.work == XB_PIPELINE || r->test.lighting != XB_LIGHT_OFF ?
-               r->median : r->render_median;
-    rate = r->triangles && duration > 0 ? (double)r->triangles / duration : 0;
+    rate = r->triangles && r->median > 0 ? (double)r->triangles / r->median : 0;
     printf("%-38s %9.3f %9.3f ", r->test.name, r->median * 1000, r->prep_median * 1000);
     if (r->test.work == XB_PIPELINE) printf("%9s ", "n/a");
     else printf("%9.3f ", r->render_median * 1000);
@@ -1080,6 +1207,21 @@ static void print_result(FILE *csv, const xb_result *r)
            "%.1f KiB portable mesh, CPU %.3f ms/%s\n",
         r->low * 1000, r->high * 1000, r->frames, unit, (unsigned long)r->triangles, unit,
         (double)r->bytes / 1024, xb_median(r->cpu, r->samples) * 1000, unit);
+    printf("  native app buffers: %lu bytes current, %lu bytes case peak; excludes opaque XGL/driver storage.\n",
+            (unsigned long)r->native_current_bytes, (unsigned long)r->native_peak_bytes);
+    if (tracks_updates(&r->test)) {
+        result_updates(r, -1, &stats);
+        printf("  logical updates: %lu color, %lu native-light, %lu cached items; ",
+                stats.color_updates, stats.light_updates, stats.cached_items);
+        if (stats.updated_items)
+            printf("updated prep %.3f ms/item; ", stats.updated_prepare * 1000 / stats.updated_items);
+        if (stats.cached_items)
+            printf("cached prep %.3f ms/item; ", stats.cached_prepare * 1000 / stats.cached_items);
+        printf("counts exclude setup/warm-up.\n");
+        if (r->test.moving || r->test.styles)
+            printf("  deterministic trial minimum %lu items, completion boundary %lu items; simulated FPS %d.\n",
+                    xb_lighting_min_frames(&r->test), xb_lighting_cycle_frames(&r->test), r->test.sim_fps);
+    }
     if (r->triangles)
         printf("  nominal area %.3f px/facet (%.3f..%.3f); input payload %lu bytes/%s\n",
             r->area_mean, r->area_min, r->area_max, (unsigned long)r->input_bytes, unit);
@@ -1096,7 +1238,7 @@ static void print_result(FILE *csv, const xb_result *r)
             r->test.lighting == XB_LIGHT_LAMBERT ? " + ambient" : "",
             style_layers(&r->test),
             lighting_sample(&r->test));
-        printf("  lighting facets/sec uses total_ms (CPU preparation + reset + completed draw).\n");
+        printf("  completed throughput includes CPU preparation, reset and completed draw.\n");
     }
     if (r->test.vertex_material)
         printf("  Material RGB sampled at each corner; interpolation includes texture color.\n");
@@ -1109,7 +1251,14 @@ static void print_result(FILE *csv, const xb_result *r)
         printf("  Backface culling %s; %s winding. Facet rate counts submitted triangles,\n"
                "  including rejected backfaces; this is not a CPU-culling comparison.\n",
                r->test.cull ? "on" : "off", r->test.mixed_winding ? "mixed" : "all-front");
-    if (r->test.work == XB_FRAME)
+    if (presentation_case(&r->test))
+        printf("  Presentation path: %s.\n", r->test.work == XB_FRAME ?
+                "scene + masked HUD + swap" : "scene + swap; HUD deliberately excluded");
+    if (r->test.transparency)
+        printf("  Blended opacity %.2f; Z writes %s; submitted order %s.\n",
+                r->test.opacity, r->test.blend_zwrite ? "enabled" : "frozen",
+                r->test.reverse ? "far-to-near" : "near-to-far");
+    if (presentation_case(&r->test))
         printf("  15 FPS reference: %.1f%% of 66.667 ms; %.3f ms budget remaining.\n"
                "  Synthetic render workload only; engine work and polling still need time.\n",
                100.0 * r->median / XB_TARGET_FRAME_SECONDS,
@@ -1214,6 +1363,32 @@ static void findings(const xb_result *r, int count, int width, int height)
                     b->median * 1000, a->median * 1000);
         }
     }
+    a = find_result(r, count, width, height,
+                    "pipeline/serialized/quake-cpu-smooth/depth-1");
+    b = find_result(r, count, width, height,
+                    "pipeline/streaming/quake-cpu-smooth/depth-1");
+    if (a && b && b->median > 0)
+        printf("  Quake-like smooth depth-1: queue %d gives %.2fx completed throughput vs queue 1\n"
+               "    (%.3f vs %.3f ms/item; CPU light evaluation and completion included, no swaps).\n",
+                b->queue_limit, a->median / b->median, b->median * 1000, a->median * 1000);
+    a = find_result(r, count, width, height,
+                    "lighting/submit/multi_polygon/cpu-smooth/point-1/depth-1");
+    b = find_result(r, count, width, height,
+                    "lighting/submit/multi_polygon/xgl-smooth/point-1/depth-1");
+    if (a && b && b->median > 0)
+        printf("  Sampled vertex materials, smooth Lambert point light: XGL %.2fx CPU total throughput\n"
+               "    (%.3f vs %.3f ms; identical eight-position cycles, including preparation).\n",
+                a->median / b->median, b->median * 1000, a->median * 1000);
+    for (shade = 0; shade < 2; ++shade) {
+        sprintf(name, "scene/texture/%s/depth-1", shade ? "vertex-smooth" : "facet-flat");
+        a = find_result(r, count, width, height, name);
+        sprintf(name, "texture-map/%s/frame/depth-1", shade ? "vertex-smooth" : "facet-flat");
+        b = find_result(r, count, width, height, name);
+        if (a && b)
+            printf("  Sampled %s depth-1 scene+swap %.3f ms; scene+HUD+swap %.3f ms.\n"
+                   "    Difference includes any presentation timing variation; both paths validated.\n",
+                    shade ? "smooth" : "flat", a->median * 1000, b->median * 1000);
+    }
     for (shade = 0; shade < 2; ++shade) {
         for (lights = 0; lights <= 4; ++lights) {
             if (lights == 3) continue;
@@ -1301,6 +1476,7 @@ int main(int argc, char **argv)
     if (parsed == 2) return 0;
     if (!parsed) { usage(stderr); return 2; }
     count = make_cases(cases);
+    for (i = 0; i < count; ++i) cases[i].sim_fps = o.sim_fps;
     selected = select_cases(cases, count, &o, order);
     if (selected < 0) return 1;
     if (o.list_only)
@@ -1336,9 +1512,12 @@ int main(int argc, char **argv)
                      "nominal_area_mean_px,nominal_area_min_px,nominal_area_max_px,input_payload_bytes,");
         fprintf(csv, "shading,lighting_model,lighting_compute,light_count,light_motion,style_layers,lighting_sample,"
                      "material_sample,cull,winding,frame_budget_ms,frame_budget_fraction,"
-                     "texture_mapping,texture_filter,texture_execution,texture_width,texture_height,failure_kind\n");
+                     "texture_mapping,texture_filter,texture_execution,texture_width,texture_height,failure_kind,"
+                     "completed_facets_sec,rate_basis,sim_fps,color_update_items,light_update_items,"
+                     "updated_color_light_items,cached_color_light_items,updated_prepare_ms,cached_prepare_ms,"
+                     "native_current_bytes,native_peak_bytes,frame_path,transparency,opacity,blend_zwrite\n");
     }
-    results = (xb_result *)calloc(XB_MAX_RESULTS, sizeof(*results));
+    results = (xb_result *)calloc((size_t)planned, sizeof(*results));
     if (!results) { if (csv) fclose(csv); fprintf(stderr, "Out of memory.\n"); return 1; }
     run_start = xb_now();
     if (budget > 0) xb_deadline = run_start + budget;
@@ -1359,13 +1538,16 @@ int main(int argc, char **argv)
     xb_backend_info(stdout);
     printf("Settings: %d base triangles; %.3f seconds/trial; %d repeats; %.3f seconds warm-up; queue %d\n",
         o.base_triangles, o.seconds, o.repeats, o.warmup, o.queue);
+    printf("Simulation: %d FPS; styles tick at 10 Hz without wall-clock pacing.\n", o.sim_fps);
     printf("Sampled-color cases use CPU material RGB; texture-map cases also compare native XGL texturing.\n"
            "All timed rendering waits for completion. No result is a GPU-only timer.\n"
            "Totals include reset clears; draw render_ms excludes the reset. frame/* includes\n"
-           "clear+draw+masked HUD in render_ms and swap in present_ms. Their event polling is untimed.\n");
+           "clear+draw+masked HUD in render_ms and swap in present_ms. scene/* excludes HUD.\n"
+           "Their event polling is untimed. done/sec always uses completed total_ms.\n"
+           "CSV preserves the old triangles_per_second with rate_basis, and adds completed_facets_sec.\n");
     printf("Pipeline cases use one thread, retained slots and bounded post/drain windows.\n"
            "Their total includes clear+draw, preparation, event polling and final completion;\n"
-           "facets/sec uses this completed-item total, with render_ms empty (no swaps).\n"
+           "done/sec uses this completed-item total, with render_ms empty (no swaps).\n"
            "Enqueue/drain are host intervals, not GPU-stage times. max_queued counts software\n"
            "submissions since a drain, not hardware occupancy. Queue 1 is the matched control.\n");
     printf(
@@ -1373,7 +1555,9 @@ int main(int argc, char **argv)
            "Rebuild cases also recreate portable list AND strip representations; this\n"
            "is harness preparation cost, not an optimized engine implementation.\n"
            "Statistics are medians/ranges of per-trial means, not frame-latency percentiles.\n"
-           "Mesh bytes exclude XGL/native buffers and driver allocations.\n");
+           "Mesh bytes count portable arrays. Native current/case-peak bytes count application arrays,\n"
+           "descriptors and queue slots; exclude opaque XGL objects, driver storage and allocator overhead.\n"
+           "Native peak resets before configuration, including live allocations during case transitions.\n");
     printf("Nominal area is reference orthographic pixel area before transforms/clipping.\n"
            "Calibrated area/shape cases keep exact geometric area and count at both sizes;\n"
            "overlap is intentional when necessary, at equal Z with LEQUAL depth testing.\n"
@@ -1385,14 +1569,15 @@ int main(int argc, char **argv)
     printf("Lighting cases separate CPU flat/smooth colors from XGL facet/vertex illumination.\n"
            "Original smooth cases preserve facet material; vertex-material cases also interpolate texture color.\n"
            "Compare completed total_ms: XGL light-state changes and CPU recoloring are preparation.\n"
-           "Lighting facets/sec also uses total_ms. Point-lit flat pairs share equations but\n"
+           "Point-lit flat pairs share equations but\n"
            "not sample locations (CPU centroid vs device-chosen XGL vertex).\n");
     printf("Lambert tests use ambient+diffuse only; Quake-like radius falloff is a separate model.\n"
            "Baked/style samples are procedural. No BSP loading or baked+XGL-light hybrid is implied.\n"
-           "Lightstyles use deterministic 10Hz simulation ticks at six work items/tick, not wall time.\n"
+           "Lightstyles use deterministic 10 Hz ticks at the selected simulated FPS, not wall time.\n"
            "Normals and sample caches are built before timing; updated RGB/native light state is timed.\n");
-    printf("Animated-style trials reset their cache before timing, run at least 24 items,\n"
-           "and finish a six-item tick so even short trials exercise actual color changes.\n");
+    printf("Animated-style trials reset their cache before timing and cover at least four ticks;\n"
+           "they finish a complete cadence boundary. Moving-light trials complete eight-position cycles.\n"
+           "Logical update/cache counts and conditional preparation means exclude setup and warm-up.\n");
     printf("All cases use one application thread; no SMP or worker-thread tests are included.\n"
            "Full-frame budget reference is 15 FPS (66.667 ms), not a promised Quake frame rate.\n"
            "Allow time for engine logic, visibility, audio, input and workloads absent here.\n");
@@ -1422,7 +1607,7 @@ int main(int argc, char **argv)
         }
         rest_after_work(&o, xb_now() - active_start, w, h);
         printf("%-38s %9s %9s %9s %9s %10s %6s\n", "Test", "total_ms", "prep_ms",
-            "render_ms", "swap_ms", "facets/sec", "calls");
+            "render_ms", "swap_ms", "done/sec", "calls");
         for (i = 0; i < selected && !xb_quit && !budget_expired(); ++i) {
             r = &results[nresult++]; r->test = cases[order[i]]; r->width = w; r->height = h;
             fprintf(stderr, "[%dx%d] %s\n", w, h, r->test.name);

@@ -37,7 +37,7 @@ XB_TEST_LOG="$test_dir/list.log" "$bench" -list >"$test_dir/default.list"
 test ! -e "$test_dir/list.log" || fail "default listing opened the display"
 for profile in quick medium long extralong; do
     "$bench" "-$profile" -list >"$test_dir/$profile.list"
-    case "$profile" in quick) count=16 ;; medium|long) count=34 ;; *) count=217 ;; esac
+    case "$profile" in quick) count=16 ;; medium|long) count=34 ;; *) count=230 ;; esac
     test "$(wc -l <"$test_dir/$profile.list" | tr -d ' ')" = "$count" ||
         fail "$profile selected the wrong number of cases"
     sort "$test_dir/$profile.list" >"$test_dir/$profile.sorted"
@@ -53,24 +53,39 @@ test ! -s "$test_dir/missing" || fail "extralong dropped a long comparison"
 "$bench" -quick -quick -list >"$test_dir/repeated.list"
 cmp "$test_dir/repeated.list" "$test_dir/quick.list" >/dev/null || fail "repeated same profile changed selection"
 
-# Normal profiles exercise sampled colors and preserve paired lighting cases;
-# native texture mapping is opt-in and expensive depth-2/pipeline work is last.
+# Default profiles emphasize sampled materials, scene timing without a HUD,
+# Quake-like CPU lighting and one matched smooth CPU/XGL lighting comparison.
 for profile in quick medium long; do
     if grep -E '^texture-map/(point|bilinear|trilinear)/' "$test_dir/$profile.list" >/dev/null; then
         fail "$profile selected optional native texture mapping"
     fi
-    for compute in cpu-flat xgl-flat cpu-smooth xgl-smooth; do
-        grep -x "lighting/matched/$compute/point-1/depth-1" "$test_dir/$profile.list" >/dev/null ||
+    for compute in cpu-smooth xgl-smooth; do
+        grep -x "lighting/submit/multi_polygon/$compute/point-1/depth-1" "$test_dir/$profile.list" >/dev/null ||
             fail "$profile lost matched $compute lighting"
     done
+    for shade in flat smooth; do
+        grep -x "lighting/quake-like/cpu-$shade/point-1/depth-1" "$test_dir/$profile.list" >/dev/null ||
+            fail "$profile lost Quake-like CPU $shade lighting"
+        grep -x "lighting/baked/cpu-$shade/cached/depth-1" "$test_dir/$profile.list" >/dev/null ||
+            fail "$profile lost cached CPU $shade lighting"
+    done
+    for material in facet-flat vertex-smooth; do
+        grep -x "scene/texture/$material/depth-1" "$test_dir/$profile.list" >/dev/null ||
+            fail "$profile lost scene-only $material frame"
+    done
+    grep -x 'overhead/color-depth-clear' "$test_dir/$profile.list" >/dev/null ||
+        fail "$profile lost combined clear comparison"
 done
 awk '
-    /^frame\/lighting\// { frame=NR }
-    /^lighting\/baked\/.*\/styles-4\// { style=NR }
-    /^texture\/.*\/depth-2$/ { if (!frame || !style) bad++; depth=NR }
+    /^scene\/lighting\// { scene=NR }
+    /^frame\/lighting\// { if (!scene) bad++; frame=NR }
+    /^lighting\/baked\/.*\/styles-4\// { if (!frame) bad++; style=NR }
+    /^transparency\// { if (!style) bad++; blends++ }
+    /^texture\/.*\/depth-2$/ { if (blends != 6) bad++; depth=NR }
     /^pipeline\// { if (!depth) bad++; pipeline++ }
-    END { if (!frame || !style || !depth || pipeline != 4 || bad) exit 1 }
+    END { if (!scene || !frame || !style || !depth || pipeline != 2 || bad) exit 1 }
 ' "$test_dir/long.list" || fail "long profile priority order changed"
+
 "$bench" -quick -test texture-map/point/draw/depth-0 -list >"$test_dir/native.list"
 grep -x 'texture-map/point/draw/depth-0' "$test_dir/native.list" >/dev/null ||
     fail "optional native texture case became inaccessible"
@@ -103,7 +118,7 @@ for profile in quick medium long extralong; do
     awk '/^clock-sleep / { if ($2 <= 0 || $2 > .100001) bad++; sleeps++ }
          END { if (!sleeps || bad) exit 1 }' "$test_dir/$profile.log" ||
         fail "$profile disabled mandatory rest or used uninterruptible sleep chunks"
-    case "$profile" in quick) completed=16 ;; medium) completed=34 ;; long) completed=68 ;; *) completed=434 ;; esac
+    case "$profile" in quick) completed=16 ;; medium) completed=34 ;; long) completed=68 ;; *) completed=460 ;; esac
     grep "Completed $completed cases; 0 skipped/failed" "$test_dir/output" >/dev/null ||
         fail "$profile omitted short samples from its selection"
 done
@@ -126,8 +141,8 @@ done
 # profile flag. Profiles change defaults, never override an explicit value.
 for order in before after; do
     case "$order" in
-        before) set -- -seconds .001 -warmup 0 -repeats 2 -pause 0 -winsize 192 128 -long ;;
-        after) set -- -long -seconds .001 -warmup 0 -repeats 2 -pause 0 -winsize 192 128 ;;
+        before) set -- -sim-fps 60 -seconds .001 -warmup 0 -repeats 2 -pause 0 -winsize 192 128 -long ;;
+        after) set -- -long -sim-fps 60 -seconds .001 -warmup 0 -repeats 2 -pause 0 -winsize 192 128 ;;
     esac
     XB_TEST_LOG="$test_dir/override-$order.log" \
         "$bench" "$@" -triangles 8 -test submit/multi_polygon/batch-128 \
@@ -135,6 +150,7 @@ for order in before after; do
     grep '0.001 seconds/trial; 2 repeats; 0.000 seconds warm-up' "$test_dir/output" >/dev/null ||
         fail "$order timing options were overridden by the profile"
     grep '^open 192 128$' "$test_dir/override-$order.log" >/dev/null || fail "$order size override"
+    grep '^simulation-fps 60 0$' "$test_dir/override-$order.log" >/dev/null || fail "$order simulation override"
     if grep '^resize ' "$test_dir/override-$order.log" >/dev/null; then
         fail "$order size override was ignored"
     fi
@@ -151,12 +167,12 @@ grep '^clock-sleep ' "$test_dir/pause-0.log" >/dev/null || fail "zero minimum pa
 awk '
     /^lighting-configure / { cases++ }
     /^clock-sleep / {
-        if (cases == 6 || $2 <= 0 || $2 > .100001) bad++
+        if (cases == 10 || $2 <= 0 || $2 > .100001) bad++
         rested[cases]=1; sleeps++
     }
     END {
-        for (i=1; i<6; ++i) if (!rested[i]) bad++
-        if (cases != 6 || !sleeps || bad) exit 1
+        for (i=1; i<10; ++i) if (!rested[i]) bad++
+        if (cases != 10 || !sleeps || bad) exit 1
     }
 ' "$test_dir/pause-.5.log" || fail "cooling placement or event polling interval is incorrect"
 awk -F, '
@@ -175,7 +191,7 @@ awk -F, '
             compared++
         }
     }
-    END { if (!record || !name || !status || !total || compared != 6 || bad) exit 1 }
+    END { if (!record || !name || !status || !total || compared != 10 || bad) exit 1 }
 ' "$test_dir/pause-0.csv" "$test_dir/pause-.5.csv" || fail "idle time leaked into reported throughput"
 
 # Opening consumes the fixed profile budget even with explicit sample/pause
@@ -200,15 +216,19 @@ awk -F, '
         record=col["record"]; status=col["status"]; kind=col["failure_kind"]
         total=col["total_ms"]; render=col["render_ms"]; rate=col["triangles_per_second"]
         enqueue=col["enqueue_ms"]; drain=col["drain_ms"]
+        complete=col["completed_facets_sec"]; updated=col["updated_color_light_items"]; cached=col["cached_color_light_items"]
+        uprep=col["updated_prepare_ms"]; cprep=col["cached_prepare_ms"]
+        current=col["native_current_bytes"]; peak=col["native_peak_bytes"]
         next
     }
     {
         if (NF != columns || $record != "summary" || $status != "not-run" ||
             $kind != "not-run" || $total != "" || $render != "" || $rate != "" ||
-            $enqueue != "" || $drain != "") bad++
+            $enqueue != "" || $drain != "" || $complete != "" || $updated != "" || $cached != "" ||
+            $uprep != "" || $cprep != "" || $current != "" || $peak != "") bad++
         rows++
     }
-    END { if (!record || !status || !kind || !total || !render || !rate || !enqueue || !drain || rows != 16 || bad) exit 1 }
+    END { if (!record || !status || !kind || !total || !render || !rate || !enqueue || !drain || !complete || !updated || !cached || !uprep || !cprep || !current || !peak || rows != 16 || bad) exit 1 }
 ' "$test_dir/open-expiry.csv" || fail "unattempted cases missing or reported timing"
 
 # The fourth/fifth draw is inside the first timed trial after preview and one
@@ -270,7 +290,7 @@ if XB_TEST_OPEN_ADVANCE=2701 XB_TEST_LOG="$test_dir/extra-expiry.log" \
 fi
 grep 'Time limit: 2700 seconds' "$test_dir/output" >/dev/null || fail "extralong overrides changed the ceiling"
 grep 'Profile time budget reached' "$test_dir/output" >/dev/null || fail "extralong remained unbounded"
-grep '434 selected cases not run' "$test_dir/output" >/dev/null || fail "extralong expiry lost unrun cases"
+grep '460 selected cases not run' "$test_dir/output" >/dev/null || fail "extralong expiry lost unrun cases"
 if grep '^lighting-configure ' "$test_dir/extra-expiry.log" >/dev/null; then
     fail "expired extralong profile configured a workload"
 fi

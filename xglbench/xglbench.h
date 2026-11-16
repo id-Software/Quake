@@ -5,7 +5,7 @@
 #include <stddef.h>
 #include <stdio.h>
 
-#define XB_VERSION "0.7.1"
+#define XB_VERSION "0.8"
 #define XB_MAX_QUEUE 8
 #define XB_MAX_LIGHTS 4
 #define XB_STYLE_LAYERS 4
@@ -39,7 +39,8 @@ typedef struct {
 
 enum xb_method { XB_POLYGON, XB_MULTI, XB_TLIST, XB_STRIP };
 enum xb_work { XB_DRAW, XB_COLOR_CLEAR, XB_DEPTH_CLEAR, XB_SWAP,
-               XB_RASTER, XB_MASKED_RASTER, XB_FRAME, XB_PIPELINE };
+               XB_RASTER, XB_MASKED_RASTER, XB_FRAME, XB_PIPELINE,
+               XB_SCENE_FRAME, XB_COLOR_DEPTH_CLEAR };
 enum xb_update { XB_STATIC, XB_TRANSFORM, XB_COLORS, XB_REBUILD, XB_LIGHT_UPDATE };
 enum xb_shade { XB_FLAT, XB_SMOOTH };
 enum xb_light_model { XB_LIGHT_OFF, XB_LIGHT_BAKED, XB_LIGHT_LAMBERT, XB_LIGHT_QUAKE };
@@ -75,22 +76,32 @@ typedef struct {
     enum xb_light_model lighting;
     enum xb_texture_filter texture_filter;
     int xgl_lighting, lights, directional, styles, moving;
+    int sim_fps; /* zero selects the 15 FPS deterministic simulation default */
+    int transparency, blend_zwrite;
+    float opacity; /* 0..1; used only for blended transparency cases */
 } xb_case;
 
 typedef struct {
     int width, height, force_size;
-    int repeats, base_triangles, allow_fallback, list_only, queue, custom_timing;
+    int repeats, base_triangles, allow_fallback, list_only, queue, custom_timing, sim_fps;
     enum xb_profile profile;
     double seconds, warmup, pause;
     const char *csv_path, *filter, *display;
 } xb_options;
+
+/* Logical color/light updates, not upload bytes or hardware work. Preparation
+ * includes native conversion/copies even when a logical result is cached. */
+typedef struct {
+    unsigned long color_updates, light_updates, updated_items, cached_items;
+    double updated_prepare, cached_prepare;
+} xb_update_stats;
 
 typedef struct {
     xb_case test;
     int width, height, passed, samples;
     enum xb_failure failure;
     unsigned long frames;
-    size_t triangles, calls, bytes;
+    size_t triangles, calls, bytes, native_current_bytes, native_peak_bytes;
     double total[XB_MAX_REPEATS];
     double prepare[XB_MAX_REPEATS];
     double render[XB_MAX_REPEATS];
@@ -98,6 +109,7 @@ typedef struct {
     double cpu[XB_MAX_REPEATS];
     double drain[XB_MAX_REPEATS];
     double enqueue[XB_MAX_REPEATS];
+    xb_update_stats updates[XB_MAX_REPEATS];
     double area_mean, area_min, area_max;
     size_t input_bytes;
     int queue_limit;
@@ -136,6 +148,8 @@ const char *xb_method_name(enum xb_method method);
 int xb_lighting_init(xb_mesh *mesh, const xb_case *test);
 int xb_lighting_update(xb_mesh *mesh, const xb_case *test,
                        unsigned long sequence, xb_light_state *state);
+unsigned long xb_lighting_cycle_frames(const xb_case *test);
+unsigned long xb_lighting_min_frames(const xb_case *test);
 void xb_lighting_state(const xb_case *test, unsigned long sequence,
                        xb_light_state *state);
 xb_rgb xb_lighting_evaluate(const xb_light_state *state, const xb_point *position,
@@ -158,6 +172,10 @@ int xb_cancel_requested(void);
 
 /* Backend owns all native arrays; these functions never retain mesh pointers. */
 enum xb_failure xb_backend_failure(void);
+/* Application-owned native buffers only; excludes opaque XGL/driver storage.
+ * Reset before configuring a case; sample before releasing its pipeline slots. */
+void xb_backend_memory(size_t *current, size_t *peak);
+void xb_backend_memory_reset_peak(void);
 int xb_backend_open(const xb_options *options, int width, int height);
 void xb_backend_close(void);
 int xb_backend_resize(int width, int height);

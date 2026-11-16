@@ -68,7 +68,7 @@ requires builds and readback checks against those installed SDKs/runtimes.
 
 ## Run
 
-Version 0.7.1 defaults to the **quick** profile at **320x240**, with a one-minute
+Version 0.8 defaults to the **quick** profile at **320x240**, with a one-minute
 elapsed-time limit:
 
 ```sh
@@ -91,18 +91,18 @@ limit.
 | `-quick` (default) | 16 | 320x240 | 0.2 | 1 | 0.02 s | 1.5 s | 60 s |
 | `-medium` | 34 | 320x240 | 0.25 | 2 | 0.03 s | 2.5 s | 180 s |
 | `-long` | 34 | 320x240, 640x480 | 0.4 | 2 | 0.05 s | 3.0 s | 420 s |
-| `-extralong` | 217 | 320x240, 640x480 | 0.5 | 3 | 0.1 s | 2.0 s | 2700 s (45 min) |
+| `-extralong` | 230 | 320x240, 640x480 | 0.5 | 3 | 0.1 s | 2.0 s | 2700 s (45 min) |
 
-Quick prioritizes sampled flat/smooth draw colors at depth zero, four
-primitive submission methods, sampled flat/smooth complete frames at depth
-zero, matched CPU/XGL flat/smooth point-light draws at depth one, cached baked
-flat/smooth lighting at depth one, and sampled flat/smooth colors at depth one.
-Medium adds sampled complete frames at depth one, four-layer lightstyle
-updates, CPU/XGL lit frames, mixed-winding culling, color/depth clears,
-depth-two sampled colors, and serialized/streaming cached/relight pairs.
+Quick compares individual polygons and two batched submission APIs, sampled
+flat/smooth draws at depth one, matching frames with and without the HUD,
+CPU/XGL smooth lighting with vertex-sampled materials, CPU Quake-like dynamic
+lighting, cached baked lighting, and a combined color/depth clear.
+Medium adds Quake-like frames with and without the HUD, four-layer lightstyle
+updates, six transparency cases, separate color/depth clears, depth-two
+sampled colors, and serialized/streaming Quake-like smooth lighting.
 Long runs the same 34 cases at both resolutions with longer trials.
 Native texture mapping is optional: use an explicit `-test` filter or
-`-extralong`, which retains the complete 217-case registry. The later sections
+`-extralong`, which retains the complete 230-case registry. The later sections
 describe all available families; a short profile need not include every case
 described there.
 
@@ -151,7 +151,7 @@ two-to-one idle-to-active rule remains in effect.
 Setup, readback validation and minimum work counts vary with the machine, so
 profiles may finish early or reach their limits before attempting every
 selected case. Extra-long's default workload and rest periods take roughly
-35 minutes before setup and validation; its 45-minute limit can leave cases
+37 minutes before setup and validation; its 45-minute limit can leave cases
 unattempted on slower systems. These measures reduce continuous benchmark
 activity, but do not measure temperature or guarantee protection for aging
 graphics hardware.
@@ -182,7 +182,7 @@ warm-up work are outside the measured rendering intervals.
 ./xglbench -quick -test lighting/ -seconds .2 -warmup .02 -pause 0 -csv lighting.csv
 ```
 
-`-test TEXT` selects matching names from the **full 217-case registry**, even
+`-test TEXT` selects matching names from the **full 230-case registry**, even
 when they are outside the profile's usual subset. The chosen profile still
 supplies resolutions, timings, pauses and any elapsed-time limit.
 `-list` shows the selected profile or filter without opening XGL;
@@ -209,6 +209,7 @@ Options:
 | `-pause N` | Override the minimum idle pause in seconds; zero retains the adaptive two-to-one rest period. |
 | `-triangles N` | Positive even base triangle count, at most 16384; default 512. |
 | `-queue N` | Maximum outstanding work items in streaming cases, 1 through 8; default 2. Serialized controls use one slot. |
+| `-sim-fps N` | Deterministic simulated frame rate for 10 Hz lightstyles, from 1 to 240; default 15. Use 60 for the previous cadence. This does not pace rendering or change the elapsed-time limits. |
 | `-test TEXT` | Select matching names from the full registry, retaining the profile's other settings. |
 | `-csv PATH` | Save machine-readable results as well as the terminal report. |
 | `-display DISPLAY` | Select an X display. Local DGA is the intended path. |
@@ -275,11 +276,15 @@ not an assessment of run-to-run variation.
   separate from recombining animated lightstyle layers. This tests the work
   needed to update supplied colors without reconstructing the baked field
   from XGL light sources.
-* **How much frame overhead remains?** Color clears, depth clears, swaps,
-  and full-frame workloads separate fixed work from primitive throughput.
-  Full-frame cases include a masked HUD copy as well as the scene and swap.
+* **How much frame overhead remains?** Separate and combined color/depth
+  clears, swaps, and frame workloads separate fixed work from primitive
+  throughput. Matched scene-and-swap and full-frame cases isolate the masked
+  HUD copy; both require working double buffering.
 * **Can a practical HUD be cheap?** Opaque and one-bit-masked raster-copy
   cases exercise 2D images without creating a triangle per image pixel.
+* **Does native transparency work correctly and cheaply?** Overlapping
+  opaque and blended geometry tests submission order and optional depth
+  writes, with readback checks before accepting blended timings.
 * **Is actual XGL texture mapping usable?** Optional point, bilinear and
   trilinear texture modes use the same CPU-generated image as matched
   flat-facet and smooth-corner controls. Draw-only, complete-frame and
@@ -301,6 +306,8 @@ The added cases keep the original measurements available for comparison:
 | Cases | What changes |
 | --- | --- |
 | `texture/{facet-flat,vertex-smooth}/depth-{0,1,2}` | Compare one filtered material color per triangle with independently sampled corner colors, with XGL lighting disabled. |
+| `scene/texture/{facet-flat,vertex-smooth}/depth-{0,1}` | Color/Z clear, sampled geometry, swap and completion, without a HUD. Matched HUD-inclusive controls are `texture-map/{facet-flat,vertex-smooth}/frame/depth-{0,1}`. |
+| `scene/lighting/{cpu-flat,cpu-smooth}/quake-point-1/depth-1` | Quake-like lighting, color/Z clear, geometry, swap and completion, without a HUD. |
 | `frame/lighting/{cpu-flat,cpu-smooth,xgl-flat,xgl-smooth}/point-1/depth-{0,1,2}` | Moving Lambert light, color/Z clear, geometry, masked HUD, buffer swap and completion. |
 | `frame/lighting/{cpu-flat,cpu-smooth}/quake-point-1/depth-{0,1,2}` | The same complete-frame path with CPU baked-plus-dynamic Quake-like lighting. |
 | `pipeline/{serialized,streaming}/quake-{cpu-flat,cpu-smooth}/depth-{0,1,2}` | Bounded one-thread CPU/device overlap with actual CPU light evaluation and native color updates; no swaps. |
@@ -343,6 +350,41 @@ The queue is immutable application geometry storage awaiting device completion,
 not a thread count. Queue one is the serialized reference. No test uses the
 second host processor explicitly. Real SDK and on-device readback validation
 remain required before treating any timings as hardware evidence.
+
+The `scene/*` cases intentionally omit the HUD. A failed HUD raster check
+still disqualifies its corresponding complete-frame case; it does not
+silently remove the HUD from that result. Compare each pair at the same
+resolution and detail level. Their timings establish render-path costs,
+not whole-game frame rates.
+
+## Combined clears and transparency
+
+`overhead/color-depth-clear` times a single combined color/Z clear followed
+by completion. Before timing, a readback probe verifies both the background
+color reset and removal of an earlier depth value. Separate color-only and
+depth-only results remain available, but their durations should not be added
+to estimate the combined operation. Ordinary draw and frame totals already
+include their reset clear.
+
+`transparency/{opaque,blended-zfreeze,blended-zwrite}/{near-to-far,far-to-near}`
+uses matching overlapping geometry. Blended cases use 0.5 opacity,
+arbitrary-background blending, and either frozen or writable Z values.
+Opacity is reported in the usual sense: one is opaque; XGL's transparency
+attribute receives its complement. Depth testing stays enabled in all six
+cases. Submission order and depth writes can intentionally change the image.
+
+The blended path must pass readback checks for opacity zero, one-half and
+one; rejection behind opaque geometry; depth freeze/write behavior; both
+submission orders; and restoration of opaque drawing. The device's coarse
+transparency inquiry alone is insufficient. Non-hardware transparency needs
+`-allow-fallback` and remains labeled as a diagnostic fallback. These cases
+measure constant surface transparency, not per-texel alpha. Existing one-bit
+HUD masks test cutouts separately.
+
+```sh
+./xglbench -test overhead/color-depth-clear -quick
+./xglbench -test transparency/ -quick -csv transparency.csv
+```
 
 ## Native XGL texture mapping
 
@@ -535,21 +577,29 @@ triangles under moving point lights.
 Baked-light cases use procedural sample layers, not BSP data or a Quake map.
 The cached variant prepares lit colors before timing. Animated variants
 recombine one or four lightstyle layers and retain cached results when the
-style coefficients have not changed. The deterministic simulation advances
-one frame per work item, with a 10 Hz style tick every six simulated frames;
-it is not paced by wall-clock time. Positional light animation likewise uses
-the work-item sequence. The source material colors remain
-immutable; repeated updates do not multiply an already illuminated color.
+style coefficients have not changed. Each work item advances simulated time
+by `1 / sim_fps` seconds, and the style tick is `floor(sequence * 10 / sim_fps)`.
+The default 15 simulated FPS matches the initial engine frame-rate target;
+`-sim-fps 60` retains the previous six-items-per-tick cadence. Rendering runs
+unpaced and is still measured with the wall clock. The source material colors
+remain immutable; repeated updates do not multiply an already illuminated color.
 This is an approximation of the work involved in sampling and updating
 Quake lighting, not a complete implementation of its surface cache.
 
 Before each animated-style trial, the colors and style cache are reset to
-phase zero outside timing. A successful measured trial runs at least 24 work items
-and ends on a complete six-item tick. This ensures that even short trials
-exercise actual style changes, including the one-layer pattern's changes at
-items 12 and 18 (zero-based sequence). On slower hardware, this minimum work
-can extend a trial beyond its requested minimum duration. If the profile's
-elapsed-time limit interrupts this work, the incomplete case is skipped.
+phase zero outside timing. A successful measured trial covers at least four
+style ticks and ends at a complete frame/tick cadence boundary: at least six
+items at 15 simulated FPS, or 24 at 60 FPS. This is a cadence boundary, not a
+complete repetition of every arbitrary lightstyle string. Actual update and
+cache counts are reported, since repeated coefficients can avoid recoloring.
+On slower hardware, minimum work can extend a trial beyond its requested
+minimum duration. If the profile's elapsed-time limit interrupts this work,
+the incomplete case is skipped.
+
+Moving lights use a repeating eight-position fixture. Every accepted animated
+light trial contains complete cycles, so faster CPU/XGL implementations do not
+sample a different distribution of light positions. The fixture controls the
+workload; it is not an animation-speed or real-time frame-rate measurement.
 
 The separate Quake-like dynamic-light cases combine baked illumination with
 a finite-radius, surface-distance lighting contribution on the CPU. They
@@ -651,10 +701,26 @@ primitive throughput.
 For the original serialized cases, `total_ms` includes the reset clears
 before drawing; ordinary draw-case `render_ms` excludes those clears.
 `frame/*` includes clear, draw and masked HUD in `render_ms` and swaps in
-`present_ms`. Event polling is outside these elapsed frame totals. Process
+`present_ms`; `scene/*` has the same timing boundaries with the HUD omitted.
+Event polling is outside these elapsed frame totals. Process
 CPU time includes the trial's polling and loop overhead.
-Reported mesh memory counts the portable arrays only, excluding native XGL
-arrays, framebuffer storage and driver allocations. Geometry rebuilding also
+The terminal's `done/sec` and CSV `completed_facets_sec` consistently divide
+submitted facets per item by completed `total_ms`, including preparation and
+the reset clear. The older CSV `triangles_per_second` is preserved:
+`rate_basis` identifies its denominator as `render_ms` for ordinary cases
+or `total_ms` for lighting and pipeline cases. Prefer the completed rate
+for comparisons across families. It counts submitted facets, including any
+culled or depth-rejected geometry.
+
+Reported `mesh_bytes` counts the portable arrays. `native_current_bytes`
+and `native_peak_bytes` separately count application-owned native geometry,
+descriptors, and streaming-slot heap payloads. The peak resets immediately
+before each case's configuration, with existing live buffers as its baseline;
+current storage is sampled before case cleanup. These are case-level values
+repeated on trial rows. They exclude XGL objects, raster storage, framebuffer
+and driver allocations, allocator metadata, and stack storage, so they are
+not process-memory measurements. Do not add independent peaks as if they
+were a measured simultaneous peak. Geometry rebuilding also
 includes allocation, both the portable independent-triangle and strip
 representations, and native-array conversion. This is the preparation cost
 of the benchmark harness, not an optimized engine mesh-generation or CPU
@@ -681,6 +747,18 @@ The `frames_all_trials` field
 is the total completed-item count for the case even on individual trial
 rows; for pipeline cases those items are not presented frames. The
 `timing_mode` field distinguishes the timing contracts.
+`sim_fps` records the simulation setting. Lighting and synthetic relighting
+rows also report `color_update_items`, `light_update_items`,
+`updated_color_light_items`, and `cached_color_light_items`. A work item
+counts once in the updated total if either color or light state changes.
+`updated_prepare_ms` and `cached_prepare_ms` are conditional mean preparation
+times for those two groups, including native conversion/copy costs. Counts
+exclude setup and warm-up; trial rows contain that trial's counts, while
+summary rows sum the accepted trials and use count-weighted preparation
+means. An empty conditional mean means no items were observed in that group.
+Unrelated cases leave these fields empty. A logical cache hit does not
+assert zero native copies, bus traffic, or device work.
+
 The `retained` flag is one for pipeline cases because timed draws retain
 their native slot arrays, including when slot colors change between drains.
 `queue_limit`, `max_queued`, and `drain_calls` describe the bounded streaming run.
@@ -690,13 +768,18 @@ hardware queue depth. `drain_calls` is the total number of measured drains
 across those trials. Like `frames_all_trials`, both fields repeat the case's
 aggregate metadata on individual trial rows.
 
-`material_sample` records `facet`, `vertices`, or native `texels`; `cull` and `winding` describe
-the culling fixture. Successful `frame/*` rows also have `frame_budget_ms`
-(66.667 ms) and `frame_budget_fraction` (`total_ms` divided by that budget).
+`material_sample` records `facet`, `vertices`, or native `texels`; `cull` and
+`winding` describe the culling fixture. Successful HUD-inclusive and `scene/*`
+frame rows also have `frame_budget_ms` (66.667 ms) and `frame_budget_fraction`
+(`total_ms` divided by that budget).
 Those two fields are empty for skipped and non-frame cases. A fraction below
 one only means this synthetic render workload fits the reference budget;
 it does not establish 15 FPS in Quake. Portable/mock results have no hardware
 performance meaning even when their fractions are small.
+`frame_path` distinguishes `hud-swap`, `scene-swap`, `pipeline-no-swap`,
+`draw-only`, and `none`. `transparency`, `opacity`, and `blend_zwrite` record
+the blend configuration; opacity and blend-write fields are empty for opaque
+cases. These labels describe requested work even when a case is skipped.
 
 Native texture cases use `material_sample=texels`. The additional
 `texture_mapping`, `texture_filter`, `texture_execution`, `texture_width`
@@ -783,10 +866,13 @@ SDK**. This check cannot validate binary ABI compatibility, the arguments
 passed through XGL's variadic attribute interfaces, native behavior, or
 performance. It is optional and separate from `make check`.
 
-`make native-contract-check` runs focused host tests of the native backend's
-memory-raster setup and readback error handling using mock XGL functions.
-It checks partial-object cleanup and retries, validated raster properties,
-and preservation of native errors. This separate target uses GNU-compatible
+`make native-contract-check` runs focused host tests of the native backend
+using mock XGL functions. It checks memory-raster setup, partial-object
+cleanup and retries, validated raster properties, preservation of native
+errors, native heap counters, and geometry/stream-slot cleanup. A scalar
+color/depth model also injects clear, blending, depth and readback faults to
+verify that the new correctness gates reject them and restore drawing state.
+This separate target uses GNU-compatible
 section garbage collection to link only the tested backend functions; it
 does not require or emulate the XGL runtime and is not a Solaris build target.
 

@@ -380,6 +380,77 @@ static void test_raster_validation_cache(void)
     }
 }
 
+static void test_native_memory_accounting(void)
+{
+    unsigned char *first, *second;
+    size_t current, peak, i;
+    xb_backend_memory(&current, &peak);
+    assert(current == 0);
+    xb_backend_memory_reset_peak();
+    first = (unsigned char *)native_calloc(7, 3);
+    assert(first != NULL);
+    for (i = 0; i < 21; ++i) assert(first[i] == 0);
+    memset(first, 0x5a, 21);
+    xb_backend_memory(&current, &peak);
+    assert(current == 21 && peak == 21);
+    second = (unsigned char *)native_calloc(11, 5);
+    assert(second != NULL);
+    xb_backend_memory(&current, &peak);
+    assert(current == 76 && peak == 76);
+    native_free(first);
+    xb_backend_memory(&current, &peak);
+    assert(current == 55 && peak == 76);
+    xb_backend_memory_reset_peak();
+    xb_backend_memory(&current, &peak);
+    assert(current == 55 && peak == 55);
+    assert(native_calloc((size_t)-1, 2) == NULL);
+    assert(native_calloc(1, (size_t)-1) == NULL);
+    xb_backend_memory(&current, &peak);
+    assert(current == 55 && peak == 55);
+    native_free(second);
+    native_free(NULL);
+    xb_backend_memory(&current, &peak);
+    assert(current == 0 && peak == 55);
+    xb_backend_memory_reset_peak();
+    xb_backend_memory(&current, &peak);
+    assert(current == 0 && peak == 0);
+}
+
+static void test_native_mesh_memory_lifetime(void)
+{
+    xb_mesh mesh;
+    xb_point points[3];
+    xb_rgb color;
+    size_t current, peak, one_slot;
+    reset_mock();
+    memset(&mesh, 0, sizeof(mesh));
+    memset(points, 0, sizeof(points));
+    memset(&color, 0, sizeof(color));
+    mesh.triangles = 1;
+    mesh.point_count = 3;
+    mesh.points = points;
+    mesh.colors = &color;
+    b.method = XB_MULTI;
+    b.batch = b.stream_batch = 128;
+    assert(xb_backend_upload(&mesh));
+    xb_backend_memory(&current, &peak);
+    assert(current > 0 && peak >= current);
+    free_geometry();
+    xb_backend_memory(&current, &peak);
+    assert(current == 0 && peak > 0);
+    xb_backend_memory_reset_peak();
+    assert(allocate_stream_slot(0, &mesh));
+    xb_backend_memory(&one_slot, &peak);
+    assert(one_slot > 0 && peak == one_slot);
+    assert(allocate_stream_slot(1, &mesh));
+    xb_backend_memory(&current, &peak);
+    assert(current == one_slot * 2 && peak == current);
+    free_stream_slots();
+    xb_backend_memory(&current, &peak);
+    assert(current == 0 && peak == one_slot * 2);
+    xb_backend_memory_reset_peak();
+}
+
 int main(void)
 {
     test_texture_creation_recovery();
@@ -388,6 +459,8 @@ int main(void)
     test_raster_inquiries();
     test_readback_error_preservation();
     test_raster_validation_cache();
+    test_native_memory_accounting();
+    test_native_mesh_memory_lifetime();
     reset_mock();
     puts("native raster control-flow tests passed (no graphics/SDK validation)");
     return 0;

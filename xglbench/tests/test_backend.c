@@ -40,6 +40,7 @@ static size_t test_texture_point_count;
 static unsigned long test_texture_checksum;
 static int test_texture_active;
 static int test_texture_bad;
+static size_t test_memory_peak;
 
 typedef struct {
     xb_rgb *colors;
@@ -63,6 +64,7 @@ static int test_stream_fail(const char *error);
 static unsigned long test_checksum(const xb_rgb *colors, size_t count);
 static unsigned long test_bytes_checksum(const void *data, size_t count);
 static void test_log(const char *operation, int width, int height);
+static void test_memory_sample(void);
 
 static const char *test_filter_name(enum xb_texture_filter filter)
 {
@@ -114,6 +116,7 @@ int xb_backend_open(const xb_options *options, int width, int height)
     test_native_texture_points = NULL;
     test_texture_point_count = 0;
     test_texture_active = test_texture_bad = 0;
+    test_memory_peak = 0;
     memset(&test_case, 0, sizeof(test_case));
     memset(&test_lights, 0, sizeof(test_lights));
     test_slot_count = test_outstanding = test_peak = 0;
@@ -271,6 +274,38 @@ int xb_backend_configure(const xb_case *test, const xb_mesh *mesh,
     test_log("culling-configure", test->cull, (int)test->method);
     test_log("material-configure", test->vertex_material, (int)test->shade);
     test_log("texture-configure", (int)test->texture_filter, test->texture_compare);
+    test_log("simulation-fps", test->sim_fps, 0);
+    if (test->work == XB_FRAME || test->work == XB_SCENE_FRAME)
+        test_log("frame-kind", test->work == XB_SCENE_FRAME, 0);
+    if (test->transparency) {
+        if (test->method != XB_MULTI || test->shade != XB_FLAT ||
+            test->lighting != XB_LIGHT_OFF || !test->zbuffer ||
+            test->texture_filter != XB_TEXTURE_OFF || test->cull ||
+            test->retained || test->streaming ||
+            !(test->opacity >= 0 && test->opacity <= 1))
+            return test_lighting_fail("unsupported mock transparency workload");
+        test_log("transparency-configure", (int)(test->opacity * 100), test->blend_zwrite);
+        failed = getenv("XB_TEST_FAIL_TRANSPARENCY");
+        if (failed && *failed) {
+            test_failure = XB_FAILURE_VALIDATION;
+            test_error = "injected transparency readback failure";
+            if (size) {
+                strncpy(reason, test_error, size - 1);
+                reason[size - 1] = '\0';
+            }
+            return 0;
+        }
+    }
+    if ((test->work == XB_FRAME || test->work == XB_RASTER ||
+         test->work == XB_MASKED_RASTER) && getenv("XB_TEST_FAIL_HUD")) {
+        test_failure = XB_FAILURE_VALIDATION;
+        test_error = "injected HUD readback failure";
+        if (size) {
+            strncpy(reason, test_error, size - 1);
+            reason[size - 1] = '\0';
+        }
+        return 0;
+    }
     if (test->texture_compare) {
         if (!mesh || mesh->point_count != mesh->triangles * 3 || !mesh->texcoords)
             return test_texture_fail("texture comparison lacks per-corner UV coordinates", reason, size);
@@ -378,6 +413,7 @@ int xb_backend_upload(const xb_mesh *mesh)
         }
         test_texture_checksum = test_bytes_checksum(test_native_texture_points,
                                    mesh->point_count * 5 * sizeof(float));
+        test_memory_sample();
         test_log("texture-payload", (int)mesh->point_count, 5);
     }
     if (test_case.lighting != XB_LIGHT_OFF || test_case.vertex_material) {
@@ -389,6 +425,7 @@ int xb_backend_upload(const xb_mesh *mesh)
         colors = test_case.shade == XB_SMOOTH ? mesh->vertex_colors : mesh->colors;
         memcpy(test_native_colors, colors, test_native_color_count * sizeof(xb_rgb));
         test_native_color_checksum = test_checksum(test_native_colors, test_native_color_count);
+        test_memory_sample();
         test_log("native-color-layout", (int)test_case.shade, (int)test_native_color_count);
     }
     return 1;
@@ -447,7 +484,10 @@ void xb_backend_transform(unsigned long frame)
 void xb_backend_clear(int color, int depth)
 {
     if (test_slot_count) test_log("queue-clear", color, depth);
-    if (test_case.work == XB_FRAME) test_log("frame-clear", color, depth);
+    if (test_case.work == XB_FRAME || test_case.work == XB_SCENE_FRAME)
+        test_log("frame-clear", color, depth);
+    if (test_case.work == XB_COLOR_DEPTH_CLEAR)
+        test_log("combined-clear", color, depth);
 }
 
 size_t xb_backend_draw(enum xb_method method, int batch)
@@ -465,7 +505,10 @@ size_t xb_backend_draw(enum xb_method method, int batch)
             return 0;
         }
     }
-    if (test_case.work == XB_FRAME) test_log("frame-draw", (int)method, batch);
+    if (test_case.work == XB_FRAME || test_case.work == XB_SCENE_FRAME)
+        test_log("frame-draw", (int)method, batch);
+    if (test_case.transparency)
+        test_log("transparency-draw", (int)(test_case.opacity * 100), test_case.reverse);
 #ifdef XB_PROFILE_TEST_CLOCK
     if (test_draw_advance_at && test_draws == test_draw_advance_at) {
         test_log("draw-advance", (int)test_draws, (int)test_draw_advance);
@@ -496,7 +539,8 @@ void xb_backend_sync(void)
 void xb_backend_swap(void)
 {
     if (test_slot_count) test_stream_fail("streaming test unexpectedly swapped");
-    if (test_case.work == XB_FRAME) test_log("frame-swap", 0, 0);
+    if (test_case.work == XB_FRAME || test_case.work == XB_SCENE_FRAME)
+        test_log("frame-swap", 0, 0);
 }
 void xb_backend_raster(int masked)
 {
@@ -506,6 +550,8 @@ void xb_backend_raster(int masked)
     if (test_case.texture_compare) test_log("texture-hud", test_texture_active, masked);
     if (test_slot_count) test_stream_fail("streaming test unexpectedly drew a HUD");
     if (test_case.work == XB_FRAME) test_log("frame-hud", masked, 0);
+    if (test_case.work == XB_SCENE_FRAME)
+        test_lighting_fail("scene-only frame unexpectedly drew a HUD");
     test_texture_active = texture_was_active;
 }
 int xb_backend_events(void)
@@ -545,6 +591,39 @@ enum xb_failure xb_backend_failure(void)
 {
     return test_failure != XB_FAILURE_NONE ? test_failure :
            (*test_error ? XB_FAILURE_ERROR : XB_FAILURE_NONE);
+}
+
+/* Only allocations owned by this test double are counted. These are not
+ * estimates of native XGL storage, framebuffer memory or driver allocations. */
+static size_t test_memory_current(void)
+{
+    size_t current;
+    int i;
+    current = test_native_colors ? test_native_color_count * sizeof(xb_rgb) : 0;
+    if (test_native_texture_points)
+        current += test_texture_point_count * 5 * sizeof(float);
+    for (i = 0; i < test_slot_count; ++i)
+        if (test_slots[i].colors) current += test_stream_color_count * sizeof(xb_rgb);
+    return current;
+}
+
+static void test_memory_sample(void)
+{
+    size_t current;
+    current = test_memory_current();
+    if (current > test_memory_peak) test_memory_peak = current;
+}
+
+void xb_backend_memory(size_t *current, size_t *peak)
+{
+    test_memory_sample();
+    *current = test_memory_current();
+    *peak = test_memory_peak;
+}
+
+void xb_backend_memory_reset_peak(void)
+{
+    test_memory_peak = test_memory_current();
 }
 
 size_t xb_backend_input_bytes(enum xb_method method, int batch)
@@ -618,6 +697,8 @@ int xb_backend_stream_begin(const xb_mesh *mesh, int slots, char *reason, size_t
         }
         memcpy(test_slots[i].colors, colors, test_stream_color_count * sizeof(xb_rgb));
         test_slots[i].pending = 0;
+        test_slot_count = i + 1;
+        test_memory_sample();
     }
     test_slot_count = slots;
     test_log("queue-begin", slots, (int)mesh->triangles);

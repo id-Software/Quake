@@ -21,6 +21,49 @@
 #include <string.h>
 
 #define XB_LIGHTING_MAX_TRIANGLES 262144UL
+#define XB_LIGHT_PHASES 8UL
+
+static const char *style_patterns[XB_STYLE_LAYERS] = {
+    "mmnmmommommnonmmonqnmmo", "abcdefghijklmnopqrstuvwxyzyxwvutsrqponmlkjihgfedcba",
+    "mmamammmmammamamaaamammma", "abcdefghijklmnopqrrqponmlkjihgfedcba"
+};
+
+static unsigned long simulation_fps(const xb_case *test)
+{
+    return test && test->sim_fps ? (unsigned long)test->sim_fps : 15UL;
+}
+
+unsigned long xb_lighting_cycle_frames(const xb_case *test)
+{
+    unsigned long fps, a, b, remainder;
+    if (!test || test->sim_fps < 0 || test->sim_fps > 240) return 1;
+    if (test->lighting == XB_LIGHT_BAKED && test->styles) {
+        fps = simulation_fps(test);
+        a = fps; b = 10;
+        while (b) { remainder = a % b; a = b; b = remainder; }
+        /* Complete the frame/tick cadence, not the full style strings. */
+        return fps / a;
+    }
+    if ((test->lighting == XB_LIGHT_LAMBERT || test->lighting == XB_LIGHT_QUAKE) &&
+        test->moving) return XB_LIGHT_PHASES;
+    return 1;
+}
+
+unsigned long xb_lighting_min_frames(const xb_case *test)
+{
+    unsigned long frames;
+    if (!test || test->sim_fps < 0 || test->sim_fps > 240) return 3;
+    if (test->lighting == XB_LIGHT_BAKED && test->styles) {
+        frames = (4UL * simulation_fps(test) + 9UL) / 10UL;
+        /* Very low simulated rates skip style ticks. Five samples still
+         * reach a changed value of the one-layer fixture at 1..9 FPS. */
+        if (simulation_fps(test) < 10 && frames < 5) frames = 5;
+        return frames < 3 ? 3 : frames;
+    }
+    if ((test->lighting == XB_LIGHT_LAMBERT || test->lighting == XB_LIGHT_QUAKE) &&
+        test->moving) return XB_LIGHT_PHASES;
+    return 3;
+}
 
 static float unit_color(double value)
 {
@@ -44,6 +87,7 @@ static int valid_case(const xb_case *test)
         (test->moving != 0 && test->moving != 1) ||
         (test->xgl_lighting != 0 && test->xgl_lighting != 1) ||
         (test->directional != 0 && test->directional != 1) ||
+        test->sim_fps < 0 || test->sim_fps > 240 ||
         test->styles < 0 || test->styles > XB_STYLE_LAYERS ||
         (test->vertex_material != 0 && test->vertex_material != 1) ||
         (test->vertex_material && test->shade != XB_SMOOTH))
@@ -127,7 +171,9 @@ void xb_lighting_state(const xb_case *test, unsigned long sequence,
     memset(state, 0, sizeof(*state));
     if (!valid_case(test) || test->lighting == XB_LIGHT_BAKED) return;
     if (!test->moving) sequence = 0;
-    phase = (double)(sequence % 360UL) * 0.017453292519943295;
+    /* A bounded complete cycle gives CPU and native trials identical phase
+     * distributions even when their measured frame rates differ. */
+    phase = (double)(sequence % XB_LIGHT_PHASES) * 0.78539816339744831;
     state->count = test->lights;
     state->directional = test->directional;
     state->ambient = 0.15f;
@@ -230,19 +276,22 @@ static xb_rgb quake_evaluate(const xb_light_state *state, const xb_point *positi
 static void style_weights(const xb_case *test, unsigned long sequence, float *weights)
 {
     /* Quake lightstyles advance at 10 Hz. One simulated work item advances
-     * 1/60 second, independent of measured speed. 'm' is normal brightness.
+     * 1/sim_fps second, independent of measured speed. 'm' is normal brightness.
      * These are deterministic test patterns, not map-supplied style strings. */
-    static const char *patterns[XB_STYLE_LAYERS] = {
-        "mmnmmommommnonmmonqnmmo", "abcdefghijklmnopqrstuvwxyzyxwvutsrqponmlkjihgfedcba",
-        "mmamammmmammamamaaamammma", "abcdefghijklmnopqrrqponmlkjihgfedcba"
-    };
     int i;
-    unsigned long tick;
+    unsigned long fps, length, tick;
     for (i = 0; i < XB_STYLE_LAYERS; ++i) weights[i] = 0.0f;
     if (!test->styles) { weights[0] = 1.0f; return; }
-    tick = sequence / 6UL;
-    for (i = 0; i < test->styles; ++i)
-        weights[i] = (float)(patterns[i][tick % strlen(patterns[i])] - 'a') / 12.0f;
+    fps = simulation_fps(test);
+    for (i = 0; i < test->styles; ++i) {
+        length = (unsigned long)strlen(style_patterns[i]);
+        /* floor(sequence * 10 / fps), modulo the string length. Reduce the
+         * whole-second term first so ULONG_MAX sequences cannot overflow;
+         * the fractional product is bounded by the 240 FPS input limit. */
+        tick = ((sequence / fps) % length) * 10UL +
+               ((sequence % fps) * 10UL) / fps;
+        weights[i] = (float)(style_patterns[i][tick % length] - 'a') / 12.0f;
+    }
 }
 
 static int apply_lighting(xb_mesh *mesh, const xb_case *test,
