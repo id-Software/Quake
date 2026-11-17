@@ -40,7 +40,7 @@ float r_avertexnormals[XGL_VERTEX_NORMALS][3] = {
 
 static cvar_t xgl_alias_subdivide = {"xgl_alias_subdivide", "1", true, false, 0, NULL};
 static cvar_t xgl_sprite_cells = {"xgl_sprite_cells", "8", true, false, 0, NULL};
-static cvar_t xgl_entity_triangles = {"xgl_entity_triangles", "2048", true, false, 0, NULL};
+static cvar_t xgl_entity_triangles = {"xgl_entity_triangles", "512", true, false, 0, NULL};
 static cvar_t xgl_playercolors = {"xgl_playercolors", "1", true, false, 0, NULL};
 static byte xgl_player_translation[MAX_SCOREBOARD][256];
 static int xgl_player_color[MAX_SCOREBOARD];

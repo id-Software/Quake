@@ -58,9 +58,9 @@ static float xgl_cache_step;
 static xgl_water_surface_t xgl_water[XGL_WATER_QUEUE];
 static int xgl_water_count;
 
-cvar_t xgl_subdivide = {"xgl_subdivide", "32", false, false, 0, NULL};
-cvar_t xgl_detailtris = {"xgl_detailtris", "4096", false, false, 0, NULL};
-cvar_t xgl_detaildistance = {"xgl_detaildistance", "768", false, false, 0, NULL};
+cvar_t xgl_subdivide = {"xgl_subdivide", "128", false, false, 0, NULL};
+cvar_t xgl_detailtris = {"xgl_detailtris", "1024", false, false, 0, NULL};
+cvar_t xgl_detaildistance = {"xgl_detaildistance", "512", false, false, 0, NULL};
 
 void XGL_SurfaceLightSamples(msurface_t *, const float *, byte[MAXLIGHTMAPS]);
 float XGL_SurfaceLightScale(msurface_t *, const byte[MAXLIGHTMAPS]);

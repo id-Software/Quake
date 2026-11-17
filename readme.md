@@ -45,7 +45,7 @@ locations and shareware restrictions.
 | `-winsize 640 480` | Set the window size. |
 | `+_snd_mixahead 0.3` | Buffer 0.3 seconds of audio. |
 | `+xgl_alias_subdivide 0` | Keep original model triangles without extra subdivision. |
-| `+xgl_detailtris 1024` | Reduce detailed world geometry; complete coarse faces remain. |
+| `+xgl_detailtris 1024` | Set the detailed world triangle allowance; complete coarse faces remain. |
 | `+xgl_profile 0` | Disable profiling for FPS measurements. Use 1 for summary timings or 2 for detail. |
 
 Lower subdivision makes sampled textures and lighting coarser. The detail
@@ -230,11 +230,11 @@ issued only when native work is pending.
 
 | Setting | Default | Effect |
 | --- | ---: | --- |
-| `xgl_subdivide` | 32 | World texture-coordinate subdivision step, clamped to 8–256; smaller adds detail. |
-| `xgl_detailtris` | 4096 | Detailed world/brush triangle allowance; visible world faces are ranked by projected-size estimate, with complete coarse faces when exhausted. |
-| `xgl_detaildistance` | 768 | Distance within which detailed world surfaces are considered. |
+| `xgl_subdivide` | 128 | World texture-coordinate subdivision step, clamped to 8–256; smaller adds detail. |
+| `xgl_detailtris` | 1024 | Detailed world/brush triangle allowance; visible world faces are ranked by projected-size estimate, with complete coarse faces when exhausted. |
+| `xgl_detaildistance` | 512 | Distance within which detailed world surfaces are considered. |
 | `xgl_alias_subdivide` | 1 | Alias subdivision depth, 0–2; distant models use less detail. |
-| `xgl_entity_triangles` | 2048 | Additional alias subdivision triangles per frame; original model triangles remain. |
+| `xgl_entity_triangles` | 512 | Additional alias subdivision triangles per frame; original model triangles remain. |
 | `xgl_sprite_cells` | 8 | Sample grid per sprite dimension, clamped to 2–16. |
 | `xgl_playercolors` | 1 | Apply original player shirt/pants palette translations to sampled skins. |
 | `xgl_ambient` | 1 | Native ambient contribution, clamped to 0–1. |
@@ -242,6 +242,10 @@ issued only when native work is pending.
 | `xgl_profile` | 0 | 1 reports graphics timings and native call counts; 2 adds geometry preparation and cache statistics. Output goes to the terminal once per second. |
 | `_snd_mixahead` | 0.3 | Audio lookahead in seconds for XGL; existing archived values override this default. |
 | `r_wateralpha` | 1 | Water opacity; values below 1 request native blending. |
+
+Settings in configuration files or command-line options override these defaults.
+In particular, `xgl_entity_triangles` is saved in `config.cfg`, so an older
+saved value remains in effect until changed.
 
 The original `r_dynamic`, `r_fullbright`, `r_novis`, `r_drawentities`,
 `r_drawviewmodel`, `viewsize`, `fov`, `gamma` and `r_speeds` controls are also
