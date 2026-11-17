@@ -15,9 +15,11 @@ This is supposed to work with Quake 1.00 Shareware PAK files but that is unteste
 
 ## Options
 ### winsize
-``-winsize 640 480``
+```-winsize 640 480```
 ### _snd_mixahead
-``+_snd_mixahead 0.3``
+```+_snd_mixahead 0.3```
+### xgl_contours
+```+xgl_contours 1```
 
 ## Demo
 ``./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 0 +timedemo demo1 > xglquake-timedemo.txt 2>&1``
