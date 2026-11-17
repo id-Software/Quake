@@ -6,7 +6,6 @@
 #include "quakedef.h"
 #include "xgl_audio.h"
 #include "xgl_profile.h"
-#include "xgl_contour.h"
 
 #define XGL_WORLD_CACHE_BYTES (8UL * 1024UL * 1024UL)
 #define XGL_SURFACE_DETAIL_VERTS 12288
@@ -28,17 +27,12 @@ typedef struct {
 typedef struct {
     xgl_cached_vertex_t *vertices;
     int count, texture, style[MAXLIGHTMAPS], fullbright;
-    int contour, contour_texture;
-    unsigned int contour_revision;
-    size_t allocation_bytes;
     unsigned int texture_revision, color_revision;
 } xgl_surface_mesh_t;
 
 typedef struct {
     xgl_surface_mesh_t coarse, detail;
     int coarse_attempted, detail_attempted;
-    int contour_attempted, contour_texture;
-    unsigned int contour_revision;
     vec3_t center;
     int center_valid, detail_frame;
     float area, radius, priority;
@@ -60,14 +54,12 @@ static model_t *xgl_pvs_world;
 static mleaf_t *xgl_pvs_leaf;
 static int xgl_pvs_novis;
 static float xgl_cache_step;
-static int xgl_cache_contours, xgl_contour_frame = -1;
 static xgl_water_surface_t xgl_water[XGL_WATER_QUEUE];
 static int xgl_water_count;
 
 cvar_t xgl_subdivide = {"xgl_subdivide", "32", false, false, 0, NULL};
 cvar_t xgl_detailtris = {"xgl_detailtris", "4096", false, false, 0, NULL};
 cvar_t xgl_detaildistance = {"xgl_detaildistance", "768", false, false, 0, NULL};
-cvar_t xgl_contours = {"xgl_contours", "1", false, false, 0, NULL};
 
 void XGL_SurfaceLightSamples(msurface_t *, const float *, byte[MAXLIGHTMAPS]);
 float XGL_SurfaceLightScale(msurface_t *, const byte[MAXLIGHTMAPS]);
@@ -97,7 +89,6 @@ void XGL_WorldShutdown (void)
     xgl_surface_count = 0;
     xgl_cache_bytes = 0;
     xgl_water_count = 0;
-    xgl_contour_frame = -1;
     xgl_pvs_world = NULL;
     xgl_pvs_leaf = NULL;
 }
@@ -108,7 +99,6 @@ void XGL_WorldNewMap (void)
     XGL_WorldShutdown();
     xgl_cached_world = cl.worldmodel;
     xgl_cache_step = xgl_subdivide.value;
-    xgl_cache_contours = xgl_contours.value != 0;
     if (!xgl_cached_world || xgl_cached_world->numsurfaces <= 0) return;
     if ((size_t)xgl_cached_world->numsurfaces > XGL_WORLD_CACHE_BYTES /
         (sizeof(*xgl_surfaces) + 2 * sizeof(int))) return;
@@ -125,8 +115,7 @@ void XGL_WorldNewMap (void)
             xgl_surfaces = NULL; xgl_world_order = NULL;
         }
     }
-    Con_Printf("XGL: sampled BSP cache limited to 8 MiB; detail depth <= 2; projected-size detail priority; complete coarse fallback; contours %s\n",
-               xgl_cache_contours ? "on (one surface attempt/frame)" : "off");
+    Con_Printf("XGL: sampled BSP cache limited to 8 MiB; detail depth <= 2; projected-size detail priority; complete coarse fallback\n");
 }
 
 static void XGL_SurfacePoint (model_t *model, msurface_t *surface, int index, vec3_t point)
@@ -247,7 +236,6 @@ static int XGL_BuildSurfaceMeshData (model_t *model, msurface_t *surface,
     mesh->vertices = (xgl_cached_vertex_t *)malloc(bytes);
     if (!mesh->vertices) return 0;
     xgl_cache_bytes += bytes;
-    mesh->allocation_bytes = bytes;
     count = 0;
     for (i = 1; i + 1 < surface->numedges; ++i) {
         if ((i & 15) == 1) XGL_AudioUpdate();
@@ -397,9 +385,7 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
     footprint[0] = footprint[1] = 0;
     for (i = 0, vertex = mesh->vertices; i < mesh->count; ++i, ++vertex) {
         if ((i & 255) == 0) XGL_AudioUpdate();
-        /* Contour cells own material-side colors. Resampling at the boundary
-         * would blend opposite regions and undo the geometric outline. */
-        if (texture_changed && !mesh->contour) {
+        if (texture_changed) {
             if (i % 3 == 0) {
                 triangle = vertex;
                 for (axis = 0; axis < 2; ++axis) {
@@ -503,104 +489,6 @@ static int XGL_DetailCompare(const void *left, const void *right)
     return a < b ? -1 : (a > b ? 1 : 0);
 }
 
-static int XGL_ContourEligible(int index, msurface_t *surface, texture_t *texture)
-{
-    /* Inline brush models share this allocation. Only the world model's own
-     * surface range is static architecture, even when the pointers match. */
-    if (!xgl_cache_contours || !cl.worldmodel || !texture ||
-        index < cl.worldmodel->firstmodelsurface ||
-        index - cl.worldmodel->firstmodelsurface >= cl.worldmodel->nummodelsurfaces ||
-        surface->numedges < 3 || surface->numedges > XGL_CONTOUR_MAX_FACE_VERTICES ||
-        (surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB)) ||
-        texture->anim_total || texture->anim_next || texture->alternate_anims ||
-        !texture->width || !texture->height || XGL_TextureHasAlpha(texture->gl_texturenum))
-        return 0;
-    return 1;
-}
-
-static void XGL_ContourMaterialKey(int index, xgl_surface_cache_t *cache,
-                                  msurface_t *surface, texture_t *texture)
-{
-    unsigned int revision;
-    int id;
-    id = texture ? texture->gl_texturenum : 0;
-    revision = texture ? XGL_TextureRevision(id) : 0;
-    if (cache->contour_texture == id && cache->contour_revision == revision &&
-        (!cache->detail.contour || XGL_ContourEligible(index, surface, texture))) return;
-    /* A new indexed material can move its boundaries. Gamma and lightstyles
-     * do not change this key and only recolor the existing contour mesh. */
-    if (cache->detail.contour) {
-        xgl_cache_bytes -= cache->detail.allocation_bytes;
-        free(cache->detail.vertices);
-        memset(&cache->detail, 0, sizeof(cache->detail));
-        cache->detail_attempted = 0;
-        cache->detail_frame = -1;
-    }
-    cache->contour_texture = id; cache->contour_revision = revision;
-    cache->contour_attempted = 0;
-}
-
-static void XGL_TryContour(int index, xgl_surface_cache_t *cache)
-{
-    xgl_contour_point_t face[XGL_CONTOUR_MAX_FACE_VERTICES];
-    xgl_contour_vertex_t output[XGL_CONTOUR_MAX_TRIANGLES * 3];
-    xgl_contour_stats_t stats;
-    xgl_surface_mesh_t *mesh;
-    msurface_t *surface;
-    texture_t *texture;
-    const byte *pixels;
-    double start;
-    int width, height, i, j, triangles, budget;
-    mesh = &cache->detail;
-    if (cache->contour_attempted || !mesh->vertices || xgl_contour_frame == r_framecount)
-        return;
-    surface = cl.worldmodel->surfaces + index;
-    texture = surface->texinfo->texture;
-    if (!XGL_ContourEligible(index, surface, texture)) return;
-    budget = mesh->count / 3;
-    if (budget > XGL_CONTOUR_MAX_TRIANGLES) budget = XGL_CONTOUR_MAX_TRIANGLES;
-    if (budget < surface->numedges - 2 || !cache->contour_revision) return;
-    /* Amortize optional preprocessing over visible frames. A surface that
-     * waits its turn continues to draw its complete ordinary detail mesh. */
-    xgl_contour_frame = r_framecount;
-    cache->contour_attempted = 1;
-    start = XGL_ProfileDetailNow();
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_ATTEMPTS, 1);
-    memset(&stats, 0, sizeof(stats));
-    triangles = 0;
-    if (XGL_TexturePixels(texture->gl_texturenum, &pixels, &width, &height) &&
-        width == (int)texture->width && height == (int)texture->height) {
-        for (i = 0; i < surface->numedges; ++i) {
-            XGL_SurfacePoint(cl.worldmodel, surface, i, face[i].position);
-            for (j = 0; j < 2; ++j)
-                face[i].st[j] = (DotProduct(face[i].position, surface->texinfo->vecs[j]) +
-                    surface->texinfo->vecs[j][3]) / (j ? height : width);
-        }
-        triangles = XGL_ContourBuild(face, surface->numedges, pixels, width, height,
-                                     xgl_palette, budget, output, &stats, XGL_AudioUpdate);
-    }
-    if (triangles > 0 && triangles <= budget) {
-        /* The result fits the already allocated uniform mesh. Retain its
-         * allocation accounting, and never increase the detail allowance. */
-        mesh->count = triangles * 3;
-        for (i = 0; i < mesh->count; ++i) {
-            XGL_InitCachedVertex(mesh->vertices + i, surface, output[i].point.position);
-            memcpy(mesh->vertices[i].material, output[i].color, 3);
-        }
-        mesh->contour = 1;
-        mesh->contour_texture = texture->gl_texturenum;
-        mesh->contour_revision = cache->contour_revision;
-        mesh->texture = -1; mesh->texture_revision = 0;
-        mesh->fullbright = -1;
-        for (i = 0; i < MAXLIGHTMAPS; ++i) mesh->style[i] = -1;
-        XGL_ProfileCount(XGL_PROFILE_CONTOUR_BUILDS, 1);
-    }
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_SAMPLES, stats.samples);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_EVALUATIONS, stats.evaluations);
-    XGL_ProfileAdd(XGL_PROFILE_WORLD_CONTOUR, start);
-    XGL_AudioUpdate();
-}
-
 /* Reserve the fixed detail allowance for the largest visible projected-size
  * estimates, then submit in the original BSP order. This avoids spending the
  * whole allowance on small faces encountered early in the traversal. */
@@ -617,7 +505,6 @@ static void XGL_SelectWorldDetail(void)
         index = xgl_world_order[i];
         cache = xgl_surfaces + index;
         surface = cl.worldmodel->surfaces + index;
-        XGL_ContourMaterialKey(index, cache, surface, surface->texinfo->texture);
         cache->detail_frame = -1;
         if ((surface->flags & SURF_DRAWTURB) && r_wateralpha.value <= 0) continue;
         /* Coarse meshes get memory first, preserving cheap complete fallback. */
@@ -642,10 +529,7 @@ static void XGL_SelectWorldDetail(void)
             cache->detail_attempted = 1;
             XGL_BuildSurfaceMesh(cl.worldmodel, cl.worldmodel->surfaces + index, &cache->detail, 2);
         }
-        if (cache->detail.vertices &&
-            xgl_detail_used + cache->detail.count / 3 <= xgl_detailtris.value)
-            XGL_TryContour(index, cache);
-        if (cache->detail.vertices && (cache->detail.contour || cache->detail.count > cache->coarse.count) &&
+        if (cache->detail.vertices && cache->detail.count > cache->coarse.count &&
             xgl_detail_used + cache->detail.count / 3 <= xgl_detailtris.value) {
             cache->detail_frame = r_framecount;
             xgl_detail_used += cache->detail.count / 3;
@@ -666,14 +550,12 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
     texture = XGL_SurfaceTexture(surface->texinfo->texture, entity);
     if (!texture || !texture->width || !texture->height) return;
     lit = !r_fullbright.value && !(surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB));
-    cache = NULL; mesh = NULL; index = -1;
+    cache = NULL; mesh = NULL;
     if (xgl_surfaces && model->surfaces == xgl_cached_world->surfaces) {
         index = (int)(surface - xgl_cached_world->surfaces);
         if (index >= 0 && index < xgl_surface_count) cache = &xgl_surfaces[index];
     }
     if (cache) {
-        if (entity == &r_worldentity)
-            XGL_ContourMaterialKey(index, cache, surface, texture);
         if (!cache->coarse_attempted) {
             cache->coarse_attempted = 1;
             XGL_BuildSurfaceMesh(model, surface, &cache->coarse, 0);
@@ -838,8 +720,7 @@ void XGL_DrawWorld (void)
 {
     int i;
     double start;
-    if (xgl_cache_step != xgl_subdivide.value ||
-        xgl_cache_contours != (xgl_contours.value != 0)) XGL_WorldNewMap();
+    if (xgl_cache_step != xgl_subdivide.value) XGL_WorldNewMap();
     xgl_detail_used = 0;
     xgl_water_count = 0;
     xgl_world_count = 0;

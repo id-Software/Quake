@@ -13,8 +13,7 @@ typedef enum {
     XGL_PROFILE_SYNC,
     XGL_PROFILE_SWAP,
     /* Detail timers are enabled only by xgl_profile 2. They overlap the
-     * renderer stages above; detail selection also includes mesh builds
-     * and contour analysis/cache installation. */
+     * renderer stages above; detail selection also includes mesh builds. */
     XGL_PROFILE_WORLD_VISIBILITY,
     XGL_PROFILE_WORLD_DETAIL_SELECT,
     XGL_PROFILE_WORLD_BUILD,
@@ -22,7 +21,6 @@ typedef enum {
     XGL_PROFILE_WORLD_ANIMATED,
     XGL_PROFILE_VERTEX_PACK,
     XGL_PROFILE_ALIAS_PREPARE,
-    XGL_PROFILE_WORLD_CONTOUR,
     XGL_PROFILE_SECTION_COUNT
 } xgl_profile_section_t;
 
@@ -51,10 +49,6 @@ typedef enum {
     XGL_PROFILE_ALIAS_POSE_MISSES,
     XGL_PROFILE_ALIAS_POSE_EVICTIONS,
     XGL_PROFILE_ALIAS_FALLBACKS,
-    XGL_PROFILE_CONTOUR_ATTEMPTS,
-    XGL_PROFILE_CONTOUR_BUILDS,
-    XGL_PROFILE_CONTOUR_SAMPLES,
-    XGL_PROFILE_CONTOUR_EVALUATIONS,
     XGL_PROFILE_COUNTER_COUNT
 } xgl_profile_counter_t;
 

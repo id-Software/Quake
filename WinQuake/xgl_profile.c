@@ -122,15 +122,14 @@ void XGL_ProfileEndFrame(void)
         (double)total_counts[XGL_PROFILE_POLYGON_CALLS] / total_frames,
         (double)total_counts[XGL_PROFILE_WAIT_CALLS] / total_frames);
     if (profile_reporting == 2) {
-        Sys_Printf("  detail ms (overlap stages; select includes builds/contours): "
+        Sys_Printf("  detail ms (overlap stages; select includes builds): "
             "visibility %.2f select %.2f build %.2f colors %.2f animated %.2f "
-            "pack %.2f alias-cache/transform %.2f contour %.2f\n"
+            "pack %.2f alias-cache/transform %.2f\n"
             "  world per frame: cached draws %.1f fallback draws %.1f "
             "builds %.1f failed builds %.1f; color reuse %.1f updates %.1f; "
             "vertices built %.1f recolored %.1f animated %.1f\n"
             "  alias cache per frame: color hits %.1f misses %.1f evictions %.1f; "
-            "pose hits %.1f misses %.1f evictions %.1f; fallbacks %.1f; text calls %.1f\n"
-            "  contour per frame: attempts %.1f builds %.1f samples %.1f evaluations %.1f\n",
+            "pose hits %.1f misses %.1f evictions %.1f; fallbacks %.1f; text calls %.1f\n",
             total_sections[XGL_PROFILE_WORLD_VISIBILITY] * scale,
             total_sections[XGL_PROFILE_WORLD_DETAIL_SELECT] * scale,
             total_sections[XGL_PROFILE_WORLD_BUILD] * scale,
@@ -138,7 +137,6 @@ void XGL_ProfileEndFrame(void)
             total_sections[XGL_PROFILE_WORLD_ANIMATED] * scale,
             total_sections[XGL_PROFILE_VERTEX_PACK] * scale,
             total_sections[XGL_PROFILE_ALIAS_PREPARE] * scale,
-            total_sections[XGL_PROFILE_WORLD_CONTOUR] * scale,
             (double)total_counts[XGL_PROFILE_WORLD_CACHED_SURFACES] / total_frames,
             (double)total_counts[XGL_PROFILE_WORLD_FALLBACK_SURFACES] / total_frames,
             (double)total_counts[XGL_PROFILE_WORLD_MESH_BUILDS] / total_frames,
@@ -155,11 +153,7 @@ void XGL_ProfileEndFrame(void)
             (double)total_counts[XGL_PROFILE_ALIAS_POSE_MISSES] / total_frames,
             (double)total_counts[XGL_PROFILE_ALIAS_POSE_EVICTIONS] / total_frames,
             (double)total_counts[XGL_PROFILE_ALIAS_FALLBACKS] / total_frames,
-            (double)total_counts[XGL_PROFILE_TEXT_CALLS] / total_frames,
-            (double)total_counts[XGL_PROFILE_CONTOUR_ATTEMPTS] / total_frames,
-            (double)total_counts[XGL_PROFILE_CONTOUR_BUILDS] / total_frames,
-            (double)total_counts[XGL_PROFILE_CONTOUR_SAMPLES] / total_frames,
-            (double)total_counts[XGL_PROFILE_CONTOUR_EVALUATIONS] / total_frames);
+            (double)total_counts[XGL_PROFILE_TEXT_CALLS] / total_frames);
     }
     XGL_ProfileReset();
     report_start = now;

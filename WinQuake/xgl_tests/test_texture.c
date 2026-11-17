@@ -83,31 +83,6 @@ static void test_filtered_materials(void)
     XGL_TextureShutdown();
 }
 
-static void test_preprocessing_pixels(void)
-{
-    byte pixels[6] = {1, 2, 3, 4, 5, 6};
-    const byte *view;
-    unsigned int revision;
-    int id, width, height;
-    id = XGL_LoadTexture("contour-view", 3, 2, pixels, false, false);
-    revision = XGL_TextureRevision(id);
-    assert(XGL_TexturePixels(id, &view, &width, &height));
-    assert(width == 3 && height == 2 && !memcmp(view, pixels, sizeof(pixels)));
-    pixels[0] = 9;
-    assert(view[0] == 1); /* Borrow the registry's owned copy. */
-    assert(XGL_LoadTexture("contour-view", 3, 2, pixels, false, false) == id);
-    assert(XGL_TextureRevision(id) != revision);
-    assert(XGL_TexturePixels(id, &view, &width, &height) && view[0] == 9);
-    XGL_TextureMarkMap(id);
-    XGL_TextureClearMap();
-    assert(!XGL_TexturePixels(id, &view, &width, &height));
-    assert(!view && !width && !height);
-    assert(!XGL_TexturePixels(0, &view, &width, &height));
-    assert(!XGL_TexturePixels(2049, &view, &width, &height));
-    assert(!XGL_TexturePixels(id, NULL, &width, &height));
-    XGL_TextureShutdown();
-}
-
 int main (void)
 {
     byte pixels[8] = {0, 1, 255, 7, 8, 9, 10, 11};
@@ -163,7 +138,6 @@ int main (void)
     assert (!XGL_SampleTexture (alias, 0, 0, rgb, NULL));
 
     test_filtered_materials();
-    test_preprocessing_pixels();
 
     /* Exact budget exhaustion must fail without evicting live alias IDs. */
     large = (byte *)malloc (1024*1024);

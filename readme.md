@@ -19,11 +19,6 @@ Prevent audio buffer exhaustion.
 
 ```+_snd_mixahead 0.3```
 
-### xgl_contours
-Enable or disable contour matching of textures.
-
-```+xgl_contours 1```
-
 ### xgl_profile
 0, 1 or 2 level of profile information output.
 

@@ -59,8 +59,6 @@ static void test_disabled(void)
     assert(XGL_ProfileDetailNow() == 0);
     XGL_ProfileAdd(XGL_PROFILE_WORLD_BUILD, 0);
     XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_HITS, 999);
-    XGL_ProfileAdd(XGL_PROFILE_WORLD_CONTOUR, 0);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_ATTEMPTS, 999);
     XGL_ProfileEndFrame();
     assert(start == 0 && clock_calls == 0 && print_calls == 0);
 }
@@ -76,8 +74,6 @@ static void test_detail_levels(void)
     assert(XGL_ProfileDetailNow() == 0);
     XGL_ProfileAdd(XGL_PROFILE_WORLD_BUILD, 0);
     XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_HITS, 99);
-    XGL_ProfileAdd(XGL_PROFILE_WORLD_CONTOUR, 0);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_SAMPLES, 999);
     assert(clock_calls == calls);
     XGL_ProfileCount(XGL_PROFILE_TRIANGLES, 999);
     clock_time = 100.5; XGL_ProfileEndFrame();
@@ -91,8 +87,6 @@ static void test_detail_levels(void)
     clock_time = 101.12; XGL_ProfileAdd(XGL_PROFILE_WORLD_VISIBILITY, start);
     clock_time = 101.2; start = XGL_ProfileDetailNow();
     clock_time = 101.3; XGL_ProfileAdd(XGL_PROFILE_WORLD_BUILD, start);
-    clock_time = 101.32; start = XGL_ProfileDetailNow();
-    clock_time = 101.36; XGL_ProfileAdd(XGL_PROFILE_WORLD_CONTOUR, start);
     XGL_ProfileCount(XGL_PROFILE_WORLD_MESH_BUILDS, 2);
     XGL_ProfileCount(XGL_PROFILE_WORLD_MESH_FAILURES, 1);
     XGL_ProfileCount(XGL_PROFILE_WORLD_BUILD_VERTICES, 96);
@@ -100,26 +94,16 @@ static void test_detail_levels(void)
     XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_MISSES, 2);
     XGL_ProfileCount(XGL_PROFILE_ALIAS_POSE_HITS, 1);
     XGL_ProfileCount(XGL_PROFILE_TEXT_CALLS, 4);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_ATTEMPTS, 3);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_BUILDS, 1);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_SAMPLES, 64);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_EVALUATIONS, 120);
     clock_time = 101.5; XGL_ProfileEndFrame();
     assert(print_calls == 0);
     clock_time = 101.6; XGL_ProfileBeginFrame();
     clock_time = 101.7; start = XGL_ProfileDetailNow();
     clock_time = 101.9; XGL_ProfileAdd(XGL_PROFILE_WORLD_BUILD, start);
-    clock_time = 101.92; start = XGL_ProfileDetailNow();
-    clock_time = 101.98; XGL_ProfileAdd(XGL_PROFILE_WORLD_CONTOUR, start);
     XGL_ProfileCount(XGL_PROFILE_WORLD_MESH_BUILDS, 1);
     XGL_ProfileCount(XGL_PROFILE_WORLD_BUILD_VERTICES, 6);
     XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_HITS, 1);
     XGL_ProfileCount(XGL_PROFILE_ALIAS_POSE_HITS, 3);
     XGL_ProfileCount(XGL_PROFILE_TEXT_CALLS, 2);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_ATTEMPTS, 1);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_BUILDS, 1);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_SAMPLES, 32);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_EVALUATIONS, 80);
     clock_time = 102.2; XGL_ProfileEndFrame();
     assert(print_calls == 2);
     assert(strstr(output, "2 frames; gfx 550.00"));
@@ -130,18 +114,13 @@ static void test_detail_levels(void)
     assert(strstr(output, "color hits 2.0 misses 1.0 evictions 0.0"));
     assert(strstr(output, "pose hits 2.0 misses 0.0 evictions 0.0"));
     assert(strstr(output, "text calls 3.0"));
-    assert(strstr(output, "contour 50.00"));
-    assert(strstr(output, "contour per frame: attempts 2.0 builds 1.0 samples 48.0 evaluations 100.0"));
     calls = clock_calls;
     assert(XGL_ProfileDetailNow() == 0);
     XGL_ProfileAdd(XGL_PROFILE_WORLD_BUILD, 0);
-    XGL_ProfileAdd(XGL_PROFILE_WORLD_CONTOUR, 0);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_EVALUATIONS, 999);
     assert(clock_calls == calls);
 
     clock_time = 103; XGL_ProfileBeginFrame();
     XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_HITS, 500);
-    XGL_ProfileCount(XGL_PROFILE_CONTOUR_EVALUATIONS, 500);
     clock_time = 103.1; XGL_ProfileEndFrame();
     profile_setting->value = 1;
     clock_time = 103.2; XGL_ProfileBeginFrame();
@@ -149,7 +128,6 @@ static void test_detail_levels(void)
     assert(print_calls == 3);
     assert(strstr(output, "1 frames; gfx 1100.00"));
     assert(!strstr(output, "detail ms") && !strstr(output, "alias cache"));
-    assert(!strstr(output, "contour"));
 
     /* Level 2 also respects backwards clocks and validates enum ranges
      * without any timer calls for malformed instrumentation identifiers. */
@@ -167,8 +145,6 @@ static void test_detail_levels(void)
     clock_time = 11; XGL_ProfileBeginFrame();
     clock_time = 12.1; XGL_ProfileEndFrame();
     assert(print_calls == 5 && strstr(output, "build 0.00"));
-    assert(strstr(output, "contour 0.00"));
-    assert(strstr(output, "contour per frame: attempts 0.0 builds 0.0 samples 0.0 evaluations 0.0"));
 }
 
 static void test_aggregation(void)
