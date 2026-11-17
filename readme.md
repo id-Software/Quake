@@ -108,9 +108,14 @@ make -f Makefile.XGL XGLHOME=/path/to/xgl OPENWINHOME=/path/to/openwin
 
 The target uses the native compiler's 32-bit SPARC default. Use a compiler
 configured for that ABI; a 64-bit build is not supported by the original
-engine or the XGL renderer. The build deliberately has no `-ansi` flag and
-does not enable `-ffast-math`. `CC`, `CPPFLAGS`, `CFLAGS`, `LANGFLAGS`,
-`WARNFLAGS`, `LDFLAGS` and `XGL_LIBS` can be overridden on the command line.
+engine or the XGL renderer. The build enables `-ffast-math`, matching the
+original Solaris release recipe, and omits `-ansi`. `CC`, `CPPFLAGS`, `CFLAGS`,
+`LANGFLAGS`, `WARNFLAGS`, `LDFLAGS` and `XGL_LIBS` can be overridden on the
+command line.
+
+When updating from a build without `-ffast-math`, run
+`make -f Makefile.XGL clean` once before rebuilding so every object uses the
+new flags. Host regression tests also enable `-ffast-math` by default.
 
 ## Game data and display setup
 

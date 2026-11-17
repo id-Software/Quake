@@ -1,5 +1,6 @@
 /* Host renderer contracts; these tests do not simulate XGL or GPU timing. */
 #include <assert.h>
+#include <float.h>
 #include <stdarg.h>
 #include <stdlib.h>
 static int fail_alloc_after = -1;
@@ -587,7 +588,7 @@ static void test_shared_animated_samples(void)
     entity_t entity;
     byte *pixels;
     size_t bytes;
-    int i, failed, count, before;
+    int i, failed, count, before, channel;
     float s, t, os, ot, phase, expected[3];
     setup_world();
     varying_material = 1;
@@ -623,7 +624,11 @@ static void test_shared_animated_samples(void)
             t = (ot + xgl_turb_sin[(int)((os * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
             assert(XGL_SampleTexture(1, s, t, expected, NULL));
             XGL_PrepareColor(expected);
-            assert(VectorCompare(expected, mesh->vertices[count].color.rgb));
+            /* Fast math may reassociate the mock's palette/gamma scaling.
+             * Allow float rounding, far below a change of one palette byte. */
+            for (channel = 0; channel < 3; ++channel)
+                assert(fabs((double)expected[channel] -
+                            mesh->vertices[count].color.rgb[channel]) <= FLT_EPSILON);
         }
     }
     failed_sample = 1;
