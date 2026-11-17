@@ -26,7 +26,9 @@ static int actions, orientation, mapping, clip_planes, hlhsr, illumination;
 static int clear_calls, swap_calls, polygon_calls, text_calls, extent_calls, flush_calls;
 static int text_color_sets, audio_updates;
 static int transparency, freeze_z;
-static float current_ambient, text_height;
+static float current_ambient, text_height, current_spacing;
+static int spacing_mode, proportional_metrics;
+static int vertical_advance;
 static Xgl_color text_color, polygon_color;
 static Xgl_pt_color_normal_f3d submitted_vertex;
 static Xgl_pt_color_normal_f3d submitted_vertices[8192];
@@ -41,9 +43,15 @@ static char native_events[16384];
 static int native_event_count;
 static Xgl_pt_d3d light_position[6];
 static Xgl_pt_f2d recorded_position[4096];
+static Xgl_pt_f2d recorded_glyph_position[8192];
+static char recorded_glyph[8192];
+static int glyph_count;
 static Xgl_pt_f2d *queued_position[4096];
 static Xgl_pt_f2d queued_copy[4096];
+static const char *queued_string[4096];
+static char queued_string_copy[4096][XGL_UI_TEXT_RUN + 1];
 static int queued_count;
+static unsigned long profile_counts[XGL_PROFILE_COUNTER_COUNT];
 static Xgl_error_info injected_error;
 static jmp_buf expected_failure;
 static int expect_failure;
@@ -53,6 +61,7 @@ void XGL_ProfileInit(void) {}
 void XGL_ProfileBeginFrame(void) {}
 void XGL_ProfileEndFrame(void) {}
 double XGL_ProfileNow(void) { return 0; }
+double XGL_ProfileDetailNow(void) { return 0; }
 void XGL_ProfileAdd(xgl_profile_section_t section, double start)
 {
     assert((unsigned int)section < XGL_PROFILE_SECTION_COUNT);
@@ -61,7 +70,7 @@ void XGL_ProfileAdd(xgl_profile_section_t section, double start)
 void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count)
 {
     assert((unsigned int)counter < XGL_PROFILE_COUNTER_COUNT);
-    (void)count;
+    profile_counts[counter] += count;
 }
 void XGL_AudioUpdate(void) { ++audio_updates; }
 
@@ -113,6 +122,7 @@ void xgl_object_set(Xgl_object object, ...)
         case XGL_CTX_STEXT_COLOR:
             text_color = *va_arg(args, Xgl_color *); ++text_color_sets; break;
         case XGL_CTX_STEXT_CHAR_HEIGHT: text_height = (float)va_arg(args, double); break;
+        case XGL_CTX_STEXT_CHAR_SPACING: current_spacing = (float)va_arg(args, double); break;
         case XGL_3D_CTX_SURF_FRONT_TRANSP:
         case XGL_3D_CTX_SURF_BACK_TRANSP:
         case XGL_LIGHT_ATTENUATION_1:
@@ -168,6 +178,7 @@ void xgl_context_flush(Xgl_ctx context, Xgl_flush_action action)
         for (i = 0; i < queued_count; ++i) {
             assert(queued_position[i]->x == queued_copy[i].x);
             assert(queued_position[i]->y == queued_copy[i].y);
+            assert(!strcmp(queued_string[i], queued_string_copy[i]));
         }
         for (i = 0; i < queued_quad_count; ++i) {
             assert(queued_quad_lists[i]->pt_type == XGL_PT_F2D);
@@ -244,14 +255,9 @@ void xgl_multi_simple_polygon(Xgl_ctx context, Xgl_facet_flags flags,
     }
 }
 
-void xgl_stroke_text_extent(Xgl_ctx context, void *string,
-                            Xgl_bounds_f2d *bounds, Xgl_pt_f2d *advance)
+static void mock_glyph(int ch, Xgl_bounds_f2d *bounds, Xgl_pt_f2d *advance)
 {
-    int ch;
-    assert(context == xb.ui && text_height > 0);
-    ch = *(unsigned char *)string;
     assert(ch >= 33 && ch <= 126);
-    ++extent_calls;
     bounds->xmin = -.1f * text_height;
     bounds->xmax = .6f * text_height;
     bounds->ymin = 0;
@@ -262,16 +268,77 @@ void xgl_stroke_text_extent(Xgl_ctx context, void *string,
     if (ch == '.') { bounds->xmax = bounds->xmin; bounds->ymax = bounds->ymin; }
     advance->x = .7f * text_height;
     advance->y = 0;
+    if (vertical_advance && ch == 'g') advance->y = .1f * text_height;
+    if (proportional_metrics && ch == 'i') {
+        bounds->xmax = .1f * text_height;
+        advance->x = .3f * text_height;
+    }
+    if (proportional_metrics && ch == 'W') {
+        bounds->xmax = .8f * text_height;
+        advance->x = .95f * text_height;
+    }
+}
+
+static float mock_spacing(void)
+{
+    if (spacing_mode == 2) return 0;
+    return current_spacing * (spacing_mode == 1 ? 1 : text_height);
+}
+
+void xgl_stroke_text_extent(Xgl_ctx context, void *string,
+                            Xgl_bounds_f2d *bounds, Xgl_pt_f2d *advance)
+{
+    const char *text;
+    Xgl_bounds_f2d glyph;
+    Xgl_pt_f2d step;
+    float cursor, cursor_y;
+    int first;
+    assert(context == xb.ui && text_height > 0);
+    ++extent_calls;
+    text = (const char *)string; cursor = cursor_y = 0; first = 1;
+    while (*text) {
+        mock_glyph((unsigned char)*text++, &glyph, &step);
+        glyph.xmin += cursor; glyph.xmax += cursor;
+        glyph.ymin += cursor_y; glyph.ymax += cursor_y;
+        if (first) { *bounds = glyph; first = 0; }
+        else {
+            if (glyph.xmin < bounds->xmin) bounds->xmin = glyph.xmin;
+            if (glyph.xmax > bounds->xmax) bounds->xmax = glyph.xmax;
+            if (glyph.ymin < bounds->ymin) bounds->ymin = glyph.ymin;
+            if (glyph.ymax > bounds->ymax) bounds->ymax = glyph.ymax;
+        }
+        cursor += step.x + mock_spacing();
+        cursor_y += step.y;
+    }
+    advance->x = cursor; advance->y = cursor_y;
 }
 
 void xgl_stroke_text(Xgl_ctx context, void *string, void *origin, void *direction)
 {
+    const char *text;
+    Xgl_bounds_f2d bounds;
+    Xgl_pt_f2d advance;
+    float cursor, cursor_y;
     assert(context == xb.ui && !direction && *(char *)string);
     native_event('T');
     assert(text_calls < 4096 && queued_count < 4096);
     recorded_position[text_calls++] = *(Xgl_pt_f2d *)origin;
     queued_position[queued_count] = (Xgl_pt_f2d *)origin;
+    queued_string[queued_count] = (const char *)string;
+    assert(strlen((const char *)string) <= XGL_UI_TEXT_RUN);
+    strcpy(queued_string_copy[queued_count], (const char *)string);
     queued_copy[queued_count++] = *(Xgl_pt_f2d *)origin;
+    text = (const char *)string; cursor = cursor_y = 0;
+    while (*text) {
+        assert(glyph_count < 8192);
+        recorded_glyph[glyph_count] = *text;
+        recorded_glyph_position[glyph_count] = *(Xgl_pt_f2d *)origin;
+        recorded_glyph_position[glyph_count].y += cursor_y;
+        recorded_glyph_position[glyph_count++].x += cursor;
+        mock_glyph((unsigned char)*text++, &bounds, &advance);
+        cursor += advance.x + mock_spacing();
+        cursor_y += advance.y;
+    }
 }
 
 void xgl_window_raster_resize(Xgl_win_ras raster) { assert(raster == xb.raster); }
@@ -295,7 +362,7 @@ static void reset_backend(void)
     for (i = 0; i < 6; ++i) xb.lights[i] = &handles[6 + i];
     xb.width = vid.width = 640; xb.height = vid.height = 480;
     xb.maximum_z = 16777215;
-    xb.frame = 1; xb.current_text_height = -1;
+    xb.frame = 1; xb.current_text_height = xb.current_text_spacing = -1;
     xb.applied_lit = xb.applied_zwrite = -1; xb.applied_opacity = -1;
     xgl_ambient.value = 1; xgl_maxlights.value = 4; r_dynamic.value = 1;
     for (i = 0; i < 95; ++i) xb.glyphs[i][0] = (char)(i + 32);
@@ -307,6 +374,9 @@ static void reset_backend(void)
     }
     clear_calls = swap_calls = polygon_calls = text_calls = extent_calls = flush_calls = 0;
     text_color_sets = audio_updates = submitted_count = 0;
+    glyph_count = spacing_mode = proportional_metrics = vertical_advance = 0;
+    current_spacing = 0;
+    memset(profile_counts, 0, sizeof(profile_counts));
     recorded_quads = quad_batch_count = native_event_count = 0;
     native_events[0] = 0;
     queued_count = queued_quad_count = 0;
@@ -406,7 +476,7 @@ static void test_first_console_frame(void)
     assert(mapping == XGL_VDC_MAP_ALL && !clip_planes);
     XGL_UIFillRGB(0, 0, 640, 480, color, 1);
     XGL_UIText(8, 8, "Loading", 1, 8, 8);
-    assert(polygon_calls == 1 && text_calls == 7);
+    assert(polygon_calls == 1 && text_calls == 1 && glyph_count == 7);
     assert(xb.ui_active && !xb.scene_active);
     XGL_EndFrame();
     assert(clear_calls == 1 && swap_calls == 1);
@@ -451,15 +521,16 @@ static void test_fonts_and_gamma(void)
     xgl_vertex_t vertices[3];
     reset_backend();
     XGL_UIText(10, 20, "Hg|-. ", 1, 8, 8);
-    assert(text_calls == 5 && extent_calls == 94);
-    for (i = 1; i < 5; ++i) assert(recorded_position[i].y == recorded_position[0].y);
+    assert(text_calls == 4 && glyph_count == 5 && extent_calls == 97);
+    for (i = 1; i < 5; ++i)
+        assert(recorded_glyph_position[i].y == recorded_glyph_position[0].y);
     extents = extent_calls; original_height = text_height;
     XGL_UIText(10, 40, "H", 1, 8, 8);
     assert(extent_calls == extents);
     XGL_UIText(10, 60, "H", 1, 16, 16);
-    assert(extent_calls == extents + 94 && text_height > original_height);
+    assert(extent_calls == extents + 97 && text_height > original_height);
     XGL_UIText(10, 80, "H", 1, 8, 8);
-    assert(extent_calls == extents + 94 && text_height == original_height);
+    assert(extent_calls == extents + 97 && text_height == original_height);
     XGL_UIFlush();
     assert(queued_count == 0);
     for (i = 0; i < 256; ++i) gammatable[i] = (byte)(255 - i);
@@ -535,6 +606,113 @@ static void test_strided_prepared_colors(void)
     XGL_Flush();
     assert(submitted_vertex.color.rgb.r == 1 && submitted_vertex.color.rgb.b == 0);
     assert(fabs(submitted_vertex.color.rgb.g - 127.0 / 255) < .0001);
+}
+
+static void check_text_cells(const char *text, float x, float y,
+                             float cell, float height, int first)
+{
+    xgl_font_size_t *font;
+    const Xgl_bounds_f2d *bounds;
+    float sx, sy, expected;
+    int character, index;
+    font = font_size(cell, height);
+    sx = (float)xb.width / vid.width; sy = (float)xb.height / vid.height;
+    index = first;
+    while (*text) {
+        character = ((unsigned char)*text++) & 127;
+        if (character < 32 || character > 126) character = '?';
+        if (character != ' ' && x + cell > 0 && x < vid.width &&
+            y + height > 0 && y < vid.height) {
+            assert(index < glyph_count && recorded_glyph[index] == character);
+            bounds = &font->bounds[character - 32];
+            expected = x*sx + (cell*sx - (bounds->xmax - bounds->xmin))*.5f - bounds->xmin;
+            assert(fabs(recorded_glyph_position[index].x - expected) < .003);
+            assert(fabs(recorded_glyph_position[index].y - (y*sy + font->ascent)) < .003);
+            ++index;
+        }
+        x += cell;
+    }
+    assert(index == glyph_count);
+}
+
+static void test_text_runs(void)
+{
+    char mutable_text[65], long_text[301];
+    const char *mixed = "HHiiWW Hg|-. HHH";
+    int first, extents, calls, i;
+    reset_backend();
+    XGL_UIText(8, 16, "HHH Loading", 2, 8, 8);
+    assert(text_calls == 2 && glyph_count == 10);
+    assert(profile_counts[XGL_PROFILE_TEXT_CALLS] == 2);
+    assert(profile_counts[XGL_PROFILE_GLYPHS] == 10);
+    check_text_cells("HHH Loading", 8, 16, 8, 8, 0);
+    first = glyph_count; extents = extent_calls;
+    XGL_UIText(32, 24, "HHH", 3, 8, 8);
+    assert(extent_calls == extents && text_calls == 3);
+    check_text_cells("HHH", 32, 24, 8, 8, first);
+    XGL_UIFlush();
+    assert(!queued_count);
+
+    /* Unequal widths/advances keep the old centered glyph origins. A run
+     * may end at an unusual glyph but cannot shift following characters. */
+    reset_backend(); proportional_metrics = 1;
+    XGL_UIText(8, 16, mixed, 2, 8, 8);
+    assert(text_calls > 3 && text_calls < glyph_count);
+    check_text_cells(mixed, 8, 16, 8, 8, 0);
+    first = glyph_count;
+    XGL_UIText(-16, 32, "ABHHH", 2, 8, 8);
+    check_text_cells("ABHHH", -16, 32, 8, 8, first);
+    first = glyph_count;
+    XGL_UIText(632, 48, "HHHH", 2, 8, 8);
+    check_text_cells("HHHH", 632, 48, 8, 8, first);
+    first = glyph_count;
+    XGL_UIText(16, -8, "HHHH", 2, 8, 8);
+    assert(glyph_count == first);
+    first = glyph_count;
+    XGL_UIText(16, 64, "\001\310 H", 2, 8, 8);
+    check_text_cells("\001\310 H", 16, 64, 8, 8, first);
+    XGL_UIFlush();
+
+    /* Calibration uses the native result, including implementations with
+     * a different spacing unit or no useful spacing response. */
+    reset_backend(); spacing_mode = 1;
+    XGL_UIText(0, 0, "HHHH", 2, 8, 8);
+    assert(text_calls == 1);
+    check_text_cells("HHHH", 0, 0, 8, 8, 0);
+    reset_backend(); spacing_mode = 2;
+    XGL_UIText(0, 0, "HHHH", 2, 8, 8);
+    assert(text_calls == 4 && current_spacing == 0);
+    check_text_cells("HHHH", 0, 0, 8, 8, 0);
+    reset_backend(); vertical_advance = 1;
+    XGL_UIText(0, 0, "HHggHH", 2, 8, 8);
+    assert(text_calls == 3);
+    check_text_cells("HHggHH", 0, 0, 8, 8, 0);
+    XGL_UIFlush();
+
+    /* Neither caller storage nor scratch strings may be borrowed by an
+     * asynchronous native submission. Flush checks every saved byte. */
+    reset_backend();
+    memset(mutable_text, 'H', 64); mutable_text[64] = 0;
+    XGL_UIText(0, 0, mutable_text, 2, 8, 8);
+    memset(mutable_text, 'Q', 64);
+    for (i = 0; i < 79; ++i) XGL_UIText(0, 8, mutable_text, 2, 8, 8);
+    assert(text_calls == 80 && glyph_count == 5120 && flush_calls >= 1);
+    XGL_UIFlush();
+    assert(!queued_count && !xb.ui_text_used);
+
+    reset_backend();
+    xb.width = vid.width = 3000;
+    memset(long_text, 'H', 300); long_text[300] = 0;
+    XGL_UIText(0, 0, long_text, 2, 8, 8);
+    assert(text_calls == 3 && glyph_count == 300);
+    check_text_cells(long_text, 0, 0, 8, 8, 0);
+    calls = text_calls;
+    XGLB_Resize(1500, 480);
+    first = glyph_count;
+    XGL_UIText(0, 0, "HHH", 2, 8, 8);
+    assert(text_calls == calls + 1);
+    check_text_cells("HHH", 0, 0, 8, 8, first);
+    XGL_UIFlush();
 }
 
 static void test_ui_batch_order_and_capacity(void)
@@ -726,6 +904,7 @@ int main(void)
     test_camera();
     test_clear_and_lighting();
     test_fonts_and_gamma();
+    test_text_runs();
     test_strided_prepared_colors();
     test_ui_batch_order_and_capacity();
     test_completion_and_attribute_reuse();

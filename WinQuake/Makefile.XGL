@@ -27,7 +27,7 @@ COMMON_SOURCES = chase.c cl_demo.c cl_input.c cl_main.c cl_parse.c cl_tent.c \
     cd_null.c sys_sun.c snd_dma.c snd_mem.c snd_mix.c
 XGL_SOURCES = xgl_model.c xgl_mesh.c xgl_texture.c xgl_rmain.c xgl_world.c \
     xgl_light.c xgl_draw.c xgl_vid.c xgl_backend.c xgl_screen.c \
-    xgl_effects.c xgl_entities.c xgl_filesystem.c xgl_snd_sun.c xgl_profile.c
+    xgl_effects.c xgl_entities.c xgl_filesystem.c xgl_snd_sun.c xgl_profile.c xgl_contour.c
 SOURCES = $(COMMON_SOURCES) $(XGL_SOURCES)
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 HEADERS = $(wildcard *.h)
@@ -62,7 +62,7 @@ check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
        $(TEST_BUILD_DIR)/test_draw $(TEST_BUILD_DIR)/test_entities \
        $(TEST_BUILD_DIR)/test_world $(TEST_BUILD_DIR)/test_input \
        $(TEST_BUILD_DIR)/test_filesystem $(TEST_BUILD_DIR)/test_audio \
-       $(TEST_BUILD_DIR)/test_profile
+       $(TEST_BUILD_DIR)/test_profile $(TEST_BUILD_DIR)/test_contour
 	./$(TEST_BUILD_DIR)/test_texture
 	./$(TEST_BUILD_DIR)/test_mesh
 	./$(TEST_BUILD_DIR)/test_draw
@@ -72,6 +72,11 @@ check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
 	./$(TEST_BUILD_DIR)/test_filesystem
 	./$(TEST_BUILD_DIR)/test_audio
 	./$(TEST_BUILD_DIR)/test_profile
+	./$(TEST_BUILD_DIR)/test_contour
+
+$(TEST_BUILD_DIR)/test_contour: xgl_tests/test_contour.c xgl_contour.c xgl_contour.h
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -I. -o $@ xgl_tests/test_contour.c -lm
 
 $(TEST_BUILD_DIR)/test_audio: xgl_tests/test_audio.c xgl_snd_sun.c $(HEADERS) \
                              xgl_tests/include/sys/audioio.h
@@ -106,10 +111,10 @@ $(TEST_BUILD_DIR)/test_entities: xgl_tests/test_entities.c xgl_entities.c mathli
 	$(HOST_CC) $(HOST_CFLAGS) -DXGLQUAKE -I. -ffunction-sections -fdata-sections \
 	    -o $@ xgl_tests/test_entities.c mathlib.c -Wl,--gc-sections -lm
 
-$(TEST_BUILD_DIR)/test_world: xgl_tests/test_world.c xgl_world.c xgl_light.c mathlib.c $(HEADERS)
+$(TEST_BUILD_DIR)/test_world: xgl_tests/test_world.c xgl_world.c xgl_light.c xgl_contour.c mathlib.c $(HEADERS)
 	@mkdir -p $(TEST_BUILD_DIR)
 	$(HOST_CC) $(HOST_CFLAGS) -DXGLQUAKE -I. -ffunction-sections -fdata-sections \
-	    -o $@ xgl_tests/test_world.c xgl_light.c mathlib.c -Wl,--gc-sections -lm
+	    -o $@ xgl_tests/test_world.c xgl_light.c xgl_contour.c mathlib.c -Wl,--gc-sections -lm
 
 $(TEST_BUILD_DIR)/test_input: xgl_tests/test_input.c xgl_vid.c $(HEADERS) \
                            $(wildcard xgl_tests/include/X11/*.h)
