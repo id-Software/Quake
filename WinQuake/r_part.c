@@ -656,7 +656,9 @@ void R_DrawParticles (void)
 	float			dvel;
 	float			frametime;
 	
-#ifdef GLQUAKE
+#if defined(XGLQUAKE)
+	/* The particle simulation below remains shared with both original renderers. */
+#elif defined(GLQUAKE)
 	vec3_t			up, right;
 	float			scale;
 
@@ -709,7 +711,9 @@ void R_DrawParticles (void)
 			break;
 		}
 
-#ifdef GLQUAKE
+#if defined(XGLQUAKE)
+		XGL_DrawParticle(p);
+#elif defined(GLQUAKE)
 		// hack a scale up to keep particles from disapearing
 		scale = (p->org[0] - r_origin[0])*vpn[0] + (p->org[1] - r_origin[1])*vpn[1]
 			+ (p->org[2] - r_origin[2])*vpn[2];
@@ -789,7 +793,9 @@ void R_DrawParticles (void)
 		}
 	}
 
-#ifdef GLQUAKE
+#if defined(XGLQUAKE)
+	XGL_Flush();
+#elif defined(GLQUAKE)
 	glEnd ();
 	glDisable (GL_BLEND);
 	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_REPLACE);

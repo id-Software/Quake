@@ -242,7 +242,7 @@ typedef struct
 #include "progs.h"
 #include "server.h"
 
-#ifdef GLQUAKE
+#if defined(GLQUAKE) || defined(XGLQUAKE)
 #include "gl_model.h"
 #else
 #include "model.h"
@@ -260,6 +260,8 @@ typedef struct
 
 #ifdef GLQUAKE
 #include "glquake.h"
+#elif defined(XGLQUAKE)
+#include "xgl_local.h"
 #endif
 
 //=============================================================================

@@ -481,3 +481,8 @@ clean-release:
 clean2:
 	-rm -f $(QUAKE_OBJS) $(QUAKE_X_OBJS) $(QUAKE_XIL_OBJS)
 
+# Optional native XGL renderer; does not change the software/XIL targets.
+.PHONY: xglquake
+xglquake:
+	$(MAKE) -f Makefile.XGL native
+
