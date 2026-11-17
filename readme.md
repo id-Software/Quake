@@ -14,12 +14,24 @@ The resulting binary is ```xglquake``` which must be placed in your quake folder
 This is supposed to work with Quake 1.00 Shareware PAK files but that is untested. If unsure, use a registered copy of 1.06's ```id1/pak0.pak``` and ```id1/pak1.pak```.
 
 ## Options
-### winsize
-```-winsize 640 480```
 ### _snd_mixahead
+Prevent audio buffer exhaustion.
+
 ```+_snd_mixahead 0.3```
+
 ### xgl_contours
+Enable or disable contour matching of textures.
+
 ```+xgl_contours 1```
 
+### xgl_profile
+0, 1 or 2 level of profile information output.
+
+```+xgl_profile 1```
+
+### winsize
+
+```-winsize 640 480```
+
 ## Demo
-``./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 0 +timedemo demo1 > xglquake-timedemo.txt 2>&1``
+``./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 1 +timedemo demo1 > xglquake-timedemo.txt 2>&1``
