@@ -9,6 +9,7 @@ with native XGL text and geometry. A similar approach can be seen at
 ## Quick start
 
 ### Build
+see [build details](docs/build.md)
 
 Install GNU make, GCC, the [Sun XGL SDK](https://archive.org/details/xgl-solaris2.6), and OpenWindows development files.
 From the repository root:
@@ -19,7 +20,7 @@ make -f Makefile.XGL
 ```
 
 Run the same make command after source updates; it rebuilds affected files
-using generated `.d` dependencies. See [build details](#build-details) for
+using generated `.d` dependencies. See [build details](docs/build.md) for
 SDK paths and when a clean build is needed.
 
 ### Game data and launch
@@ -106,3 +107,12 @@ this is not an independent audio thread.
 
 An existing `config.cfg` may restore `_snd_mixahead 0.1`; use
 `+_snd_mixahead 0.3` to override that value for a run.
+
+## Renderer
+see [renderer](docs/render.md)
+
+## Profiling
+see [profiling](docs/profile.md)
+
+## Testing
+see [testing](docs/test.md)
