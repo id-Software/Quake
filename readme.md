@@ -195,6 +195,8 @@ texture/light metadata. Static geometry is queued by reference, avoiding a
 conversion and copy every frame; cached colors
 change only with material/lightstyle/gamma state. Transformed brush and
 cached alias output is written into the backend's batch storage directly.
+Particles also write directly into that storage, preparing the palette/gamma
+color once per particle instead of converting each corner separately.
 The backend checks its vertex layout against the installed SDK and retains
 the existing triangle order, shading and 256-triangle batching limit.
 
@@ -207,6 +209,13 @@ poses; smaller pose entries cache model-local normals. Hashes reject
 different command/normal sequences quickly, with exact comparisons before
 reuse. Current pose positions are still transformed each frame. All model
 cache storage remains bounded, with recursive drawing when caching fails.
+Sampled skin caches retain their visible-triangle count, avoiding a repeated
+coverage scan when emitting a cached pose.
+
+Sprites collect their sampled triangles in the same bounded fallback buffer
+used by alias models. This reduces CPU draw calls while preserving triangle
+order and per-triangle cutout sampling. Weapon depth clearing reuses the
+tracked opaque/depth-write state; its completion waits remain in place.
 
 ### Sky and water sampling
 
@@ -329,6 +338,22 @@ weapon stage. A drop in packing time alone is not an FPS gain. Native triangle
 batches can span stage boundaries, so the stage that flushes a batch can
 include submission work queued by an earlier stage.
 
+Level 2 also separates alias, brush and sprite draw scopes, weapon setup/draw/
+finish, and particle/water effects. Each reports wall time, native submission
+time and synchronization time in milliseconds per frame. Native times are
+included in wall time and refer to calls executed during that scope, including
+any geometry queued earlier. The scopes preserve batching and make timing
+queries only at level 2. Particle time includes the shared particle simulation;
+the effects water scope measures queued water drawing, while the earlier
+water color timer measures animated color preparation.
+
+Weapon setup includes draining earlier geometry and issuing the depth clear;
+finish includes draining weapon geometry. The separate depth-clear timer
+measures the native clear call itself, with completion waits counted under
+synchronization. Entity visits/frame counts calls to each model-type drawing
+routine, including calls rejected by its visibility checks; it excludes the
+view weapon.
+
 ### Counters
 
 Detailed counts are per-frame averages. World cached draws include meshes
@@ -351,7 +376,7 @@ disabled.
 
 ## Development-host checks
 
-Shareware recognition, CPU texture/mesh, native UI/entity submission, audio
+Shareware recognition, CPU texture/mesh, native UI/entity/particle submission, audio
 queueing and profiling tests need no SDK or game data. They run against
 controlled engine/backend mocks. Run from `WinQuake/`:
 

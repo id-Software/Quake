@@ -76,7 +76,7 @@ check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
        $(TEST_BUILD_DIR)/test_draw $(TEST_BUILD_DIR)/test_entities \
        $(TEST_BUILD_DIR)/test_world $(TEST_BUILD_DIR)/test_input \
        $(TEST_BUILD_DIR)/test_filesystem $(TEST_BUILD_DIR)/test_audio \
-       $(TEST_BUILD_DIR)/test_profile
+       $(TEST_BUILD_DIR)/test_profile $(TEST_BUILD_DIR)/test_effects
 	./$(TEST_BUILD_DIR)/test_texture
 	./$(TEST_BUILD_DIR)/test_mesh
 	./$(TEST_BUILD_DIR)/test_draw
@@ -86,6 +86,11 @@ check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
 	./$(TEST_BUILD_DIR)/test_filesystem
 	./$(TEST_BUILD_DIR)/test_audio
 	./$(TEST_BUILD_DIR)/test_profile
+	./$(TEST_BUILD_DIR)/test_effects
+
+$(TEST_BUILD_DIR)/test_effects: xgl_tests/test_effects.c xgl_effects.c $(HEADERS)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -DXGLQUAKE -I. -o $@ xgl_tests/test_effects.c -lm
 
 $(TEST_BUILD_DIR)/test_audio: xgl_tests/test_audio.c xgl_snd_sun.c $(HEADERS) \
                              xgl_tests/include/sys/audioio.h

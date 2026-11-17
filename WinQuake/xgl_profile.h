@@ -25,6 +25,7 @@ typedef enum {
     XGL_PROFILE_WORLD_WATER,
     XGL_PROFILE_ALIAS_CACHE,
     XGL_PROFILE_ALIAS_TRANSFORM,
+    XGL_PROFILE_WEAPON_CLEAR,
     XGL_PROFILE_SECTION_COUNT
 } xgl_profile_section_t;
 
@@ -64,6 +65,25 @@ typedef enum {
     XGL_PROFILE_COUNTER_COUNT
 } xgl_profile_counter_t;
 
+typedef enum {
+    XGL_PROFILE_DRAW_ALIAS,
+    XGL_PROFILE_DRAW_BRUSH,
+    XGL_PROFILE_DRAW_SPRITE,
+    XGL_PROFILE_DRAW_WEAPON_SETUP,
+    XGL_PROFILE_DRAW_WEAPON_DRAW,
+    XGL_PROFILE_DRAW_WEAPON_FINISH,
+    XGL_PROFILE_DRAW_PARTICLES,
+    XGL_PROFILE_DRAW_WATER,
+    XGL_PROFILE_DRAW_COUNT
+} xgl_profile_draw_t;
+
+/* Stack-owned detail snapshot. Native deltas measure calls executed during
+ * the scope; a batch may contain geometry queued by an earlier scope. */
+typedef struct {
+    double start, submit, sync;
+    unsigned long frame;
+} xgl_profile_draw_scope_t;
+
 void XGL_ProfileInit(void);
 void XGL_ProfileBeginFrame(void);
 void XGL_ProfileEndFrame(void);
@@ -71,5 +91,7 @@ double XGL_ProfileNow(void);
 double XGL_ProfileDetailNow(void);
 void XGL_ProfileAdd(xgl_profile_section_t section, double start);
 void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count);
+void XGL_ProfileDrawBegin(xgl_profile_draw_scope_t *scope);
+void XGL_ProfileDrawEnd(xgl_profile_draw_scope_t *scope, xgl_profile_draw_t draw);
 
 #endif

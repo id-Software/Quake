@@ -137,6 +137,7 @@ static void XGL_SetFrustum (void)
 void R_RenderView (void)
 {
     double start, section_start;
+    xgl_profile_draw_scope_t draw_scope;
     if (r_norefresh.value || !cl.worldmodel) return;
     start = r_speeds.value ? Sys_FloatTime() : 0;
     if (cl.maxclients > 1 && r_fullbright.value) Cvar_Set("r_fullbright", "0");
@@ -163,11 +164,15 @@ void R_RenderView (void)
     XGL_ProfileAdd(XGL_PROFILE_ENTITIES, section_start);
     XGL_AudioUpdate();
     section_start = XGL_ProfileNow();
+    XGL_ProfileDrawBegin(&draw_scope);
     R_DrawParticles();
+    XGL_ProfileDrawEnd(&draw_scope, XGL_PROFILE_DRAW_PARTICLES);
     XGL_ProfileAdd(XGL_PROFILE_EFFECTS, section_start);
     XGL_AudioUpdate();
     section_start = XGL_ProfileNow();
+    XGL_ProfileDrawBegin(&draw_scope);
     XGL_DrawWater();
+    XGL_ProfileDrawEnd(&draw_scope, XGL_PROFILE_DRAW_WATER);
     XGL_ProfileAdd(XGL_PROFILE_EFFECTS, section_start);
     XGL_AudioUpdate();
     section_start = XGL_ProfileNow();

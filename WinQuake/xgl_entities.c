@@ -59,6 +59,7 @@ typedef struct {
 
 typedef struct {
     int material, depth, command_words, triangle_count, translated, ready;
+    int visible_triangles;
     unsigned int revision, used, command_hash;
     byte translation[256];
     int *commands;
@@ -548,9 +549,7 @@ static void XGL_EmitAliasPose(const xgl_alias_pose_cache_t *cache,
     xgl_native_vertex_t *vertices, *out;
     int i, j, k, count, emitted, remaining;
     topology = cache->topology;
-    remaining = 0;
-    for (i = 0; i < topology->triangle_count; ++i)
-        if (draw->cache->colors[i].visible) remaining += 3;
+    remaining = draw->cache->visible_triangles * 3;
     i = 0;
     while (remaining) {
         count = remaining;
@@ -651,7 +650,7 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
 {
     const xgl_entity_vertex_t *source[3];
     xgl_entity_vertex_t ab, bc, ca;
-    xgl_vertex_t local_vertices[3], *vertices;
+    xgl_vertex_t *vertices;
     xgl_alias_color_t sampled, *colors;
     float center[3];
     int i, j;
@@ -666,7 +665,7 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
         return;
     }
     colors = &sampled;
-    if (draw && draw->cache && draw->index < draw->cache->triangle_count)
+    if (draw->cache && draw->index < draw->cache->triangle_count)
         colors = &draw->cache->colors[draw->index++];
     /* Alpha index 255 is coverage, not a black vertex. The centroid decides
      * coverage of each small sprite triangle. Transparent corners inherit
@@ -677,7 +676,7 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
         center[0] = center[1] = center[2] = 0;
         /* Opaque alias skins need no coverage sample. Sprites retain their
          * centroid coverage rule; cached aliases also retain alpha holes. */
-        if ((!draw || !draw->opaque) &&
+        if (!draw->opaque &&
             !XGL_SampleTexture(material, (a->s + b->s + c->s) / 3,
                                (a->t + b->t + c->t) / 3, center, translation)) return;
         for (i = 0; i < 3; ++i) {
@@ -689,25 +688,14 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
         colors->visible = 1;
     }
     if (!colors->visible) return;
-    vertices = draw ? &draw->vertices[draw->count] : local_vertices;
+    vertices = &draw->vertices[draw->count];
     for (i = 0; i < 3; ++i) {
         VectorCopy(source[i]->position, vertices[i].position);
         VectorCopy(source[i]->normal, vertices[i].normal);
         for (j = 0; j < 3; ++j) vertices[i].color[j] = colors->rgb[i][j] * light;
     }
-    if (draw) {
-        draw->count += 3;
-        if (draw->count == XGL_ENTITY_BATCH_VERTICES) XGL_AliasFlush(draw, lit);
-    } else XGL_DrawTriangles(vertices, 3, lit, 1.0f, 1);
-}
-
-static void XGL_EntityTriangle(const xgl_entity_vertex_t *a,
-                              const xgl_entity_vertex_t *b,
-                              const xgl_entity_vertex_t *c,
-                              int material, const byte *translation,
-                              float light, int lit, int depth)
-{
-    XGL_EntityTriangleCached(a, b, c, material, translation, light, lit, depth, NULL);
+    draw->count += 3;
+    if (draw->count == XGL_ENTITY_BATCH_VERTICES) XGL_AliasFlush(draw, lit);
 }
 
 static int XGL_AliasDepth(entity_t *entity, int triangles)
@@ -881,7 +869,13 @@ static void XGL_DrawAlias(entity_t *entity)
         }
         consumed += count;
     }
-    if (draw.cache && draw.index == draw.cache->triangle_count) draw.cache->ready = 1;
+    if (draw.building && draw.index == draw.cache->triangle_count) {
+        /* Coverage changes only when the sampled-color cache is rebuilt. */
+        draw.cache->visible_triangles = 0;
+        for (i = 0; i < draw.cache->triangle_count; ++i)
+            if (draw.cache->colors[i].visible) ++draw.cache->visible_triangles;
+        draw.cache->ready = 1;
+    }
     XGL_AliasFlush(&draw, lit);
     XGL_AudioUnlock();
 }
@@ -964,6 +958,7 @@ static void XGL_DrawSprite(entity_t *entity)
     msprite_t *sprite;
     mspriteframe_t *frame;
     xgl_entity_vertex_t corners[4];
+    xgl_alias_draw_t draw;
     vec3_t right, up, normal, origin, mins, maxs;
     int x, y, cells, i;
     float s0, s1, t0, t1, radius;
@@ -982,6 +977,10 @@ static void XGL_DrawSprite(entity_t *entity)
         if (R_CullBox(mins, maxs)) return;
     }
     cells = XGL_EntitySetting(xgl_sprite_cells.value, 2, 16);
+    /* Reuse the bounded fallback batch while keeping per-triangle cutout
+     * sampling. No sampled colors or geometry survive this sprite draw. */
+    draw.cache = NULL;
+    draw.count = draw.index = draw.building = draw.opaque = 0;
     for (y = 0; y < cells; ++y) {
         t0 = (float)y / cells; t1 = (float)(y + 1) / cells;
         for (x = 0; x < cells; ++x) {
@@ -990,41 +989,60 @@ static void XGL_DrawSprite(entity_t *entity)
             XGL_SpriteVertex(frame, origin, right, up, normal, s1, t0, &corners[1]);
             XGL_SpriteVertex(frame, origin, right, up, normal, s1, t1, &corners[2]);
             XGL_SpriteVertex(frame, origin, right, up, normal, s0, t1, &corners[3]);
-            XGL_EntityTriangle(&corners[0], &corners[1], &corners[2],
-                               frame->gl_texturenum, NULL, 1, 0, 0);
-            XGL_EntityTriangle(&corners[0], &corners[2], &corners[3],
-                               frame->gl_texturenum, NULL, 1, 0, 0);
+            XGL_EntityTriangleCached(&corners[0], &corners[1], &corners[2],
+                               frame->gl_texturenum, NULL, 1, 0, 0, &draw);
+            XGL_EntityTriangleCached(&corners[0], &corners[2], &corners[3],
+                               frame->gl_texturenum, NULL, 1, 0, 0, &draw);
         }
     }
+    XGL_AliasFlush(&draw, 0);
 }
 
 void XGL_DrawEntities(void)
 {
+    xgl_profile_draw_scope_t profile;
     int i;
     xgl_entity_extra_used = 0;
     if (!r_drawentities.value) return;
     for (i = 0; i < cl_numvisedicts; ++i) {
         currententity = cl_visedicts[i];
         if (!currententity || !currententity->model) continue;
-        if (currententity->model->type == mod_alias) XGL_DrawAlias(currententity);
-        else if (currententity->model->type == mod_brush) XGL_DrawBrushModel(currententity);
+        if (currententity->model->type == mod_alias) {
+            XGL_ProfileDrawBegin(&profile);
+            XGL_DrawAlias(currententity);
+            XGL_ProfileDrawEnd(&profile, XGL_PROFILE_DRAW_ALIAS);
+        } else if (currententity->model->type == mod_brush) {
+            XGL_ProfileDrawBegin(&profile);
+            XGL_DrawBrushModel(currententity);
+            XGL_ProfileDrawEnd(&profile, XGL_PROFILE_DRAW_BRUSH);
+        }
     }
     for (i = 0; i < cl_numvisedicts; ++i) {
         currententity = cl_visedicts[i];
-        if (currententity && currententity->model && currententity->model->type == mod_sprite)
+        if (currententity && currententity->model && currententity->model->type == mod_sprite) {
+            XGL_ProfileDrawBegin(&profile);
             XGL_DrawSprite(currententity);
+            XGL_ProfileDrawEnd(&profile, XGL_PROFILE_DRAW_SPRITE);
+        }
     }
 }
 
 void XGL_DrawViewModel(void)
 {
+    xgl_profile_draw_scope_t profile;
     if (!r_drawviewmodel.value || !r_drawentities.value || chase_active.value ||
         (cl.items & IT_INVISIBILITY) || cl.stats[STAT_HEALTH] <= 0 ||
         !cl.viewent.model || cl.viewent.model->type != mod_alias) return;
     currententity = &cl.viewent;
     /* Finish world work before clearing depth for the weapon. The backend
      * retains world color and resumes normal depth state afterwards. */
+    XGL_ProfileDrawBegin(&profile);
     XGL_SetViewModel(1);
+    XGL_ProfileDrawEnd(&profile, XGL_PROFILE_DRAW_WEAPON_SETUP);
+    XGL_ProfileDrawBegin(&profile);
     XGL_DrawAlias(currententity);
+    XGL_ProfileDrawEnd(&profile, XGL_PROFILE_DRAW_WEAPON_DRAW);
+    XGL_ProfileDrawBegin(&profile);
     XGL_SetViewModel(0);
+    XGL_ProfileDrawEnd(&profile, XGL_PROFILE_DRAW_WEAPON_FINISH);
 }

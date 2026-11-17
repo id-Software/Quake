@@ -23,26 +23,27 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 void XGL_DrawParticle(const particle_t *particle)
 {
-    xgl_vertex_t vertex[3];
-    float scale, distance;
-    int i, color;
+    xgl_native_vertex_t *vertex;
+    float scale, distance, rgb[3];
+    int i, color, count;
+    count = 3;
+    vertex = XGL_ReserveTriangles(&count, 0, 1.0f, 1);
+    if (!vertex) return;
     distance = (particle->org[0] - r_origin[0]) * vpn[0] +
                (particle->org[1] - r_origin[1]) * vpn[1] +
                (particle->org[2] - r_origin[2]) * vpn[2];
     scale = distance < 20 ? 1.0f : 1.0f + distance * .004f;
     color = (int)particle->color & 255;
+    XGL_PreparePaletteColor(color, rgb);
     for (i = 0; i < 3; ++i) {
         VectorCopy(particle->org, vertex[i].position);
         VectorCopy(vpn, vertex[i].normal);
-        vertex[i].color[0] = xgl_palette[color * 3] / 255.0f;
-        vertex[i].color[1] = xgl_palette[color * 3 + 1] / 255.0f;
-        vertex[i].color[2] = xgl_palette[color * 3 + 2] / 255.0f;
+        VectorCopy(rgb, vertex[i].color.rgb);
     }
     for (i = 0; i < 3; ++i) {
         vertex[1].position[i] += vup[i] * 1.5f * scale;
         vertex[2].position[i] += vright[i] * 1.5f * scale;
     }
-    XGL_DrawTriangles(vertex, 3, 0, 1.0f, 1);
 }
 
 void XGL_PolyBlend(void)

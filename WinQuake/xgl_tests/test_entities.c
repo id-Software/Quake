@@ -30,6 +30,8 @@ static int reserved_count, reserved_lit, reserve_calls, prepare_calls;
 static int reserve_limit = XGL_ENTITY_BATCH_VERTICES;
 static void capture_reserved(void);
 static unsigned long profile_counts[XGL_PROFILE_COUNTER_COUNT];
+static xgl_profile_draw_scope_t *profile_draw_active;
+static int profile_draw_calls[XGL_PROFILE_DRAW_COUNT];
 static unsigned int material_revision;
 static int allocation_fail_after = -1;
 static int audio_lock_depth, audio_locks, audio_unlocks, expect_alias_lock;
@@ -60,6 +62,18 @@ void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count)
 {
     assert((unsigned int)counter < XGL_PROFILE_COUNTER_COUNT);
     profile_counts[counter] += count;
+}
+void XGL_ProfileDrawBegin(xgl_profile_draw_scope_t *scope)
+{
+    assert(!profile_draw_active);
+    profile_draw_active = scope;
+}
+void XGL_ProfileDrawEnd(xgl_profile_draw_scope_t *scope, xgl_profile_draw_t draw)
+{
+    assert(profile_draw_active == scope);
+    assert((unsigned int)draw < XGL_PROFILE_DRAW_COUNT);
+    ++profile_draw_calls[draw];
+    profile_draw_active = NULL;
 }
 void Cvar_RegisterVariable(cvar_t *variable) { (void)variable; }
 void Con_DPrintf(char *format, ...) { (void)format; }
@@ -179,6 +193,8 @@ static void reset_test(void)
     reserved_lit = reserve_calls = prepare_calls = 0;
     reserve_limit = XGL_ENTITY_BATCH_VERTICES;
     memset(profile_counts, 0, sizeof(profile_counts));
+    assert(!profile_draw_active);
+    memset(profile_draw_calls, 0, sizeof(profile_draw_calls));
     allocation_fail_after = -1;
     audio_locks = audio_unlocks = expect_alias_lock = test_cull = 0;
     XGL_EntitiesInit();
@@ -302,7 +318,7 @@ static void test_sprite_groups_coverage_axes(void)
     float intervals[2];
     entity_t entity;
     model_t model;
-    int i, type;
+    int i, type, cells, coverage, triangles;
     reset_test();
     memset(&sprite, 0, sizeof(sprite));
     memset(frames, 0, sizeof(frames));
@@ -325,9 +341,10 @@ static void test_sprite_groups_coverage_axes(void)
     cl.time = .2;
     for (type = SPR_VP_PARALLEL_UPRIGHT; type <= SPR_VP_PARALLEL_ORIENTED; ++type) {
         sprite.type = type;
-        captured_count = 0;
+        captured_count = draw_calls = 0;
         XGL_DrawSprite(&entity);
         assert(captured_count == 24 && native_lit == 0 && material_seen == 21);
+        assert(draw_calls == 1);
         for (i = 0; i < captured_count; ++i) {
             assert(fabs(captured[i].position[0] - 10) < .0001);
             assert(fabs(captured[i].position[1]) <= 4 && fabs(captured[i].position[2]) <= 4);
@@ -339,6 +356,24 @@ static void test_sprite_groups_coverage_axes(void)
     coverage_mode = 2; captured_count = 0;
     XGL_DrawSprite(&entity);
     assert(captured_count == 12);
+    for (cells = 8; cells <= 16; cells += 8) {
+        xgl_sprite_cells.value = (float)cells;
+        triangles = cells * cells * 2;
+        for (coverage = 0; coverage <= 2; ++coverage) {
+            coverage_mode = coverage;
+            captured_count = draw_calls = sample_calls = 0;
+            XGL_DrawSprite(&entity);
+            if (coverage == 1) {
+                assert(!captured_count && !draw_calls);
+                assert(sample_calls == triangles);
+            } else {
+                assert(captured_count == triangles * 3 / (coverage ? 2 : 1));
+                assert(draw_calls == (captured_count + XGL_ENTITY_BATCH_VERTICES - 1) /
+                                     XGL_ENTITY_BATCH_VERTICES);
+                assert(sample_calls == triangles + captured_count);
+            }
+        }
+    }
 }
 
 static void test_view_weapon_scope(void)
@@ -350,12 +385,52 @@ static void test_view_weapon_scope(void)
     XGL_DrawViewModel();
     assert(captured_count == 3 && weapon_scope_count == 2);
     assert(weapon_scope[0] == 1 && weapon_scope[1] == 0);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_SETUP] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_DRAW] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_FINISH] == 1);
+    assert(!profile_draw_calls[XGL_PROFILE_DRAW_ALIAS] && !profile_draw_active);
     cl.items = IT_INVISIBILITY;
     XGL_DrawViewModel();
     assert(captured_count == 3 && weapon_scope_count == 2);
     cl.items = 0; cl.stats[STAT_HEALTH] = 0;
     XGL_DrawViewModel();
     assert(captured_count == 3 && weapon_scope_count == 2);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_SETUP] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_DRAW] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_FINISH] == 1);
+    assert(!profile_draw_active);
+}
+
+static void test_entity_profile_categories(void)
+{
+    model_t brush, sprite;
+    reset_test();
+    make_alias(3);
+    memset(&brush, 0, sizeof(brush)); brush.type = mod_brush;
+    memset(&sprite, 0, sizeof(sprite)); sprite.type = mod_sprite;
+    cl_entities[2].model = &brush;
+    cl_entities[3].model = &sprite;
+    cl_visedicts[0] = &cl_entities[1];
+    cl_visedicts[1] = &cl_entities[2];
+    cl_visedicts[2] = &cl_entities[3];
+    cl_visedicts[3] = NULL;
+    cl_visedicts[4] = &cl_entities[4];
+    cl_numvisedicts = 5;
+    XGL_DrawEntities();
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_BRUSH] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_SPRITE] == 1);
+    assert(!profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_DRAW] && !profile_draw_active);
+    /* Call counts include dispatches culled or rejected by the renderer. */
+    test_cull = 1;
+    XGL_DrawEntities();
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS] == 2);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_BRUSH] == 2);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_SPRITE] == 2);
+    r_drawentities.value = 0;
+    XGL_DrawEntities();
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS] == 2 && !profile_draw_active);
+    cl_numvisedicts = 0;
 }
 
 static void test_alias_color_cache(void)
@@ -830,6 +905,21 @@ static void test_alias_direct_partial_batches(void)
     assert(reserve_calls == (count + reserve_limit - 1) / reserve_limit);
     assert(prepare_calls == count);
     assert(audio_locks == audio_unlocks && !audio_lock_depth);
+    /* Rebuilding material colors must also replace the cached visible count. */
+    ++material_revision; coverage_mode = 1;
+    captured_count = reserve_calls = 0; xgl_entity_extra_used = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(!captured_count);
+    xgl_entity_extra_used = 0; sample_calls = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(!captured_count && !reserve_calls && !sample_calls);
+    ++material_revision; coverage_mode = 0;
+    xgl_entity_extra_used = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(captured_count == 192);
+    captured_count = 0; xgl_entity_extra_used = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(captured_count == 192);
     XGL_EntitiesShutdown();
 }
 
@@ -867,6 +957,7 @@ int main(void)
     test_alias_primitive_winding();
     test_sprite_groups_coverage_axes();
     test_view_weapon_scope();
+    test_entity_profile_categories();
     test_alias_color_cache();
     test_alias_cache_coverage_and_capacity();
     test_alias_cache_allocation_failure();

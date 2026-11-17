@@ -26,6 +26,7 @@ static int actions, orientation, mapping, clip_planes, hlhsr, illumination;
 static int clear_calls, swap_calls, polygon_calls, text_calls, extent_calls, flush_calls;
 static int text_color_sets, audio_updates;
 static int transparency, freeze_z;
+static int transparency_sets;
 static float current_ambient, text_height, current_spacing;
 static int spacing_mode, proportional_metrics;
 static int vertical_advance;
@@ -53,6 +54,7 @@ static const char *queued_string[4096];
 static char queued_string_copy[4096][XGL_UI_TEXT_RUN + 1];
 static int queued_count;
 static unsigned long profile_counts[XGL_PROFILE_COUNTER_COUNT];
+static int profile_sections[XGL_PROFILE_SECTION_COUNT];
 static Xgl_error_info injected_error;
 static jmp_buf expected_failure;
 static int expect_failure;
@@ -67,6 +69,7 @@ void XGL_ProfileAdd(xgl_profile_section_t section, double start)
 {
     assert((unsigned int)section < XGL_PROFILE_SECTION_COUNT);
     (void)start;
+    ++profile_sections[section];
 }
 void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count)
 {
@@ -139,7 +142,8 @@ void xgl_object_set(Xgl_object object, ...)
         case XGL_CTX_CLIP_PLANES: clip_planes = va_arg(args, int); break;
         case XGL_3D_CTX_HLHSR_MODE: hlhsr = va_arg(args, int); break;
         case XGL_3D_CTX_SURF_FRONT_ILLUMINATION: illumination = va_arg(args, int); break;
-        case XGL_3D_CTX_SURF_TRANSP_METHOD: transparency = va_arg(args, int); break;
+        case XGL_3D_CTX_SURF_TRANSP_METHOD:
+            transparency = va_arg(args, int); ++transparency_sets; break;
         case XGL_3D_CTX_BLEND_FREEZE_Z_BUFFER: freeze_z = va_arg(args, int); break;
         case XGL_3D_CTX_SURF_TRANSP_BLEND_EQ:
         case XGL_3D_CTX_BLEND_DRAW_MODE:
@@ -386,11 +390,13 @@ static void reset_backend(void)
     glyph_count = spacing_mode = proportional_metrics = vertical_advance = 0;
     current_spacing = 0;
     memset(profile_counts, 0, sizeof(profile_counts));
+    memset(profile_sections, 0, sizeof(profile_sections));
     recorded_quads = quad_batch_count = native_event_count = 0;
     native_events[0] = 0;
     queued_count = queued_quad_count = 0;
     actions = orientation = mapping = clip_planes = hlhsr = illumination = 0;
     write_mask = 0; transparency = freeze_z = 0;
+    transparency_sets = 0;
     r_refdef.vrect.x = 40; r_refdef.vrect.y = 30;
     r_refdef.vrect.width = 560; r_refdef.vrect.height = 400;
     r_refdef.fov_x = r_refdef.fov_y = 90;
@@ -521,6 +527,50 @@ static void test_clear_and_lighting(void)
     assert(illumination == XGL_ILLUM_NONE_INTERP_COLOR && write_mask == 0);
     XGL_SetViewModel(1);
     assert(clear_calls == 2 && actions == XGL_CTX_NEW_FRAME_HLHSR_ACTION);
+}
+
+static void test_weapon_clear_state_reuse(void)
+{
+    xgl_vertex_t vertices[3];
+    int sets, waits, polygons;
+    reset_backend(); XGL_BeginScene();
+    memset(vertices, 0, sizeof(vertices));
+    XGL_DrawTriangles(vertices, 3, 2, 1, 1); XGL_Flush();
+    sets = transparency_sets; waits = flush_calls; polygons = polygon_calls;
+    assert(illumination == XGL_ILLUM_PER_VERTEX && switches[5]);
+    XGL_SetViewModel(1);
+    assert(transparency_sets == sets && polygon_calls == polygons);
+    assert(flush_calls == waits + 1 && clear_calls == 1);
+    assert(actions == XGL_CTX_NEW_FRAME_HLHSR_ACTION);
+    assert(xb.applied_opacity == 1 && xb.applied_zwrite == 1);
+    assert(illumination == XGL_ILLUM_PER_VERTEX && switches[5]);
+    assert(profile_sections[XGL_PROFILE_WEAPON_CLEAR] == 1);
+    XGL_DrawTriangles(vertices, 3, 2, 1, 1); XGL_Flush();
+    assert(transparency_sets == sets && polygon_calls == polygons + 1);
+    assert(profile_counts[XGL_PROFILE_TRIANGLES] == 2);
+    XGL_SetViewModel(0);
+    assert(clear_calls == 1 && flush_calls == waits + 2);
+    assert(profile_sections[XGL_PROFILE_WEAPON_CLEAR] == 1);
+
+    /* A blended preceding layer must restore opaque drawing and depth
+     * writes before the clear, then reuse those values for the weapon. */
+    reset_backend(); XGL_BeginScene();
+    XGL_DrawTriangles(vertices, 3, 0, .5f, 0); XGL_Flush();
+    sets = transparency_sets; waits = flush_calls;
+    assert(transparency == XGL_TRANSP_BLENDED && freeze_z && !write_mask);
+    XGL_SetViewModel(1);
+    assert(transparency_sets == sets + 1 && flush_calls == waits + 1);
+    assert(transparency == XGL_TRANSP_NONE && !freeze_z);
+    assert(write_mask == (Xgl_usgn32)0xffffffffUL);
+    assert(xb.applied_opacity == 1 && xb.applied_zwrite == 1);
+    assert(illumination == XGL_ILLUM_NONE_INTERP_COLOR);
+    assert(profile_sections[XGL_PROFILE_WEAPON_CLEAR] == 1);
+    XGL_DrawTriangles(vertices, 3, 2, 1, 1); XGL_Flush();
+    assert(transparency_sets == sets + 1 && polygon_calls == 2);
+    assert(illumination == XGL_ILLUM_PER_VERTEX && switches[5]);
+    assert(profile_counts[XGL_PROFILE_TRIANGLES] == 2);
+    XGL_SetViewModel(0);
+    assert(flush_calls == waits + 2 && clear_calls == 1);
 }
 
 static void test_fonts_and_gamma(void)
@@ -1020,6 +1070,7 @@ int main(void)
     test_first_console_frame();
     test_camera();
     test_clear_and_lighting();
+    test_weapon_clear_state_reuse();
     test_fonts_and_gamma();
     test_text_runs();
     test_strided_prepared_colors();

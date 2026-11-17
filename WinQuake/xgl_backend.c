@@ -551,18 +551,23 @@ void XGL_BeginScene(void)
 
 void XGL_SetViewModel(int enabled)
 {
+    double start;
     if (!xb.frame || !xb.scene_active) return;
     XGL_Flush(); complete_scene();
     if (enabled) {
         /* Weapon is the last 3D layer; clear depth only, retaining the world
          * color. No extra world render or texture/lightmap pass is needed. */
-        set_transparency(1, 1);
-        xb.applied_zwrite = -1; xb.applied_opacity = -1;
+        if (xb.applied_opacity != 1 || xb.applied_zwrite != 1) {
+            set_transparency(1, 1);
+            xb.applied_opacity = 1; xb.applied_zwrite = 1;
+        }
         xb.stage = "weapon depth clear state";
         xgl_object_set(xb.scene, XGL_CTX_NEW_FRAME_ACTION, XGL_CTX_NEW_FRAME_HLHSR_ACTION, 0);
         native_check();
         xb.stage = "weapon depth clear";
+        start = XGL_ProfileDetailNow();
         xgl_context_new_frame(xb.scene);
+        XGL_ProfileAdd(XGL_PROFILE_WEAPON_CLEAR, start);
         xb.scene_pending = 1;
         native_check();
     }

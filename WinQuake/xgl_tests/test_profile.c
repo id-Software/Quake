@@ -256,6 +256,140 @@ static void test_toggle_and_clock_reset(void)
     assert(print_calls == 2 && strstr(output, "world 0.00"));
 }
 
+static void record_draw_scope(xgl_profile_draw_t draw, double wall,
+                              double submit, double sync)
+{
+    xgl_profile_draw_scope_t scope;
+    double start, native_start;
+    start = clock_time;
+    XGL_ProfileDrawBegin(&scope);
+    native_start = XGL_ProfileNow();
+    clock_time += submit;
+    XGL_ProfileAdd(XGL_PROFILE_SUBMIT, native_start);
+    native_start = XGL_ProfileNow();
+    clock_time += sync;
+    XGL_ProfileAdd(XGL_PROFILE_SYNC, native_start);
+    if (draw == XGL_PROFILE_DRAW_WEAPON_SETUP) {
+        native_start = XGL_ProfileDetailNow();
+        clock_time += .004;
+        XGL_ProfileAdd(XGL_PROFILE_WEAPON_CLEAR, native_start);
+    }
+    clock_time = start + wall;
+    XGL_ProfileDrawEnd(&scope, draw);
+}
+
+static void test_draw_scope_aggregation(void)
+{
+    double start;
+    int i;
+    disable_profile();
+    profile_setting->value = 2;
+    clock_time = 200; XGL_ProfileBeginFrame();
+    /* Native calls made before a draw are excluded from its snapshots. */
+    start = XGL_ProfileNow();
+    clock_time += .010; XGL_ProfileAdd(XGL_PROFILE_SUBMIT, start);
+    start = XGL_ProfileNow();
+    clock_time += .003; XGL_ProfileAdd(XGL_PROFILE_SYNC, start);
+    for (i = 0; i < XGL_PROFILE_DRAW_COUNT; ++i)
+        record_draw_scope((xgl_profile_draw_t)i, .040, .010, .005);
+    clock_time = 200.5; XGL_ProfileEndFrame();
+    assert(print_calls == 0);
+    clock_time = 200.6; XGL_ProfileBeginFrame();
+    record_draw_scope(XGL_PROFILE_DRAW_ALIAS, .100, .020, .010);
+    clock_time = 201.1; XGL_ProfileEndFrame();
+    assert(print_calls == 2);
+    assert(strstr(output, "native calls (overlap stages): submit 55.00 sync 26.50"));
+    assert(strstr(output, "native calls executed during scope"));
+    assert(strstr(output, "alias 70.00/15.00/7.50 brush 20.00/5.00/2.50 sprite 20.00/5.00/2.50"));
+    assert(strstr(output, "visits/frame 1.0/0.5/0.5"));
+    assert(strstr(output, "setup 20.00/5.00/2.50 draw 20.00/5.00/2.50 finish 20.00/5.00/2.50"));
+    assert(strstr(output, "depth clear 2.00 ms"));
+    assert(strstr(output, "particles 20.00/5.00/2.50 water 20.00/5.00/2.50"));
+
+    clock_time = 201.2; XGL_ProfileBeginFrame();
+    clock_time = 202.3; XGL_ProfileEndFrame();
+    assert(print_calls == 4);
+    assert(strstr(output, "alias 0.00/0.00/0.00 brush 0.00/0.00/0.00 sprite 0.00/0.00/0.00"));
+    assert(strstr(output, "visits/frame 0.0/0.0/0.0"));
+    assert(strstr(output, "depth clear 0.00 ms"));
+}
+
+static void test_draw_scope_guards(void)
+{
+    xgl_profile_draw_scope_t scope, stale;
+    int calls;
+    disable_profile();
+    XGL_ProfileDrawBegin(&scope);
+    XGL_ProfileDrawEnd(&scope, XGL_PROFILE_DRAW_ALIAS);
+    assert(clock_calls == 0);
+    profile_setting->value = 1;
+    clock_time = 300; XGL_ProfileBeginFrame();
+    calls = clock_calls;
+    XGL_ProfileDrawBegin(&scope);
+    XGL_ProfileDrawEnd(&scope, XGL_PROFILE_DRAW_ALIAS);
+    XGL_ProfileAdd(XGL_PROFILE_WEAPON_CLEAR, 0);
+    assert(clock_calls == calls);
+    clock_time = 300.1; XGL_ProfileEndFrame();
+
+    profile_setting->value = 2;
+    clock_time = 301; XGL_ProfileBeginFrame();
+    XGL_ProfileDrawBegin(&stale);
+    clock_time = 301.1; XGL_ProfileEndFrame();
+    clock_time = 301.2; XGL_ProfileBeginFrame();
+    calls = clock_calls;
+    XGL_ProfileDrawEnd(&stale, XGL_PROFILE_DRAW_ALIAS);
+    XGL_ProfileDrawBegin(NULL);
+    XGL_ProfileDrawEnd(NULL, XGL_PROFILE_DRAW_ALIAS);
+    assert(clock_calls == calls);
+    XGL_ProfileDrawBegin(&scope);
+    calls = clock_calls;
+    XGL_ProfileDrawEnd(&scope, (xgl_profile_draw_t)-1);
+    XGL_ProfileDrawEnd(&scope, XGL_PROFILE_DRAW_COUNT);
+    assert(clock_calls == calls);
+    clock_time = 301.3; XGL_ProfileDrawEnd(&scope, XGL_PROFILE_DRAW_ALIAS);
+    calls = clock_calls;
+    XGL_ProfileDrawEnd(&scope, XGL_PROFILE_DRAW_ALIAS);
+    assert(clock_calls == calls);
+    clock_time = 302.1; XGL_ProfileEndFrame();
+    assert(print_calls == 2);
+    assert(strstr(output, "alias 50.00/0.00/0.00"));
+    assert(strstr(output, "visits/frame 0.5/0.0/0.0"));
+
+    /* A backwards clock invalidates the frame and all draw totals. */
+    clock_time = 303; XGL_ProfileBeginFrame();
+    XGL_ProfileDrawBegin(&scope);
+    clock_time = 3; XGL_ProfileDrawEnd(&scope, XGL_PROFILE_DRAW_ALIAS);
+    XGL_ProfileEndFrame();
+    assert(print_calls == 2);
+    clock_time = 4; XGL_ProfileBeginFrame();
+    clock_time = 5.1; XGL_ProfileEndFrame();
+    assert(print_calls == 4);
+    assert(strstr(output, "alias 0.00/0.00/0.00"));
+    assert(strstr(output, "visits/frame 0.0/0.0/0.0"));
+
+    /* Changing modes discards a partial detailed interval. */
+    clock_time = 5.2; XGL_ProfileBeginFrame();
+    record_draw_scope(XGL_PROFILE_DRAW_ALIAS, .040, .010, .005);
+    XGL_ProfileDrawBegin(&stale);
+    clock_time = 5.3; XGL_ProfileEndFrame();
+    profile_setting->value = 1;
+    clock_time = 5.4; XGL_ProfileBeginFrame();
+    clock_time = 5.5; XGL_ProfileEndFrame();
+    profile_setting->value = 2;
+    clock_time = 5.6; XGL_ProfileBeginFrame();
+    calls = clock_calls;
+    XGL_ProfileDrawEnd(&stale, XGL_PROFILE_DRAW_ALIAS);
+    assert(clock_calls == calls);
+    clock_time = 6.7; XGL_ProfileEndFrame();
+    assert(print_calls == 6);
+    assert(strstr(output, "alias 0.00/0.00/0.00"));
+    assert(strstr(output, "visits/frame 0.0/0.0/0.0"));
+    calls = clock_calls;
+    XGL_ProfileDrawBegin(&scope);
+    XGL_ProfileDrawEnd(&scope, XGL_PROFILE_DRAW_ALIAS);
+    assert(clock_calls == calls);
+}
+
 int main(void)
 {
     XGL_ProfileInit();
@@ -265,6 +399,8 @@ int main(void)
     test_aggregation();
     test_toggle_and_clock_reset();
     test_detail_levels();
+    test_draw_scope_aggregation();
+    test_draw_scope_guards();
     puts("XGL profiling: clock-free disabled/detail-off paths, mode changes, stage/cache aggregation and terminal reporting passed");
     return 0;
 }
