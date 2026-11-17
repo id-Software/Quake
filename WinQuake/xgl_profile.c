@@ -189,7 +189,13 @@ void XGL_ProfileEndFrame(void)
             "  weapon scopes wall/submit/sync ms: setup %.2f/%.2f/%.2f "
             "draw %.2f/%.2f/%.2f finish %.2f/%.2f/%.2f; depth clear %.2f ms\n"
             "  effects scopes wall/submit/sync ms: particles %.2f/%.2f/%.2f "
-            "water %.2f/%.2f/%.2f\n",
+            "water %.2f/%.2f/%.2f\n"
+            "  alias entity detail (overlap): lighting %.2f ms; "
+            "cached final vertex/color output %.2f/%.2f/%.2f; "
+            "fallback (transform/subdivide/sample/pack) %.2f/%.2f/%.2f ms wall/submit/sync\n"
+            "  view weapon detail (overlap): lighting %.2f ms; "
+            "cached final vertex/color output %.2f/%.2f/%.2f; "
+            "fallback (transform/subdivide/sample/pack) %.2f/%.2f/%.2f ms wall/submit/sync\n",
             total_sections[XGL_PROFILE_WORLD_VISIBILITY] * scale,
             total_sections[XGL_PROFILE_WORLD_DETAIL_SELECT] * scale,
             total_sections[XGL_PROFILE_WORLD_BUILD] * scale,
@@ -253,7 +259,21 @@ void XGL_ProfileEndFrame(void)
             total_draw[XGL_PROFILE_DRAW_PARTICLES].sync * scale,
             total_draw[XGL_PROFILE_DRAW_WATER].wall * scale,
             total_draw[XGL_PROFILE_DRAW_WATER].submit * scale,
-            total_draw[XGL_PROFILE_DRAW_WATER].sync * scale);
+            total_draw[XGL_PROFILE_DRAW_WATER].sync * scale,
+            total_sections[XGL_PROFILE_ALIAS_LIGHT] * scale,
+            total_draw[XGL_PROFILE_DRAW_ALIAS_OUTPUT].wall * scale,
+            total_draw[XGL_PROFILE_DRAW_ALIAS_OUTPUT].submit * scale,
+            total_draw[XGL_PROFILE_DRAW_ALIAS_OUTPUT].sync * scale,
+            total_draw[XGL_PROFILE_DRAW_ALIAS_FALLBACK].wall * scale,
+            total_draw[XGL_PROFILE_DRAW_ALIAS_FALLBACK].submit * scale,
+            total_draw[XGL_PROFILE_DRAW_ALIAS_FALLBACK].sync * scale,
+            total_sections[XGL_PROFILE_WEAPON_LIGHT] * scale,
+            total_draw[XGL_PROFILE_DRAW_WEAPON_OUTPUT].wall * scale,
+            total_draw[XGL_PROFILE_DRAW_WEAPON_OUTPUT].submit * scale,
+            total_draw[XGL_PROFILE_DRAW_WEAPON_OUTPUT].sync * scale,
+            total_draw[XGL_PROFILE_DRAW_WEAPON_FALLBACK].wall * scale,
+            total_draw[XGL_PROFILE_DRAW_WEAPON_FALLBACK].submit * scale,
+            total_draw[XGL_PROFILE_DRAW_WEAPON_FALLBACK].sync * scale);
     }
     XGL_ProfileReset();
     report_start = now;

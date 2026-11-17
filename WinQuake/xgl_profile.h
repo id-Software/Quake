@@ -26,6 +26,8 @@ typedef enum {
     XGL_PROFILE_ALIAS_CACHE,
     XGL_PROFILE_ALIAS_TRANSFORM,
     XGL_PROFILE_WEAPON_CLEAR,
+    XGL_PROFILE_ALIAS_LIGHT,
+    XGL_PROFILE_WEAPON_LIGHT,
     XGL_PROFILE_SECTION_COUNT
 } xgl_profile_section_t;
 
@@ -74,11 +76,16 @@ typedef enum {
     XGL_PROFILE_DRAW_WEAPON_FINISH,
     XGL_PROFILE_DRAW_PARTICLES,
     XGL_PROFILE_DRAW_WATER,
+    XGL_PROFILE_DRAW_ALIAS_OUTPUT,
+    XGL_PROFILE_DRAW_WEAPON_OUTPUT,
+    XGL_PROFILE_DRAW_ALIAS_FALLBACK,
+    XGL_PROFILE_DRAW_WEAPON_FALLBACK,
     XGL_PROFILE_DRAW_COUNT
 } xgl_profile_draw_t;
 
 /* Stack-owned detail snapshot. Native deltas measure calls executed during
- * the scope; a batch may contain geometry queued by an earlier scope. */
+ * the scope; a batch may contain geometry queued by an earlier scope.
+ * Nested scope totals overlap their enclosing scope. */
 typedef struct {
     double start, submit, sync;
     unsigned long frame;

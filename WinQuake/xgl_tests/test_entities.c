@@ -31,7 +31,12 @@ static int reserve_limit = XGL_ENTITY_BATCH_VERTICES;
 static void capture_reserved(void);
 static unsigned long profile_counts[XGL_PROFILE_COUNTER_COUNT];
 static xgl_profile_draw_scope_t *profile_draw_active;
+static xgl_profile_draw_scope_t *profile_draw_stack[4];
+static int profile_draw_depth, profile_draw_max_depth;
 static int profile_draw_calls[XGL_PROFILE_DRAW_COUNT];
+static int profile_sections[XGL_PROFILE_SECTION_COUNT];
+static int light_calls;
+static vec3_t light_origin;
 static unsigned int material_revision;
 static int allocation_fail_after = -1;
 static int audio_lock_depth, audio_locks, audio_unlocks, expect_alias_lock;
@@ -57,7 +62,11 @@ static float entity_test_normalize(float vector[3])
 
 double XGL_ProfileDetailNow(void) { return 0; }
 void XGL_ProfileAdd(xgl_profile_section_t section, double start)
-{ (void)section; (void)start; }
+{
+    assert((unsigned int)section < XGL_PROFILE_SECTION_COUNT);
+    assert(start == 0);
+    ++profile_sections[section];
+}
 void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count)
 {
     assert((unsigned int)counter < XGL_PROFILE_COUNTER_COUNT);
@@ -65,15 +74,20 @@ void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count)
 }
 void XGL_ProfileDrawBegin(xgl_profile_draw_scope_t *scope)
 {
-    assert(!profile_draw_active);
+    assert(profile_draw_depth < 4);
+    profile_draw_stack[profile_draw_depth++] = scope;
     profile_draw_active = scope;
+    if (profile_draw_depth > profile_draw_max_depth)
+        profile_draw_max_depth = profile_draw_depth;
 }
 void XGL_ProfileDrawEnd(xgl_profile_draw_scope_t *scope, xgl_profile_draw_t draw)
 {
-    assert(profile_draw_active == scope);
+    assert(profile_draw_depth > 0 && profile_draw_active == scope);
+    assert(profile_draw_stack[profile_draw_depth - 1] == scope);
     assert((unsigned int)draw < XGL_PROFILE_DRAW_COUNT);
     ++profile_draw_calls[draw];
-    profile_draw_active = NULL;
+    --profile_draw_depth;
+    profile_draw_active = profile_draw_depth ? profile_draw_stack[profile_draw_depth - 1] : NULL;
 }
 void Cvar_RegisterVariable(cvar_t *variable) { (void)variable; }
 void Con_DPrintf(char *format, ...) { (void)format; }
@@ -99,7 +113,12 @@ void *Mod_Extradata(model_t *model)
     return model->cache.data;
 }
 qboolean R_CullBox(vec3_t mins, vec3_t maxs) { (void)mins; (void)maxs; return test_cull; }
-int R_LightPoint(vec3_t point) { (void)point; return test_light; }
+int R_LightPoint(vec3_t point)
+{
+    ++light_calls;
+    VectorCopy(point, light_origin);
+    return test_light;
+}
 unsigned int XGL_TextureRevision(int material) { return material > 0 ? material_revision : 0; }
 qboolean XGL_TextureHasAlpha(int material) { (void)material; return coverage_mode != 0; }
 void XGL_DrawBrushModel(entity_t *entity) { (void)entity; }
@@ -193,8 +212,12 @@ static void reset_test(void)
     reserved_lit = reserve_calls = prepare_calls = 0;
     reserve_limit = XGL_ENTITY_BATCH_VERTICES;
     memset(profile_counts, 0, sizeof(profile_counts));
-    assert(!profile_draw_active);
+    assert(!profile_draw_active && !profile_draw_depth);
+    profile_draw_max_depth = 0;
     memset(profile_draw_calls, 0, sizeof(profile_draw_calls));
+    memset(profile_sections, 0, sizeof(profile_sections));
+    light_calls = 0;
+    memset(light_origin, 0, sizeof(light_origin));
     allocation_fail_after = -1;
     audio_locks = audio_unlocks = expect_alias_lock = test_cull = 0;
     XGL_EntitiesInit();
@@ -431,6 +454,116 @@ static void test_entity_profile_categories(void)
     XGL_DrawEntities();
     assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS] == 2 && !profile_draw_active);
     cl_numvisedicts = 0;
+}
+
+static void test_alias_lighting_selection(void)
+{
+    aliashdr_t *header;
+    int mode, pass, lit;
+    float expected;
+    for (mode = 0; mode < 4; ++mode) {
+        reset_test();
+        header = make_alias(3);
+        header->frames[0].numposes = 1;
+        if (mode == 1) strcpy(alias_model.name, "progs/flame.mdl");
+        else if (mode == 2) strcpy(alias_model.name, "progs/flame2.mdl");
+        else strcpy(alias_model.name, "progs/test.mdl");
+        r_fullbright.value = mode == 3;
+        test_light = 64;
+        lit = mode == 0;
+        expected = lit ? .05f : .1f;
+        for (pass = 0; pass < 2; ++pass) {
+            captured_count = 0;
+            XGL_DrawAlias(&cl_entities[1]);
+            assert(captured_count == 3 && native_lit == (lit ? 2 : 0));
+            assert(fabs(captured[0].color[0] - expected) < .0001);
+            assert(light_calls == (lit ? pass + 1 : 0));
+            assert(profile_sections[XGL_PROFILE_ALIAS_LIGHT] == light_calls);
+            assert(!profile_sections[XGL_PROFILE_WEAPON_LIGHT]);
+            assert(!profile_draw_depth);
+        }
+        assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_FALLBACK] == 1);
+        assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_OUTPUT] == 1);
+    }
+    /* Ordinary and translated player lighting keep their dark floors. */
+    reset_test();
+    make_alias(3);
+    cl_entities[1].colormap = vid.colormap;
+    test_light = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(light_calls == 1 && native_lit == 2);
+    assert(fabs(captured[0].color[0] - .004f) < .0001);
+    cl_entities[1].colormap = player_colormap;
+    captured_count = 0;
+    XGL_DrawAlias(&cl_entities[1]);
+    assert(light_calls == 2 && fabs(captured[0].color[0] - .008f) < .0001);
+}
+
+static void test_nested_alias_profile_paths(void)
+{
+    aliashdr_t *header;
+    int *commands;
+    reset_test();
+    header = make_alias(3);
+    cl_visedicts[0] = &cl_entities[1];
+    cl_numvisedicts = 1;
+    XGL_DrawEntities();
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_FALLBACK] == 1);
+    assert(!profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_OUTPUT]);
+    captured_count = 0;
+    XGL_DrawEntities();
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS] == 2);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_FALLBACK] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_OUTPUT] == 1);
+    commands = (int *)((byte *)header + header->commands);
+    commands[0] = 4;
+    captured_count = 0;
+    XGL_DrawEntities();
+    assert(!captured_count && !audio_lock_depth);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS] == 3);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_FALLBACK] == 2);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_OUTPUT] == 1);
+    assert(profile_draw_max_depth == 2 && !profile_draw_depth);
+    cl_numvisedicts = 0;
+}
+
+static void test_nested_weapon_profile_paths(void)
+{
+    aliashdr_t *header;
+    int *commands;
+    reset_test();
+    header = make_alias(3);
+    cl.viewent.model = &alias_model;
+    cl.viewent.origin[0] = 7; cl.viewent.origin[1] = 11; cl.viewent.origin[2] = 13;
+    cl.stats[STAT_HEALTH] = 100;
+    test_light = 0;
+    XGL_DrawViewModel();
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_FALLBACK] == 1);
+    assert(!profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_OUTPUT]);
+    assert(light_calls == 1 && native_lit == 2);
+    assert(fabs(captured[0].color[0] - .02f) < .0001);
+    assert(light_origin[0] == 7 && light_origin[1] == 11 && light_origin[2] == 13);
+    captured_count = 0;
+    XGL_DrawViewModel();
+    assert(captured_count == 3 && fabs(captured[0].color[0] - .02f) < .0001);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_FALLBACK] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_OUTPUT] == 1);
+    commands = (int *)((byte *)header + header->commands);
+    commands[0] = 4;
+    captured_count = 0;
+    XGL_DrawViewModel();
+    assert(!captured_count && !audio_lock_depth);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_FALLBACK] == 2);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_OUTPUT] == 1);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_SETUP] == 3);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_DRAW] == 3);
+    assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_FINISH] == 3);
+    assert(!profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_OUTPUT]);
+    assert(!profile_draw_calls[XGL_PROFILE_DRAW_ALIAS_FALLBACK]);
+    assert(profile_sections[XGL_PROFILE_WEAPON_LIGHT] == 3 && light_calls == 3);
+    assert(!profile_sections[XGL_PROFILE_ALIAS_LIGHT]);
+    assert(profile_draw_max_depth == 2 && !profile_draw_depth);
 }
 
 static void test_alias_color_cache(void)
@@ -958,6 +1091,9 @@ int main(void)
     test_sprite_groups_coverage_axes();
     test_view_weapon_scope();
     test_entity_profile_categories();
+    test_alias_lighting_selection();
+    test_nested_alias_profile_paths();
+    test_nested_weapon_profile_paths();
     test_alias_color_cache();
     test_alias_cache_coverage_and_capacity();
     test_alias_cache_allocation_failure();

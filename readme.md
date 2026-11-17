@@ -211,6 +211,7 @@ reuse. Current pose positions are still transformed each frame. All model
 cache storage remains bounded, with recursive drawing when caching fails.
 Sampled skin caches retain their visible-triangle count, avoiding a repeated
 coverage scan when emitting a cached pose.
+The two flame models remain unlit and skip the world-lighting lookup.
 
 Sprites collect their sampled triangles in the same bounded fallback buffer
 used by alias models. This reduces CPU draw calls while preserving triangle
@@ -353,6 +354,18 @@ measures the native clear call itself, with completion waits counted under
 synchronization. Entity visits/frame counts calls to each model-type drawing
 routine, including calls rejected by its visibility checks; it excludes the
 view weapon.
+
+The alias entity and weapon detail lines separate world-lighting lookup time
+from cached output and fallback drawing. Lighting times only the actual
+`R_LightPoint` call; unlit flame models and fullbright drawing skip it.
+Cached output covers final position/normal copying, light multiplication,
+gamma preparation and native batch reservations after pose transformation.
+Fallback drawing includes uncached vertex transforms, subdivision, skin
+sampling and generic vertex packing. Each output/fallback scope reports
+wall/submission/synchronization time, including native calls made inside it.
+These are nested measurements within the existing entity or weapon scopes,
+not additional costs to add to them. Audio service after the draw is outside
+these detail scopes.
 
 ### Counters
 

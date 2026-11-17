@@ -764,10 +764,12 @@ static void XGL_DrawAlias(entity_t *entity)
     xgl_alias_draw_t draw;
     xgl_alias_pose_cache_t *cached_pose;
     xgl_alias_normals_t normals;
+    xgl_profile_draw_scope_t output_scope;
     vec3_t angles, forward, right, up, mins, maxs;
     float light, radius;
-    double time, prepare_start, cache_start, transform_start;
+    double time, prepare_start, cache_start, transform_start, light_start;
     int i, frame, posenum, animation, skin, material, count, fan, consumed, depth, lit;
+    int light_value;
     if (entity != &cl.viewent) {
         radius = entity->model->radius;
         for (i = 0; i < 3; ++i) {
@@ -804,9 +806,15 @@ static void XGL_DrawAlias(entity_t *entity)
     material = header->gl_texturenum[skin][animation];
     translation = XGL_EntityTranslation(entity);
     lit = r_fullbright.value ? 0 : 2;
-    light = lit ? R_LightPoint(entity->origin) / 128.0f : 1.0f;
     if (!strcmp(entity->model->name, "progs/flame.mdl") ||
-        !strcmp(entity->model->name, "progs/flame2.mdl")) { light = 1; lit = 0; }
+        !strcmp(entity->model->name, "progs/flame2.mdl")) lit = 0;
+    if (lit) {
+        light_start = XGL_ProfileDetailNow();
+        light_value = R_LightPoint(entity->origin);
+        XGL_ProfileAdd(entity == &cl.viewent ? XGL_PROFILE_WEAPON_LIGHT :
+                       XGL_PROFILE_ALIAS_LIGHT, light_start);
+        light = light_value / 128.0f;
+    } else light = 1;
     if (entity == &cl.viewent && light < .20f) light = .20f;
     if (translation && light < .08f) light = .08f;
     if (light < .04f) light = .04f;
@@ -840,14 +848,20 @@ static void XGL_DrawAlias(entity_t *entity)
     consumed = 0;
     c_alias_polys += header->numtris;
     if (cached_pose) {
+        XGL_ProfileDrawBegin(&output_scope);
         XGL_EmitAliasPose(cached_pose, &draw, light, lit);
+        XGL_ProfileDrawEnd(&output_scope, entity == &cl.viewent ?
+                          XGL_PROFILE_DRAW_WEAPON_OUTPUT : XGL_PROFILE_DRAW_ALIAS_OUTPUT);
         XGL_AudioUnlock();
         return;
     }
     XGL_ProfileCount(XGL_PROFILE_ALIAS_FALLBACKS, 1);
+    XGL_ProfileDrawBegin(&output_scope);
     while ((count = *order++) != 0) {
         if (count > header->poseverts - consumed || count < -(header->poseverts - consumed)) {
             XGL_AliasFlush(&draw, lit);
+            XGL_ProfileDrawEnd(&output_scope, entity == &cl.viewent ?
+                              XGL_PROFILE_DRAW_WEAPON_FALLBACK : XGL_PROFILE_DRAW_ALIAS_FALLBACK);
             XGL_AudioUnlock();
             Con_DPrintf("XGL: invalid alias commands in %s\n", entity->model->name);
             return;
@@ -877,6 +891,8 @@ static void XGL_DrawAlias(entity_t *entity)
         draw.cache->ready = 1;
     }
     XGL_AliasFlush(&draw, lit);
+    XGL_ProfileDrawEnd(&output_scope, entity == &cl.viewent ?
+                      XGL_PROFILE_DRAW_WEAPON_FALLBACK : XGL_PROFILE_DRAW_ALIAS_FALLBACK);
     XGL_AudioUnlock();
 }
 
