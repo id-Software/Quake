@@ -69,12 +69,13 @@ Then collect a detailed profile with the same resolution and detail settings:
 Keep the console closed during playback and quit after each timedemo finishes.
 See [profiling details](#profiling-details) for interpreting the results.
 
-### Hardware benchmark
+## Hardware
+### XGL benchmark
 
 [xglbench](xglbench/README.md) tests basic graphics-card functionality and
 performance and generates reports independently of the game.
 
-## Memory limits
+### Memory limits
 
 The existing Solaris main allocates a 16 MiB engine heap. World geometry
 cache storage is capped at another 8 MiB, CPU material pixels and optional
@@ -87,7 +88,7 @@ total process memory.
 World cache/detail exhaustion falls back to complete coarse faces; exceeding
 the CPU material limit reports an error rather than silently dropping assets.
 
-## Solaris audio and hardware interfaces
+### Solaris audio and hardware interfaces
 
 Solaris audio uses `/dev/audio`, 11,025 Hz 16-bit stereo, and the original
 mono fallback. The XGL-specific `xgl_snd_sun.c` retains those device interfaces
