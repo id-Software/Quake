@@ -68,6 +68,9 @@ qboolean XGL_SampleTexture(int id, float s, float t, float rgb[3],
                           const byte *translation);
 unsigned int XGL_TextureRevision(int id);
 qboolean XGL_TextureHasAlpha(int id);
+/* Borrowed indexed pixels for bounded preprocessing; never retain across
+ * material replacement or map teardown. */
+qboolean XGL_TexturePixels(int id, const byte **pixels, int *width, int *height);
 qboolean XGL_SampleTextureFiltered(int id, float s, float t,
                                   float footprint_s, float footprint_t,
                                   float rgb[3], const byte *translation);

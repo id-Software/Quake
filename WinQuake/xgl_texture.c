@@ -177,6 +177,19 @@ int XGL_LoadTexture (char *identifier, int width, int height, byte *data,
     return slot + 1;
 }
 
+qboolean XGL_TexturePixels(int id, const byte **pixels, int *width, int *height)
+{
+    xgl_material_t *material;
+    if (!pixels || !width || !height) return false;
+    *pixels = NULL; *width = *height = 0;
+    if (id <= 0 || id > XGL_MAX_MATERIALS) return false;
+    material = &xgl_materials[id - 1];
+    if (!material->pixels) return false;
+    *pixels = material->pixels;
+    *width = material->width; *height = material->height;
+    return true;
+}
+
 qboolean XGL_SampleTexture (int id, float s, float t, float rgb[3],
                            const byte *translation)
 {

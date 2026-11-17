@@ -107,6 +107,34 @@ faces may have coarse patches even when `xgl_subdivide` is small. Filtering
 reduces arbitrary single-texel gradients; it cannot reproduce texture detail
 smaller than the submitted geometry.
 
+Opaque, non-animated world faces can also use contour-aware detail. A small
+texture-space sample grid finds strong color boundaries, and convex polygon
+cuts follow those boundaries where they reduce color error. Straight borders
+become polygon edges; curved outlines become several short edges. Each region
+keeps its own material color across duplicated boundary vertices, while baked
+lightstyles and native lighting still shade the geometry in one pass. All new
+vertices interpolate the original face plane: there is no relief or change to
+collision geometry.
+
+Contour detail replaces the face's ordinary subdivided mesh within its existing
+triangle allowance and the global `xgl_detailtris` budget. It never adds a
+second rendering pass. Analysis is cached per surface and attempted for at most
+one eligible visible face each frame, so newly encountered faces improve
+progressively. Warm frames do no contour analysis. Animated textures, alternate
+animation chains, sky, water, cutouts and moving brush surfaces retain their
+existing paths. Noisy or unsuitable patterns, excessive repetition, allocation
+failure and insufficient budgets retain the ordinary complete mesh.
+
+The initial bounded analysis uses a 16-by-16 grid with extra observations beside
+detected boundaries, at most 64 candidate lines,
+150,000 sample/line evaluations and 128 output triangles per face (or its
+smaller existing allowance). It considers at most four texture periods along
+each UV axis. Features finer than the sample grid can be missed. The temporary
+workspace is less than 128 KiB and is released after each attempt; the result
+reuses the existing world-mesh allocation within the 8 MiB cache. This first
+implementation targets basic architectural shapes, not faithful reproduction
+of every texel.
+
 Static world colors are gamma-converted when material/lightstyle/gamma state
 changes, then submitted directly from their strided cache. Animated models
 reuse sampled skin colors across poses while retaining current transforms,
@@ -129,6 +157,7 @@ issued only when native work is pending.
 | `xgl_subdivide` | 32 | World texture-coordinate subdivision step, clamped to 8–256; smaller adds detail. |
 | `xgl_detailtris` | 4096 | Detailed world/brush triangle allowance; visible world faces are ranked by projected-size estimate, with complete coarse faces when exhausted. |
 | `xgl_detaildistance` | 768 | Distance within which detailed world surfaces are considered. |
+| `xgl_contours` | 1 | Fit opaque static world detail to strong texture contours; 0 uses the previous subdivision. Changing it rebuilds the world cache. |
 | `xgl_alias_subdivide` | 1 | Alias subdivision depth, 0–2; distant models use less detail. |
 | `xgl_entity_triangles` | 2048 | Additional alias subdivision triangles per frame; original model triangles remain. |
 | `xgl_sprite_cells` | 8 | Sample grid per sprite dimension, clamped to 2–16. |
@@ -223,6 +252,14 @@ draws expose cache pressure without changing cache limits. Compare native
 text calls with emitted glyphs to see how much the installed font permits
 batching.
 
+Level 2 also reports contour analysis time and per-frame attempts, successful
+builds, texture samples and candidate evaluations. Contour time overlaps world
+detail selection. Compare `xgl_contours 0` and `1` with the same demo, resolution
+and triangle settings, using profiling off for FPS. The first traversal includes
+progressive analysis; revisit the same scene to distinguish preparation from
+cached drawing. Host synthetic-image tests establish geometry coverage and
+shape approximation, not SPARC preparation time or Sun ZX rendering speed.
+
 ## Development-host checks
 
 Shareware recognition, CPU texture/mesh, native UI/entity submission, audio
@@ -232,6 +269,20 @@ controlled engine/backend mocks:
 ```sh
 make -f Makefile.XGL check
 ```
+
+The contour suite includes straight panels, diagonal borders, brick joints,
+circles and arches, compared with the existing 32-triangle subdivision and
+filtered vertex-color sampling. It checks image error, coverage, winding,
+planarity, repeating/transformed UVs, work and triangle limits, and fallbacks.
+An optional dump produces source, baseline and contour material images:
+
+```sh
+mkdir -p /tmp/xgl-contour-preview
+./build/xgl-tests/test_contour --dump /tmp/xgl-contour-preview
+python3 xgl_tests/contour_preview.py /tmp/xgl-contour-preview /tmp/xgl-contour-preview/comparison.svg
+```
+
+Those previews are unlit CPU comparisons, not captures from XGL hardware.
 
 These tests require a modern host compiler and GNU-compatible linker. They
 are separate from the native Solaris build. For complete engine compilation
