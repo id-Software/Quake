@@ -22,10 +22,15 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307, USA.
 #include "quakedef.h"
 #include "xgl_local.h"
 #include "xgl_audio.h"
+#include "xgl_profile.h"
 
 #define XGL_VERTEX_NORMALS 162
 #define XGL_ALIAS_CACHE_SLOTS 16
 #define XGL_ALIAS_CACHE_BYTES (1024UL * 1024UL)
+#define XGL_ALIAS_POSE_SLOTS 32
+#define XGL_ALIAS_POSE_BYTES (1024UL * 1024UL)
+#define XGL_ALIAS_POSE_VERTICES 4096
+#define XGL_ENTITY_BATCH_VERTICES (256 * 3)
 
 /* Particle effects also use this original Quake normal table. */
 float r_avertexnormals[XGL_VERTEX_NORMALS][3] = {
@@ -62,13 +67,53 @@ typedef struct {
 
 typedef struct {
     xgl_alias_cache_t *cache;
-    int index, building, opaque;
+    int index, building, opaque, count;
+    xgl_vertex_t vertices[XGL_ENTITY_BATCH_VERTICES];
 } xgl_alias_draw_t;
 
 typedef struct {
     vec3_t normals[XGL_VERTEX_NORMALS];
     byte valid[XGL_VERTEX_NORMALS];
 } xgl_alias_normals_t;
+
+typedef struct {
+    vec3_t normal;
+    unsigned short a, b;
+} xgl_alias_pose_vertex_t;
+
+typedef struct {
+    int depth, command_words, base_count, vertex_count, triangle_count;
+    vec3_t scale;
+    unsigned int used;
+    int *commands;
+    byte *normal_indices;
+    xgl_alias_pose_vertex_t *vertices;
+    unsigned short *indices;
+    size_t bytes;
+} xgl_alias_pose_cache_t;
+
+typedef struct {
+    vec3_t position, normal;
+} xgl_alias_work_vertex_t;
+
+/* Pose entries own their normal-index sequence and topology. Position bytes
+ * stay live: two animation poses with identical normals can share an entry.
+ * The work array is reused inside the alias audio/cache lock, never retained
+ * by the backend. Its storage and the fixed table count against the cap. */
+static xgl_alias_pose_cache_t xgl_alias_poses[XGL_ALIAS_POSE_SLOTS];
+static xgl_alias_work_vertex_t xgl_alias_work[XGL_ALIAS_POSE_VERTICES];
+static size_t xgl_alias_pose_bytes = sizeof(xgl_alias_poses) + sizeof(xgl_alias_work);
+static unsigned int xgl_alias_pose_used;
+
+static void XGL_FreeAliasPose(xgl_alias_pose_cache_t *cache)
+{
+    free(cache->commands);
+    free(cache->normal_indices);
+    free(cache->vertices);
+    free(cache->indices);
+    xgl_alias_pose_bytes -= cache->bytes;
+    memset(cache, 0, sizeof(*cache));
+}
 
 /* Keep only owned command bytes and sampled colors, never pointers into the
  * engine's movable alias cache. The cap includes the fixed entry table. */
@@ -90,6 +135,9 @@ void XGL_EntitiesShutdown(void)
     for (i = 0; i < XGL_ALIAS_CACHE_SLOTS; ++i)
         XGL_FreeAliasColors(&xgl_alias_cache[i]);
     xgl_alias_cache_used = 0;
+    for (i = 0; i < XGL_ALIAS_POSE_SLOTS; ++i)
+        XGL_FreeAliasPose(&xgl_alias_poses[i]);
+    xgl_alias_pose_used = 0;
 }
 
 static int XGL_OldestAliasColors(void)
@@ -146,16 +194,21 @@ static xgl_alias_cache_t *XGL_AliasColors(const aliashdr_t *header,
         if (translation && memcmp(cache->translation, translation, 256)) continue;
         if (memcmp(cache->commands, commands, (size_t)words * sizeof(int))) continue;
         cache->used = xgl_alias_cache_used;
+        XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_HITS, 1);
         return cache;
     }
+    XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_MISSES, 1);
     bytes = (size_t)words * sizeof(int) + (size_t)triangles * sizeof(xgl_alias_color_t);
     if (bytes > XGL_ALIAS_CACHE_BYTES - sizeof(xgl_alias_cache)) return NULL;
     if (slot < 0) slot = XGL_OldestAliasColors();
     if (slot < 0) return NULL;
+    if (xgl_alias_cache[slot].colors)
+        XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_EVICTIONS, 1);
     XGL_FreeAliasColors(&xgl_alias_cache[slot]);
     while (bytes > XGL_ALIAS_CACHE_BYTES - xgl_alias_cache_bytes) {
         i = XGL_OldestAliasColors();
         if (i < 0) return NULL;
+        XGL_ProfileCount(XGL_PROFILE_ALIAS_COLOR_EVICTIONS, 1);
         XGL_FreeAliasColors(&xgl_alias_cache[i]);
     }
     cache = &xgl_alias_cache[slot];
@@ -173,6 +226,233 @@ static xgl_alias_cache_t *XGL_AliasColors(const aliashdr_t *header,
     cache->used = xgl_alias_cache_used; cache->bytes = bytes;
     xgl_alias_cache_bytes += bytes;
     return cache;
+}
+
+/* The subdivision operation order exactly follows the recursive fallback.
+ * Storing parent indices lets moving poses reuse normals/topology without
+ * rotating every expanded triangle corner or retaining animated positions. */
+static int XGL_PoseMidpoint(xgl_alias_pose_cache_t *cache, int a, int b,
+                           int *vertex_count)
+{
+    xgl_alias_pose_vertex_t *vertex;
+    int index, i;
+    index = (*vertex_count)++;
+    vertex = &cache->vertices[index];
+    vertex->a = (unsigned short)a;
+    vertex->b = (unsigned short)b;
+    for (i = 0; i < 3; ++i)
+        vertex->normal[i] = (cache->vertices[a].normal[i] +
+                             cache->vertices[b].normal[i]) * .5f;
+    if (VectorNormalize(vertex->normal) == 0)
+        VectorCopy(cache->vertices[a].normal, vertex->normal);
+    return index;
+}
+
+static void XGL_PoseTriangle(xgl_alias_pose_cache_t *cache, int a, int b, int c,
+                            int depth, int *vertex_count, int *index_count)
+{
+    int ab, bc, ca;
+    if (depth) {
+        ab = XGL_PoseMidpoint(cache, a, b, vertex_count);
+        bc = XGL_PoseMidpoint(cache, b, c, vertex_count);
+        ca = XGL_PoseMidpoint(cache, c, a, vertex_count);
+        XGL_PoseTriangle(cache, a, ab, ca, depth - 1, vertex_count, index_count);
+        XGL_PoseTriangle(cache, ab, b, bc, depth - 1, vertex_count, index_count);
+        XGL_PoseTriangle(cache, ca, bc, c, depth - 1, vertex_count, index_count);
+        XGL_PoseTriangle(cache, ab, bc, ca, depth - 1, vertex_count, index_count);
+    } else {
+        cache->indices[(*index_count)++] = (unsigned short)a;
+        cache->indices[(*index_count)++] = (unsigned short)b;
+        cache->indices[(*index_count)++] = (unsigned short)c;
+    }
+}
+
+static int XGL_OldestAliasPose(void)
+{
+    int i, oldest;
+    oldest = -1;
+    for (i = 0; i < XGL_ALIAS_POSE_SLOTS; ++i) {
+        if (!xgl_alias_poses[i].vertices) continue;
+        if (oldest < 0 || xgl_alias_poses[i].used < xgl_alias_poses[oldest].used)
+            oldest = i;
+    }
+    return oldest;
+}
+
+static xgl_alias_pose_cache_t *XGL_AliasPose(const aliashdr_t *header,
+                                  const trivertx_t *pose,
+                                  const xgl_alias_cache_t *colors)
+{
+    xgl_alias_pose_cache_t *cache;
+    xgl_alias_normals_t normals;
+    const int *order;
+    size_t bytes;
+    int vertices, slot, i, j, index, count, consumed, fan, a, b;
+    int vertex_count, index_count;
+    vertices = header->poseverts + header->numtris * ((1 << (2 * colors->depth)) - 1);
+    if (vertices > XGL_ALIAS_POSE_VERTICES) return NULL;
+    if (++xgl_alias_pose_used == 0) {
+        for (i = 0; i < XGL_ALIAS_POSE_SLOTS; ++i) xgl_alias_poses[i].used = 0;
+        xgl_alias_pose_used = 1;
+    }
+    slot = -1;
+    for (i = 0; i < XGL_ALIAS_POSE_SLOTS; ++i) {
+        cache = &xgl_alias_poses[i];
+        if (!cache->vertices) { if (slot < 0) slot = i; continue; }
+        if (cache->depth != colors->depth || cache->command_words != colors->command_words ||
+            cache->base_count != header->poseverts || cache->vertex_count != vertices ||
+            cache->triangle_count != colors->triangle_count ||
+            memcmp(cache->scale, header->scale, sizeof(vec3_t)) ||
+            memcmp(cache->commands, colors->commands,
+                   (size_t)colors->command_words * sizeof(int))) continue;
+        for (j = 0; j < header->poseverts; ++j)
+            if (cache->normal_indices[j] != pose[j].lightnormalindex) break;
+        if (j != header->poseverts) continue;
+        cache->used = xgl_alias_pose_used;
+        XGL_ProfileCount(XGL_PROFILE_ALIAS_POSE_HITS, 1);
+        return cache;
+    }
+    XGL_ProfileCount(XGL_PROFILE_ALIAS_POSE_MISSES, 1);
+    bytes = (size_t)colors->command_words * sizeof(int) + (size_t)header->poseverts +
+        (size_t)vertices * sizeof(xgl_alias_pose_vertex_t) +
+        (size_t)colors->triangle_count * 3 * sizeof(unsigned short);
+    if (bytes > XGL_ALIAS_POSE_BYTES - sizeof(xgl_alias_poses) - sizeof(xgl_alias_work))
+        return NULL;
+    if (slot < 0) slot = XGL_OldestAliasPose();
+    if (slot < 0) return NULL;
+    if (xgl_alias_poses[slot].vertices)
+        XGL_ProfileCount(XGL_PROFILE_ALIAS_POSE_EVICTIONS, 1);
+    XGL_FreeAliasPose(&xgl_alias_poses[slot]);
+    while (bytes > XGL_ALIAS_POSE_BYTES - xgl_alias_pose_bytes) {
+        i = XGL_OldestAliasPose();
+        if (i < 0) return NULL;
+        XGL_ProfileCount(XGL_PROFILE_ALIAS_POSE_EVICTIONS, 1);
+        XGL_FreeAliasPose(&xgl_alias_poses[i]);
+    }
+    cache = &xgl_alias_poses[slot];
+    cache->commands = (int *)malloc((size_t)colors->command_words * sizeof(int));
+    cache->normal_indices = (byte *)malloc((size_t)header->poseverts);
+    cache->vertices = (xgl_alias_pose_vertex_t *)malloc((size_t)vertices * sizeof(*cache->vertices));
+    cache->indices = (unsigned short *)malloc((size_t)colors->triangle_count * 3 * sizeof(*cache->indices));
+    if (!cache->commands || !cache->normal_indices || !cache->vertices || !cache->indices) {
+        XGL_FreeAliasPose(cache);
+        return NULL;
+    }
+    cache->depth = colors->depth; cache->command_words = colors->command_words;
+    cache->base_count = header->poseverts; cache->vertex_count = vertices;
+    cache->triangle_count = colors->triangle_count;
+    cache->used = xgl_alias_pose_used; cache->bytes = bytes;
+    xgl_alias_pose_bytes += bytes;
+    VectorCopy(header->scale, cache->scale);
+    memcpy(cache->commands, colors->commands, (size_t)colors->command_words * sizeof(int));
+    memset(normals.valid, 0, sizeof(normals.valid));
+    for (i = 0; i < header->poseverts; ++i) {
+        index = pose[i].lightnormalindex;
+        cache->normal_indices[i] = (byte)index;
+        if (index >= XGL_VERTEX_NORMALS) index = 0;
+        if (!normals.valid[index]) {
+            for (j = 0; j < 3; ++j)
+                normals.normals[index][j] = header->scale[j] != 0 ?
+                    r_avertexnormals[index][j] / header->scale[j] : r_avertexnormals[index][j];
+            VectorNormalize(normals.normals[index]);
+            normals.valid[index] = 1;
+        }
+        VectorCopy(normals.normals[index], cache->vertices[i].normal);
+    }
+    consumed = index_count = 0;
+    vertex_count = header->poseverts;
+    order = colors->commands;
+    while ((count = *order++) != 0) {
+        fan = count < 0;
+        if (fan) count = -count;
+        a = consumed; b = consumed + 1;
+        for (i = 2; i < count; ++i) {
+            index = consumed + i;
+            if (!fan && (i & 1))
+                XGL_PoseTriangle(cache, b, a, index, colors->depth, &vertex_count, &index_count);
+            else XGL_PoseTriangle(cache, a, b, index, colors->depth, &vertex_count, &index_count);
+            if (!fan) a = b;
+            b = index;
+        }
+        consumed += count;
+        order += count * 2;
+    }
+    if (vertex_count != vertices || index_count != colors->triangle_count * 3) {
+        XGL_FreeAliasPose(cache);
+        return NULL;
+    }
+    return cache;
+}
+
+static void XGL_PrepareAliasPose(const aliashdr_t *header, const trivertx_t *pose,
+                                const xgl_alias_pose_cache_t *cache,
+                                const vec3_t forward, const vec3_t right,
+                                const vec3_t up, const vec3_t origin)
+{
+    xgl_alias_work_vertex_t *out;
+    const xgl_alias_pose_vertex_t *vertex;
+    xgl_alias_normals_t normals;
+    vec3_t local;
+    int i, j, normal_index;
+    memset(normals.valid, 0, sizeof(normals.valid));
+    for (i = 0; i < cache->vertex_count; ++i) {
+        out = &xgl_alias_work[i]; vertex = &cache->vertices[i];
+        if (i < cache->base_count) {
+            for (j = 0; j < 3; ++j)
+                local[j] = pose[i].v[j] * header->scale[j] + header->scale_origin[j];
+            for (j = 0; j < 3; ++j)
+                out->position[j] = origin[j] + forward[j] * local[0] -
+                    right[j] * local[1] + up[j] * local[2];
+        } else {
+            for (j = 0; j < 3; ++j)
+                out->position[j] = (xgl_alias_work[vertex->a].position[j] +
+                                    xgl_alias_work[vertex->b].position[j]) * .5f;
+        }
+        if (i < cache->base_count) {
+            normal_index = pose[i].lightnormalindex;
+            if (normal_index >= XGL_VERTEX_NORMALS) normal_index = 0;
+            if (!normals.valid[normal_index]) {
+                for (j = 0; j < 3; ++j)
+                    normals.normals[normal_index][j] = forward[j] * vertex->normal[0] -
+                        right[j] * vertex->normal[1] + up[j] * vertex->normal[2];
+                normals.valid[normal_index] = 1;
+            }
+            VectorCopy(normals.normals[normal_index], out->normal);
+        } else {
+            for (j = 0; j < 3; ++j)
+                out->normal[j] = forward[j] * vertex->normal[0] -
+                    right[j] * vertex->normal[1] + up[j] * vertex->normal[2];
+        }
+    }
+}
+
+static void XGL_AliasFlush(xgl_alias_draw_t *draw, int lit)
+{
+    if (!draw->count) return;
+    XGL_DrawTriangles(draw->vertices, draw->count, lit, 1, 1);
+    draw->count = 0;
+}
+
+static void XGL_EmitAliasPose(const xgl_alias_pose_cache_t *cache,
+                             xgl_alias_draw_t *draw, float light, int lit)
+{
+    const xgl_alias_work_vertex_t *source;
+    const xgl_alias_color_t *colors;
+    xgl_vertex_t *out;
+    int i, j, k;
+    for (i = 0; i < cache->triangle_count; ++i) {
+        colors = &draw->cache->colors[i];
+        if (!colors->visible) continue;
+        for (j = 0; j < 3; ++j) {
+            source = &xgl_alias_work[cache->indices[i * 3 + j]];
+            out = &draw->vertices[draw->count++];
+            VectorCopy(source->position, out->position);
+            VectorCopy(source->normal, out->normal);
+            for (k = 0; k < 3; ++k) out->color[k] = colors->rgb[j][k] * light;
+        }
+        if (draw->count == XGL_ENTITY_BATCH_VERTICES) XGL_AliasFlush(draw, lit);
+    }
+    XGL_AliasFlush(draw, lit);
 }
 
 static int XGL_EntitySetting(float value, int low, int high)
@@ -251,7 +531,7 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
 {
     const xgl_entity_vertex_t *source[3];
     xgl_entity_vertex_t ab, bc, ca;
-    xgl_vertex_t vertices[3];
+    xgl_vertex_t local_vertices[3], *vertices;
     xgl_alias_color_t sampled, *colors;
     float center[3];
     int i, j;
@@ -289,12 +569,16 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
         colors->visible = 1;
     }
     if (!colors->visible) return;
+    vertices = draw ? &draw->vertices[draw->count] : local_vertices;
     for (i = 0; i < 3; ++i) {
         VectorCopy(source[i]->position, vertices[i].position);
         VectorCopy(source[i]->normal, vertices[i].normal);
         for (j = 0; j < 3; ++j) vertices[i].color[j] = colors->rgb[i][j] * light;
     }
-    XGL_DrawTriangles(vertices, 3, lit, 1.0f, 1);
+    if (draw) {
+        draw->count += 3;
+        if (draw->count == XGL_ENTITY_BATCH_VERTICES) XGL_AliasFlush(draw, lit);
+    } else XGL_DrawTriangles(vertices, 3, lit, 1.0f, 1);
 }
 
 static void XGL_EntityTriangle(const xgl_entity_vertex_t *a,
@@ -370,10 +654,11 @@ static void XGL_DrawAlias(entity_t *entity)
     const int *order;
     xgl_entity_vertex_t a, b, v;
     xgl_alias_draw_t draw;
+    xgl_alias_pose_cache_t *cached_pose;
     xgl_alias_normals_t normals;
     vec3_t angles, forward, right, up, mins, maxs;
     float light, radius;
-    double time;
+    double time, prepare_start;
     int i, frame, posenum, animation, skin, material, count, fan, consumed, depth, lit;
     if (entity != &cl.viewent) {
         radius = entity->model->radius;
@@ -426,15 +711,29 @@ static void XGL_DrawAlias(entity_t *entity)
     pose = (const trivertx_t *)((const byte *)header + header->posedata) + posenum * header->poseverts;
     order = (const int *)((const byte *)header + header->commands);
     depth = XGL_AliasDepth(entity, header->numtris);
-    memset(&draw, 0, sizeof(draw));
+    /* Detailed preparation covers cache lookup/build and cached live-pose
+     * transforms. Fallback recursion and emission stay in the entity stage. */
+    prepare_start = XGL_ProfileDetailNow();
+    /* Avoid clearing the large output buffer; count guards every access. */
+    draw.count = draw.index = 0;
     memset(normals.valid, 0, sizeof(normals.valid));
     draw.cache = XGL_AliasColors(header, material, depth, translation);
     draw.building = draw.cache && !draw.cache->ready;
     draw.opaque = XGL_TextureRevision(material) != 0 && !XGL_TextureHasAlpha(material);
+    cached_pose = draw.cache && draw.cache->ready ? XGL_AliasPose(header, pose, draw.cache) : NULL;
+    if (cached_pose) XGL_PrepareAliasPose(header, pose, cached_pose, forward, right, up, entity->origin);
+    XGL_ProfileAdd(XGL_PROFILE_ALIAS_PREPARE, prepare_start);
     consumed = 0;
     c_alias_polys += header->numtris;
+    if (cached_pose) {
+        XGL_EmitAliasPose(cached_pose, &draw, light, lit);
+        XGL_AudioUnlock();
+        return;
+    }
+    XGL_ProfileCount(XGL_PROFILE_ALIAS_FALLBACKS, 1);
     while ((count = *order++) != 0) {
         if (count > header->poseverts - consumed || count < -(header->poseverts - consumed)) {
+            XGL_AliasFlush(&draw, lit);
             XGL_AudioUnlock();
             Con_DPrintf("XGL: invalid alias commands in %s\n", entity->model->name);
             return;
@@ -457,6 +756,7 @@ static void XGL_DrawAlias(entity_t *entity)
         consumed += count;
     }
     if (draw.cache && draw.index == draw.cache->triangle_count) draw.cache->ready = 1;
+    XGL_AliasFlush(&draw, lit);
     XGL_AudioUnlock();
 }
 

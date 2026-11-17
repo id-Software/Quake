@@ -34,6 +34,21 @@ static int captured_calls, varying_material, prepare_calls, filter_calls;
 static unsigned int color_revision, texture_revision;
 static float gamma_scale;
 static float captured_opacity;
+static unsigned long profile_counts[XGL_PROFILE_COUNTER_COUNT];
+static int profile_sections[XGL_PROFILE_SECTION_COUNT];
+
+double XGL_ProfileDetailNow(void) { return 1; }
+void XGL_ProfileAdd(xgl_profile_section_t section, double start)
+{
+    assert(section >= XGL_PROFILE_WORLD_VISIBILITY && section < XGL_PROFILE_SECTION_COUNT);
+    assert(start == 1);
+    ++profile_sections[section];
+}
+void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count)
+{
+    assert((unsigned int)counter < XGL_PROFILE_COUNTER_COUNT);
+    profile_counts[counter] += count;
+}
 
 void Con_Printf(char *format, ...) { (void)format; }
 void XGL_AudioUpdate(void) {}
@@ -113,6 +128,8 @@ static void begin_frame(void)
 {
     ++r_framecount;
     captured_count = captured_calls = 0;
+    memset(profile_counts, 0, sizeof(profile_counts));
+    memset(profile_sections, 0, sizeof(profile_sections));
     XGL_DrawWorld();
 }
 
@@ -340,6 +357,60 @@ static void test_pvs_and_fallback(void)
     assert(captured_count == 0);
 }
 
+static void test_profile_cache_events(void)
+{
+    setup_world();
+    begin_frame();
+    assert(profile_counts[XGL_PROFILE_WORLD_MESH_BUILDS] == 2);
+    assert(profile_counts[XGL_PROFILE_WORLD_BUILD_VERTICES] == 6 + 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_MESH_FAILURES] == 0);
+    assert(profile_counts[XGL_PROFILE_WORLD_CACHED_SURFACES] == 1);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_UPDATES] == 1);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_VERTICES] == 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_HITS] == 0);
+    assert(profile_sections[XGL_PROFILE_WORLD_VISIBILITY] == 1);
+    assert(profile_sections[XGL_PROFILE_WORLD_DETAIL_SELECT] == 1);
+    assert(profile_sections[XGL_PROFILE_WORLD_BUILD] == 2);
+    assert(profile_sections[XGL_PROFILE_WORLD_COLORS] == 1);
+
+    begin_frame();
+    assert(profile_counts[XGL_PROFILE_WORLD_MESH_BUILDS] == 0);
+    assert(profile_counts[XGL_PROFILE_WORLD_CACHED_SURFACES] == 1);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_HITS] == 1);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_UPDATES] == 0);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_VERTICES] == 0);
+    assert(profile_sections[XGL_PROFILE_WORLD_BUILD] == 0);
+
+    ++color_revision;
+    begin_frame();
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_UPDATES] == 1);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_VERTICES] == 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_HITS] == 0);
+    test_surface.flags = SURF_DRAWTURB;
+    begin_frame();
+    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_VERTICES] == 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_UPDATES] == 0);
+    assert(profile_sections[XGL_PROFILE_WORLD_ANIMATED] == 1);
+    assert(profile_sections[XGL_PROFILE_WORLD_COLORS] == 0);
+
+    setup_world();
+    xgl_cache_bytes = XGL_WORLD_CACHE_BYTES;
+    begin_frame();
+    assert(profile_counts[XGL_PROFILE_WORLD_MESH_BUILDS] == 0);
+    assert(profile_counts[XGL_PROFILE_WORLD_MESH_FAILURES] == 2);
+    assert(profile_counts[XGL_PROFILE_WORLD_CACHED_SURFACES] == 0);
+    assert(profile_counts[XGL_PROFILE_WORLD_FALLBACK_SURFACES] == 1);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_UPDATES] == 2);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_VERTICES] == 6);
+    assert(captured_count == 6);
+    begin_frame();
+    /* A failed persistent allocation is not retried every frame. The
+     * complete streamed fallback remains visible and counted each time. */
+    assert(profile_counts[XGL_PROFILE_WORLD_MESH_FAILURES] == 0);
+    assert(profile_counts[XGL_PROFILE_WORLD_FALLBACK_SURFACES] == 1);
+    assert(captured_count == 6);
+}
+
 static void test_brush_water_and_point_light(void)
 {
     entity_t entity;
@@ -436,6 +507,7 @@ int main(void)
     test_cache_and_styles();
     test_projected_detail_priority();
     test_pvs_and_fallback();
+    test_profile_cache_events();
     test_brush_water_and_point_light();
     test_animated_water_and_sky();
     XGL_WorldShutdown();

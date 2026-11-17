@@ -15,12 +15,15 @@
 #define XGL_FONT_CACHE 128
 #define XGL_POINT_LIGHTS 4
 #define XGL_UI_GLYPHS 2048
+#define XGL_UI_TEXT_BYTES (XGL_UI_GLYPHS * 2)
+#define XGL_UI_TEXT_RUN 128
 #define XGL_UI_QUADS 256
 
 typedef struct {
-    int valid;
-    float cell, height, requested, ascent;
+    int valid, batchable;
+    float cell, height, requested, ascent, spacing, extra_advance;
     Xgl_bounds_f2d bounds[95];
+    Xgl_pt_f2d advance[95];
 } xgl_font_size_t;
 
 typedef struct {
@@ -35,6 +38,7 @@ typedef struct {
     Xgl_pt_list lists[XGL_BATCH_TRIANGLES];
     xgl_font_size_t fonts[XGL_FONT_CACHE];
     Xgl_pt_f2d ui_positions[XGL_UI_GLYPHS];
+    char ui_text[XGL_UI_TEXT_BYTES];
     Xgl_pt_f2d ui_points[XGL_UI_QUADS][4];
     Xgl_pt_list ui_lists[XGL_UI_QUADS];
     Xgl_color_facet ui_colors[XGL_UI_QUADS];
@@ -42,12 +46,13 @@ typedef struct {
     char glyphs[95][2];
     int width, height, frame, scene_active, ui_active, overlay_3d;
     int count, lit, zwrite, applied_lit, applied_zwrite;
-    int errors, fatal, font_next, ui_glyph_count, ui_quad_count;
+    int errors, fatal, font_next, ui_glyph_count, ui_quad_count, ui_text_used;
     int scene_pending, ui_pending, ui_quad_first, text_color_valid;
     Xgl_color text_color;
     byte gamma_snapshot[256];
+    float gamma_output[256];
     unsigned int color_revision;
-    float opacity, applied_opacity, current_text_height;
+    float opacity, applied_opacity, current_text_height, current_text_spacing;
     double maximum_z;
     const char *stage;
     char error[768];
@@ -57,6 +62,8 @@ static xgl_backend_t xb;
 static cvar_t xgl_ambient = {"xgl_ambient", "1", true, false, 0, NULL};
 static cvar_t xgl_maxlights = {"xgl_maxlights", "4", true, false, 0, NULL};
 
+static void update_gamma(void);
+
 static float bound_color(float value)
 {
     if (!(value >= 0)) return 0;
@@ -65,13 +72,16 @@ static float bound_color(float value)
 
 static float gamma_color(float value)
 {
-    return gammatable[(int)(bound_color(value) * 255.0f + .5f)] / 255.0f;
+    if (!xb.color_revision) update_gamma();
+    return xb.gamma_output[(int)(bound_color(value) * 255.0f + .5f)];
 }
 
 static void update_gamma(void)
 {
+    int i;
     if (!xb.color_revision || memcmp(xb.gamma_snapshot, gammatable, 256)) {
         memcpy(xb.gamma_snapshot, gammatable, 256);
+        for (i = 0; i < 256; ++i) xb.gamma_output[i] = gammatable[i] / 255.0f;
         if (!++xb.color_revision) ++xb.color_revision;
         xb.text_color_valid = 0;
     }
@@ -142,11 +152,12 @@ static void identity_transform(Xgl_trans transform)
 
 static void palette_color(int index, Xgl_color *color)
 {
+    if (!xb.color_revision) update_gamma();
     index &= 255;
     memset(color, 0, sizeof(*color));
-    color->rgb.r = gammatable[xgl_palette[index * 3]] / 255.0f;
-    color->rgb.g = gammatable[xgl_palette[index * 3 + 1]] / 255.0f;
-    color->rgb.b = gammatable[xgl_palette[index * 3 + 2]] / 255.0f;
+    color->rgb.r = xb.gamma_output[xgl_palette[index * 3]];
+    color->rgb.g = xb.gamma_output[xgl_palette[index * 3 + 1]];
+    color->rgb.b = xb.gamma_output[xgl_palette[index * 3 + 2]];
 }
 
 static void complete_scene(void)
@@ -209,6 +220,7 @@ void XGL_UIFlush(void)
     }
     native_check();
     xb.ui_glyph_count = xb.ui_quad_count = xb.ui_quad_first = 0;
+    xb.ui_text_used = 0;
 }
 
 static void set_transparency(float opacity, int zwrite)
@@ -288,6 +300,7 @@ void XGL_DrawTrianglesStrided(const xgl_vertex_t *vertices, int count,
     Xgl_pt_color_normal_f3d *out;
     const byte *source;
     const xgl_vertex_t *vertex;
+    double packing_start;
     int i, available, take;
     if (!xb.frame || !xb.scene_active || !vertices || count <= 0) return;
     if (count % 3) Sys_Error("XGL_DrawTriangles: vertex count is not a multiple of three");
@@ -302,6 +315,7 @@ void XGL_DrawTrianglesStrided(const xgl_vertex_t *vertices, int count,
     while (count) {
         available = XGL_BATCH_TRIANGLES * 3 - xb.count;
         take = count < available ? count : available;
+        packing_start = XGL_ProfileDetailNow();
         for (i = 0; i < take; ++i) {
             vertex = (const xgl_vertex_t *)source;
             out = &xb.points[xb.count + i];
@@ -322,6 +336,7 @@ void XGL_DrawTrianglesStrided(const xgl_vertex_t *vertices, int count,
             }
             source += stride;
         }
+        XGL_ProfileAdd(XGL_PROFILE_VERTEX_PACK, packing_start);
         xb.count += take;
         count -= take;
         if (xb.count == XGL_BATCH_TRIANGLES * 3) XGL_Flush();
@@ -494,6 +509,64 @@ static void begin_ui(void)
     if (!xb.ui_active) { complete_scene(); xb.ui_active = 1; }
 }
 
+static void text_spacing(float spacing)
+{
+    if (xb.current_text_spacing == spacing) return;
+    xb.stage = "UI text spacing";
+    xgl_object_set(xb.ui, XGL_CTX_STEXT_CHAR_SPACING, (double)spacing, 0);
+    native_check();
+    xb.current_text_spacing = spacing;
+}
+
+static void font_run_spacing(xgl_font_size_t *font, double cell)
+{
+    Xgl_bounds_f2d pair, wider, fitted;
+    Xgl_pt_f2d advance;
+    const Xgl_bounds_f2d *capital;
+    double unit, spacing;
+    char sample[3];
+    /* XGL implementations can report spacing in font-dependent units.
+     * Calibrate from measured ink separation, not an assumed em size, and
+     * verify the result before using it. Single glyphs remain the fallback.
+     * This does not assume that Roman_M has fixed-width characters. */
+    sample[0] = sample[1] = 'H'; sample[2] = 0;
+    capital = &font->bounds['H' - 32];
+    xb.stage = "font run measurement";
+    xgl_stroke_text_extent(xb.ui, sample, &pair, &advance);
+    native_check();
+    if (fabs(pair.xmin - capital->xmin) > .002 ||
+        fabs(pair.xmax - capital->xmax - font->advance['H' - 32].x) > .002)
+        return;
+    text_spacing(1);
+    xb.stage = "font spacing measurement";
+    xgl_stroke_text_extent(xb.ui, sample, &wider, &advance);
+    native_check();
+    unit = wider.xmax - pair.xmax;
+    if (unit > 0 && unit < 10000 &&
+        fabs(wider.xmin - pair.xmin) <= .002 &&
+        fabs(wider.ymin - pair.ymin) <= .002 &&
+        fabs(wider.ymax - pair.ymax) <= .002) {
+        spacing = (cell - font->advance['H' - 32].x) / unit;
+        /* A fitted glyph normally needs modest positive spacing. Avoid
+         * relying on negative spacing or unusually large native values. */
+        if (spacing >= 0 && spacing <= 16) {
+            text_spacing((float)spacing);
+            xb.stage = "font fitted spacing measurement";
+            xgl_stroke_text_extent(xb.ui, sample, &fitted, &advance);
+            native_check();
+            if (fabs(fitted.xmax - capital->xmax - cell) <= .002 &&
+                fabs(fitted.xmin - pair.xmin) <= .002 &&
+                fabs(fitted.ymin - pair.ymin) <= .002 &&
+                fabs(fitted.ymax - pair.ymax) <= .002) {
+                font->spacing = (float)spacing;
+                font->extra_advance = fitted.xmax - pair.xmax;
+                font->batchable = 1;
+            }
+        }
+    }
+    text_spacing(font->spacing);
+}
+
 static xgl_font_size_t *font_size(float cell, float height)
 {
     xgl_font_size_t *font;
@@ -510,6 +583,7 @@ static xgl_font_size_t *font_size(float cell, float height)
     font->cell = cell; font->height = height;
     sx = (double)xb.width / vid.width; sy = (double)xb.height / vid.height;
     requested = height * sy * .85;
+    text_spacing(0);
     for (attempt = 0; attempt < 6; ++attempt) {
         usage = 1;
         ascent = descent = 0;
@@ -520,6 +594,7 @@ static xgl_font_size_t *font_size(float cell, float height)
         for (i = 1; i < 95; ++i) {
             xgl_stroke_text_extent(xb.ui, xb.glyphs[i], &font->bounds[i], &advance);
             native_check();
+            font->advance[i] = advance;
             width = font->bounds[i].xmax - font->bounds[i].xmin;
             tall = font->bounds[i].ymax - font->bounds[i].ymin;
             /* '-'/'_' and '|' may have zero ink height/width. Their
@@ -543,6 +618,7 @@ static xgl_font_size_t *font_size(float cell, float height)
     }
     font->requested = (float)requested;
     font->ascent = ascent;
+    font_run_spacing(font, cell * sx);
     font->valid = 1;
     xb.current_text_height = font->requested;
     return font;
@@ -554,10 +630,12 @@ void XGL_UIText(float x, float y, const char *text, int color, float cell_width,
     Xgl_pt_f2d *position;
     Xgl_bounds_f2d *bounds;
     Xgl_color rgb;
-    double start;
-    float sx, sy, width;
-    int character;
+    char run[XGL_UI_TEXT_RUN + 1], *saved;
+    double start, next_origin, desired_origin;
+    float sx, sy, width, origin_x, origin_y, next_x;
+    int character, next_character, previous, length;
     if (!xb.frame || !text || cell_width <= 0 || height <= 0) return;
+    native_check();
     begin_ui();
     /* Submit rectangles before subsequent glyphs, retaining painter order
      * without synchronizing two primitives on the same UI context. */
@@ -569,6 +647,7 @@ void XGL_UIText(float x, float y, const char *text, int color, float cell_width,
         native_check();
         xb.current_text_height = font->requested;
     }
+    text_spacing(font->spacing);
     palette_color(color, &rgb);
     if (!xb.text_color_valid || memcmp(&xb.text_color, &rgb, sizeof(rgb))) {
         xgl_object_set(xb.ui, XGL_CTX_STEXT_COLOR, &rgb, 0);
@@ -578,25 +657,53 @@ void XGL_UIText(float x, float y, const char *text, int color, float cell_width,
     native_check();
     sx = (float)xb.width / vid.width; sy = (float)xb.height / vid.height;
     while (*text) {
-        character = ((unsigned char)*text++) & 127;
+        character = ((unsigned char)*text) & 127;
         if (character < 32 || character > 126) character = '?';
         if (character != ' ' && x + cell_width > 0 && x < vid.width && y + height > 0 && y < vid.height) {
             character -= 32;
             bounds = &font->bounds[character];
             width = bounds->xmax - bounds->xmin;
-            if (xb.ui_glyph_count == XGL_UI_GLYPHS) XGL_UIFlush();
+            origin_x = x * sx + (cell_width*sx - width)*.5f - bounds->xmin;
+            origin_y = y * sy + font->ascent;
+            run[0] = (char)(character + 32); length = 1;
+            previous = character; next_origin = origin_x;
+            while (font->batchable && length < XGL_UI_TEXT_RUN && text[length]) {
+                next_character = ((unsigned char)text[length]) & 127;
+                if (next_character < 32 || next_character > 126) next_character = '?';
+                next_x = x + length * cell_width;
+                /* Spaces and clipped cells split runs; their width never
+                 * depends on the native font's space or missing glyph. */
+                if (next_character == ' ' || next_x + cell_width <= 0 || next_x >= vid.width)
+                    break;
+                next_character -= 32;
+                bounds = &font->bounds[next_character];
+                desired_origin = next_x * sx +
+                    (cell_width*sx - (bounds->xmax - bounds->xmin))*.5f - bounds->xmin;
+                next_origin += font->advance[previous].x + font->extra_advance;
+                if (!(fabs(next_origin - desired_origin) <= .002 &&
+                      fabs(font->advance[previous].y) <= .00001)) break;
+                run[length++] = (char)(next_character + 32);
+                previous = next_character;
+            }
+            run[length] = 0;
+            if (xb.ui_glyph_count == XGL_UI_GLYPHS ||
+                xb.ui_text_used + length + 1 > XGL_UI_TEXT_BYTES) XGL_UIFlush();
             position = &xb.ui_positions[xb.ui_glyph_count++];
-            position->x = x * sx + (cell_width*sx - width)*.5f - bounds->xmin;
-            position->y = y * sy + font->ascent;
-            xb.stage = "UI glyph submission";
+            position->x = origin_x; position->y = origin_y;
+            saved = xb.ui_text + xb.ui_text_used;
+            memcpy(saved, run, (size_t)length + 1);
+            xb.ui_text_used += length + 1;
+            xb.stage = "UI text run submission";
             start = XGL_ProfileNow();
-            xgl_stroke_text(xb.ui, xb.glyphs[character], position, NULL);
+            xgl_stroke_text(xb.ui, saved, position, NULL);
             XGL_ProfileAdd(XGL_PROFILE_SUBMIT, start);
-            XGL_ProfileCount(XGL_PROFILE_GLYPHS, 1);
+            XGL_ProfileCount(XGL_PROFILE_GLYPHS, (unsigned long)length);
+            XGL_ProfileCount(XGL_PROFILE_TEXT_CALLS, 1);
             xb.ui_pending = 1;
             native_check();
-        }
-        x += cell_width;
+        } else length = 1;
+        text += length;
+        x += length * cell_width;
     }
     native_check();
     XGL_AudioUpdate();
@@ -741,7 +848,7 @@ void XGLB_Resize(int width, int height)
     xb.stage = "window resize";
     xgl_window_raster_resize(xb.raster);
     memset(xb.fonts, 0, sizeof(xb.fonts));
-    xb.current_text_height = -1;
+    xb.current_text_height = xb.current_text_spacing = -1;
     native_check();
 }
 
@@ -770,7 +877,8 @@ void XGLB_Init(Display *display, Window window, int width, int height)
     if (sizeof(Xgl_usgn32) != 4 || sizeof(void *) != 4 || sizeof(float) != 4)
         Sys_Error("XGLQuake requires the 32-bit Sun XGL ABI");
     memset(&xb, 0, sizeof(xb));
-    xb.width = width; xb.height = height; xb.current_text_height = -1;
+    xb.width = width; xb.height = height;
+    xb.current_text_height = xb.current_text_spacing = -1;
     xb.stage = "native initialization";
     Cvar_RegisterVariable(&xgl_ambient); Cvar_RegisterVariable(&xgl_maxlights);
     xb.system = xgl_open((Xgl_attribute)NULL);

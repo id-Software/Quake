@@ -110,9 +110,19 @@ smaller than the submitted geometry.
 Static world colors are gamma-converted when material/lightstyle/gamma state
 changes, then submitted directly from their strided cache. Animated models
 reuse sampled skin colors across poses while retaining current transforms,
-lighting, skins and player colors. Consecutive opaque UI rectangles are
-batched without changing their drawing order; glyphs retain fixed-cell native
-placement. Completion waits are issued only when native work is pending.
+lighting, skins and player colors. A bounded cache also reuses indexed
+subdivision operations and model-local normals. Current pose positions are
+still read and transformed each frame; cache exhaustion keeps the original
+recursive drawing path. Both paths assemble larger vertex blocks before
+calling the backend, and a gamma lookup table avoids repeated conversion
+division for each color channel.
+
+Consecutive opaque UI rectangles are batched without changing their drawing
+order. Native text runs combine only when measured font advances and spacing
+preserve the existing fixed-cell glyph positions. Incompatible metrics,
+spaces and clipped cells split runs, retaining individual-glyph drawing as
+needed. This does not assume that Roman_M is monospaced. Completion waits are
+issued only when native work is pending.
 
 | Setting | Default | Effect |
 | --- | ---: | --- |
@@ -125,7 +135,7 @@ placement. Completion waits are issued only when native work is pending.
 | `xgl_playercolors` | 1 | Apply original player shirt/pants palette translations to sampled skins. |
 | `xgl_ambient` | 1 | Native ambient contribution, clamped to 0–1. |
 | `xgl_maxlights` | 4 | Maximum native point lights, clamped to 0–4. |
-| `xgl_profile` | 0 | Report aggregated graphics timings and native call counts to the terminal once per second. |
+| `xgl_profile` | 0 | 1 reports graphics timings and native call counts; 2 adds geometry preparation and cache statistics. Output goes to the terminal once per second. |
 | `_snd_mixahead` | 0.3 | Audio lookahead in seconds for XGL; existing archived values override this default. |
 | `r_wateralpha` | 1 | Water opacity; values below 1 request native blending. |
 
@@ -141,8 +151,10 @@ and the space reserved for the status bar. Native UI uses device coordinates.
 
 The existing Solaris main allocates a 16 MiB engine heap. World geometry
 cache storage is capped at another 8 MiB, CPU material pixels and optional
-filter levels at another 8 MiB, and alias color caches at 1 MiB. The XGL
-audio ring is 32 KiB. Native contexts, window buffers, program data and
+filter levels at another 8 MiB, and alias color caches at 1 MiB. The alias
+normal/topology cache, its fixed entry table and reusable work array together
+are capped at another 1 MiB. The XGL audio ring is 32 KiB.
+Native contexts, window buffers, program data and
 library allocations are additional. These limits are not a measurement of
 total process memory.
 World cache/detail exhaustion falls back to complete coarse faces; exceeding
@@ -158,14 +170,28 @@ lookahead trades some sound latency for tolerance of long frames. A single
 blocking graphics call longer than the queued audio can still cause a gap;
 this is not an independent audio thread.
 
-An existing `config.cfg` may restore `_snd_mixahead 0.1`. For the next Sun
-test, explicitly select 0.3 and collect timings with the console closed:
+An existing `config.cfg` may restore `_snd_mixahead 0.1`. Explicitly select
+0.3 and use the same resolution, demo and detail settings for each comparison.
+First measure whole-game performance without profiling:
 
 ```sh
-./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 1 +timedemo demo1 > xglquake-profile.txt 2>&1
+./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 0 +timedemo demo1 > xglquake-timedemo.txt 2>&1
 ```
 
-Repeat with `-winsize 320 240` for a comparable resolution test. The profiler
+Quit after the timedemo finishes, then repeat with detailed profiling:
+
+```sh
+./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 2 +timedemo demo1 > xglquake-profile.txt 2>&1
+```
+
+Keep the console closed during playback and quit after the timedemo result
+appears. The console stays visible after playback and has a different workload;
+its later profiles must not be averaged into gameplay results. Compare the
+timedemo FPS from both runs to measure profiling overhead. A first frame that
+builds caches should also be distinguished from sustained rendering. Repeat
+the same procedure at another resolution only when testing resolution cost.
+
+The profiler
 prints graphics-frame mean/max time and world, entity, effects, weapon and
 UI stage times. Native submission, synchronization, buffer-switch and audio
 service timings overlap those stages; do not add them to the graphics total.
@@ -175,6 +201,27 @@ server work and the final shared sound update, so it is not a whole-game FPS
 measurement; use the timedemo result for that comparison. Profiling is off
 by default and performs no timing queries when disabled. Terminal reporting
 avoids adding in-game console glyphs to the workload being measured.
+
+Level 1 retains the summary report. Level 2 adds more timing queries and
+reports where world preparation time goes, vertex packing, alias cache work,
+cache use, and native text calls. These detail measurements overlap the main
+stages; nested preparation measurements must not be summed into a frame total.
+World detail selection includes mesh construction. Ordinary color timing
+includes cache validation and refresh; animated timing covers sky/water color
+updates. Alias cache/transform timing covers cache lookup/build and the cached
+path's live vertex transforms, excluding recursive fallback drawing and final
+color/output assembly. Packing excludes native submission. Native triangle
+batches can span stage boundaries, so the stage that flushes a batch can
+include submission work queued by an earlier stage.
+
+Detailed counts are per-frame averages. World cached draws include meshes
+built during that frame, while fallback draws count complete streamed coarse
+faces; they are not a cache-hit percentage. Color reuse/updates count mesh
+update calls, which can occur multiple times for a streamed face. Alias color
+and normal/topology (reported as pose) cache hits, misses, evictions and fallback
+draws expose cache pressure without changing cache limits. Compare native
+text calls with emitted glyphs to see how much the installed font permits
+batching.
 
 ## Development-host checks
 

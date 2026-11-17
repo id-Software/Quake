@@ -5,6 +5,7 @@
  */
 #include "quakedef.h"
 #include "xgl_audio.h"
+#include "xgl_profile.h"
 
 #define XGL_WORLD_CACHE_BYTES (8UL * 1024UL * 1024UL)
 #define XGL_SURFACE_DETAIL_VERTS 12288
@@ -210,7 +211,7 @@ static int XGL_SubdivideTriangle (msurface_t *surface, const float *a, const flo
     return count;
 }
 
-static int XGL_BuildSurfaceMesh (model_t *model, msurface_t *surface,
+static int XGL_BuildSurfaceMeshData (model_t *model, msurface_t *surface,
                                 xgl_surface_mesh_t *mesh, int depth)
 {
     vec3_t a, b, c;
@@ -247,6 +248,21 @@ static int XGL_BuildSurfaceMesh (model_t *model, msurface_t *surface,
     mesh->fullbright = -1;
     for (i = 0; i < MAXLIGHTMAPS; ++i) mesh->style[i] = -1;
     return 1;
+}
+
+static int XGL_BuildSurfaceMesh (model_t *model, msurface_t *surface,
+                                xgl_surface_mesh_t *mesh, int depth)
+{
+    double start;
+    int built;
+    start = XGL_ProfileDetailNow();
+    built = XGL_BuildSurfaceMeshData(model, surface, mesh, depth);
+    XGL_ProfileAdd(XGL_PROFILE_WORLD_BUILD, start);
+    if (built) {
+        XGL_ProfileCount(XGL_PROFILE_WORLD_MESH_BUILDS, 1);
+        XGL_ProfileCount(XGL_PROFILE_WORLD_BUILD_VERTICES, (unsigned long)mesh->count);
+    } else XGL_ProfileCount(XGL_PROFILE_WORLD_MESH_FAILURES, 1);
+    return built;
 }
 
 static int XGL_RepeatCoordinate (float coordinate, int size)
@@ -341,10 +357,15 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
     unsigned int texture_revision, color_revision;
     int axis, corner;
     xgl_cached_vertex_t *vertex, *triangle;
+    double start;
     if (surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB)) {
+        start = XGL_ProfileDetailNow();
         XGL_UpdateSpecialSurface(mesh, surface, texture, entity);
+        XGL_ProfileAdd(XGL_PROFILE_WORLD_ANIMATED, start);
+        XGL_ProfileCount(XGL_PROFILE_WORLD_ANIMATED_VERTICES, (unsigned long)mesh->count);
         return;
     }
+    start = XGL_ProfileDetailNow();
     fullbright = r_fullbright.value != 0;
     texture_revision = XGL_TextureRevision(texture->gl_texturenum);
     color_revision = XGL_ColorRevision();
@@ -356,7 +377,11 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
         if (mesh->style[i] != value) changed = 1;
         mesh->style[i] = value;
     }
-    if (!changed) return;
+    if (!changed) {
+        XGL_ProfileAdd(XGL_PROFILE_WORLD_COLORS, start);
+        XGL_ProfileCount(XGL_PROFILE_WORLD_COLOR_HITS, 1);
+        return;
+    }
     footprint[0] = footprint[1] = 0;
     for (i = 0, vertex = mesh->vertices; i < mesh->count; ++i, ++vertex) {
         if ((i & 255) == 0) XGL_AudioUpdate();
@@ -386,6 +411,9 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
     mesh->color_revision = color_revision;
     mesh->texture = texture->gl_texturenum;
     mesh->fullbright = fullbright;
+    XGL_ProfileAdd(XGL_PROFILE_WORLD_COLORS, start);
+    XGL_ProfileCount(XGL_PROFILE_WORLD_COLOR_UPDATES, 1);
+    XGL_ProfileCount(XGL_PROFILE_WORLD_COLOR_VERTICES, (unsigned long)mesh->count);
 }
 
 static void XGL_EmitSurfaceVertices (const xgl_cached_vertex_t *source, int count,
@@ -557,6 +585,7 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
             }
         }
         if (mesh->vertices) {
+            XGL_ProfileCount(XGL_PROFILE_WORLD_CACHED_SURFACES, 1);
             XGL_UpdateSurfaceMesh(mesh, surface, texture, entity);
             XGL_EmitSurfaceVertices(mesh->vertices, mesh->count, entity, lit, opacity);
             return;
@@ -565,6 +594,7 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
     /* Allocation/budget exhaustion never discards a face. Stream its whole
      * coarse fan without persistent allocation, even for external bmodels. */
     if (surface->numedges < 3) return;
+    XGL_ProfileCount(XGL_PROFILE_WORLD_FALLBACK_SURFACES, 1);
     XGL_SurfacePoint(model, surface, 0, a);
     memset(&fallback, 0, sizeof(fallback));
     fallback.vertices = triangle; fallback.count = 3;
@@ -689,15 +719,22 @@ static void XGL_WorldNode (mnode_t *node)
 void XGL_DrawWorld (void)
 {
     int i;
+    double start;
     if (xgl_cache_step != xgl_subdivide.value) XGL_WorldNewMap();
     xgl_detail_used = 0;
     xgl_water_count = 0;
     xgl_world_count = 0;
     currententity = &r_worldentity;
+    start = XGL_ProfileDetailNow();
     XGL_MarkLeaves();
     XGL_WorldNode(cl.worldmodel->nodes);
+    /* Without the cache index, traversal also emits coarse fallback faces.
+     * The fallback counter identifies that case in a detailed report. */
+    XGL_ProfileAdd(XGL_PROFILE_WORLD_VISIBILITY, start);
     if (xgl_world_order) {
+        start = XGL_ProfileDetailNow();
         XGL_SelectWorldDetail();
+        XGL_ProfileAdd(XGL_PROFILE_WORLD_DETAIL_SELECT, start);
         for (i = 0; i < xgl_world_count; ++i)
             XGL_QueueSurface(cl.worldmodel, cl.worldmodel->surfaces + xgl_world_order[i], &r_worldentity);
     }
