@@ -25,6 +25,10 @@ cvar_t r_fullbright, r_drawentities, r_drawviewmodel, chase_active;
 static xgl_vertex_t captured[4096];
 static int captured_count, native_lit, material_seen, coverage_mode;
 static int sample_calls, test_light, draw_calls, normalizations;
+static xgl_native_vertex_t reserved_vertices[XGL_ENTITY_BATCH_VERTICES];
+static int reserved_count, reserved_lit, reserve_calls, prepare_calls;
+static int reserve_limit = XGL_ENTITY_BATCH_VERTICES;
+static void capture_reserved(void);
 static unsigned long profile_counts[XGL_PROFILE_COUNTER_COUNT];
 static unsigned int material_revision;
 static int allocation_fail_after = -1;
@@ -33,7 +37,7 @@ static int test_cull;
 static int weapon_scope[8], weapon_scope_count;
 static scoreboard_t scores[MAX_SCOREBOARD];
 static byte base_colormap[256], player_colormap[256];
-static union { double alignment; byte bytes[8192]; } alias_storage;
+static union { double alignment; byte bytes[32768]; } alias_storage;
 static model_t alias_model;
 
 static void *entity_test_malloc(size_t bytes)
@@ -71,6 +75,7 @@ void XGL_AudioLock(void) { ++audio_lock_depth; ++audio_locks; }
 void XGL_AudioUnlock(void)
 {
     assert(audio_lock_depth > 0);
+    capture_reserved();
     --audio_lock_depth; ++audio_unlocks;
 }
 void *Mod_Extradata(model_t *model)
@@ -104,6 +109,38 @@ void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
         captured[captured_count++] = vertices[i];
     }
 }
+static void capture_reserved(void)
+{
+    xgl_vertex_t vertices[XGL_ENTITY_BATCH_VERTICES];
+    int i, count;
+    count = reserved_count;
+    if (!count) return;
+    reserved_count = 0;
+    for (i = 0; i < count; ++i) {
+        VectorCopy(reserved_vertices[i].position, vertices[i].position);
+        VectorCopy(reserved_vertices[i].normal, vertices[i].normal);
+        VectorCopy(reserved_vertices[i].color.rgb, vertices[i].color);
+    }
+    XGL_DrawTriangles(vertices, count, reserved_lit, 1, 1);
+}
+
+xgl_native_vertex_t *XGL_ReserveTriangles(int *count, int lit, float opacity, int zwrite)
+{
+    capture_reserved();
+    assert(*count > 0 && *count % 3 == 0 && opacity == 1 && zwrite == 1);
+    if (expect_alias_lock) assert(audio_lock_depth > 0);
+    if (*count > reserve_limit) *count = reserve_limit;
+    reserved_count = *count; reserved_lit = lit;
+    ++reserve_calls;
+    return reserved_vertices;
+}
+
+void XGL_PrepareColor(float rgb[3])
+{
+    (void)rgb;
+    ++prepare_calls;
+}
+
 qboolean XGL_SampleTexture(int material, float s, float t, float rgb[3],
                            const byte *translation)
 {
@@ -138,6 +175,9 @@ static void reset_test(void)
     xgl_entity_extra_used = 0;
     captured_count = native_lit = material_seen = coverage_mode = weapon_scope_count = 0;
     sample_calls = draw_calls = normalizations = 0; test_light = 128; material_revision = 1;
+    assert(!reserved_count);
+    reserved_lit = reserve_calls = prepare_calls = 0;
+    reserve_limit = XGL_ENTITY_BATCH_VERTICES;
     memset(profile_counts, 0, sizeof(profile_counts));
     allocation_fail_after = -1;
     audio_locks = audio_unlocks = expect_alias_lock = test_cull = 0;
@@ -322,7 +362,7 @@ static void test_alias_color_cache(void)
 {
     aliashdr_t *header, *moved;
     trivertx_t *poses;
-    union { double alignment; byte bytes[8192]; } moved_storage;
+    union { double alignment; byte bytes[32768]; } moved_storage;
     xgl_vertex_t previous;
     float changed_uv;
     int *commands;
@@ -628,8 +668,8 @@ static void test_alias_pose_cache_batching_and_limits(void)
     XGL_DrawAlias(&cl_entities[1]);
     assert(captured_count == count && draw_calls == calls && !normalizations);
 
-    /* Populate distinct normal sequences until the byte budget evicts old
-     * entries. Changing position alone above deliberately did not do so. */
+    /* Shared topology now lets this model fill all pose slots within the
+     * byte budget. Changing position alone deliberately does not add poses. */
     pose = (trivertx_t *)((byte *)header + header->posedata);
     for (i = 0; i < XGL_ALIAS_POSE_SLOTS + 4; ++i) {
         pose[0].lightnormalindex = (byte)i;
@@ -639,9 +679,10 @@ static void test_alias_pose_cache_batching_and_limits(void)
     }
     entries = 0;
     for (i = 0; i < XGL_ALIAS_POSE_SLOTS; ++i)
-        if (xgl_alias_poses[i].vertices) ++entries;
-    assert(entries > 0 && entries < XGL_ALIAS_POSE_SLOTS);
-    assert(profile_counts[XGL_PROFILE_ALIAS_POSE_EVICTIONS] > 0);
+        if (xgl_alias_poses[i].normals) ++entries;
+    assert(entries == XGL_ALIAS_POSE_SLOTS);
+    assert(profile_counts[XGL_PROFILE_ALIAS_POSE_SLOT_EVICTIONS] > 0);
+    assert(profile_counts[XGL_PROFILE_ALIAS_POSE_BYTE_EVICTIONS] == 0);
 
     /* A valid larger subdivision exceeds the fixed workspace. Decline it
      * without touching old cache storage; rendering uses its batched fallback. */
@@ -650,13 +691,13 @@ static void test_alias_pose_cache_batching_and_limits(void)
     cached_pose = XGL_AliasPose(header, pose, colors);
     assert(!cached_pose);
     XGL_EntitiesShutdown();
-    assert(xgl_alias_pose_bytes == sizeof(xgl_alias_poses) + sizeof(xgl_alias_work));
+    assert(xgl_alias_pose_bytes == XGL_ALIAS_FIXED_BYTES);
 }
 
 static void test_alias_pose_cache_allocation_failure(void)
 {
     int failure;
-    for (failure = 0; failure < 4; ++failure) {
+    for (failure = 0; failure < 5; ++failure) {
         reset_test();
         make_alias(3);
         xgl_alias_subdivide.value = 1;
@@ -665,7 +706,10 @@ static void test_alias_pose_cache_allocation_failure(void)
         captured_count = normalizations = sample_calls = 0; xgl_entity_extra_used = 0;
         XGL_DrawAlias(&cl_entities[1]);
         assert(captured_count == 12 && sample_calls == 0 && normalizations > 0);
-        assert(xgl_alias_pose_bytes == sizeof(xgl_alias_poses) + sizeof(xgl_alias_work));
+        assert(xgl_alias_pose_bytes >= XGL_ALIAS_FIXED_BYTES);
+        assert(xgl_alias_pose_bytes <= XGL_ALIAS_POSE_BYTES);
+        if (failure < 3) assert(xgl_alias_pose_bytes == XGL_ALIAS_FIXED_BYTES);
+        else assert(xgl_alias_pose_bytes > XGL_ALIAS_FIXED_BYTES);
         allocation_fail_after = -1;
         captured_count = 0; xgl_entity_extra_used = 0;
         XGL_DrawAlias(&cl_entities[1]);
@@ -674,6 +718,119 @@ static void test_alias_pose_cache_allocation_failure(void)
         assert(captured_count == 12 && !normalizations);
         XGL_EntitiesShutdown();
     }
+}
+
+static void test_alias_shared_topology(void)
+{
+    aliashdr_t *header;
+    trivertx_t *pose;
+    xgl_alias_cache_t *colors;
+    xgl_alias_pose_cache_t *first, *second;
+    xgl_alias_topology_t *topology;
+    size_t first_bytes;
+    unsigned int second_hash;
+    int *commands;
+    int i, entries;
+    reset_test();
+    header = make_alias(6);
+    pose = (trivertx_t *)((byte *)header + header->posedata);
+    colors = XGL_AliasColors(header, 10, 1, NULL);
+    assert(colors);
+    first = XGL_AliasPose(header, pose, colors);
+    assert(first);
+    topology = first->topology;
+    first_bytes = xgl_alias_pose_bytes;
+    pose[0].lightnormalindex = 31;
+    second = XGL_AliasPose(header, pose, colors);
+    assert(second && second != first && second->topology == topology);
+    assert(xgl_alias_pose_bytes - first_bytes ==
+           (size_t)header->poseverts + (size_t)topology->vertex_count * sizeof(vec3_t));
+    assert(profile_counts[XGL_PROFILE_ALIAS_TOPOLOGY_MISSES] == 1);
+    assert(profile_counts[XGL_PROFILE_ALIAS_TOPOLOGY_HITS] == 1);
+
+    /* Hashes only reject mismatches: equal hashes still require exact data. */
+    second_hash = second->normal_hash;
+    first->normal_hash = second_hash;
+    assert(XGL_AliasPose(header, pose, colors) == second);
+    commands = (int *)((byte *)header + header->commands);
+    ++commands[1];
+    colors = XGL_AliasColors(header, 10, 1, NULL);
+    assert(colors);
+    topology->command_hash = colors->command_hash;
+    second = XGL_AliasPose(header, pose, colors);
+    assert(second && second->topology != topology);
+
+    /* Replace topology slots and ensure no surviving pose references an
+     * evicted command stream, even when the slot address is reused. */
+    for (i = 0; i < XGL_ALIAS_TOPOLOGY_SLOTS + 4; ++i) {
+        ++commands[1];
+        colors = XGL_AliasColors(header, 10, 1, NULL);
+        assert(colors && XGL_AliasPose(header, pose, colors));
+        assert(xgl_alias_pose_bytes <= XGL_ALIAS_POSE_BYTES);
+    }
+    entries = 0;
+    for (i = 0; i < XGL_ALIAS_TOPOLOGY_SLOTS; ++i)
+        if (xgl_alias_topologies[i].indices) ++entries;
+    assert(entries == XGL_ALIAS_TOPOLOGY_SLOTS);
+    for (i = 0; i < XGL_ALIAS_POSE_SLOTS; ++i) {
+        if (!xgl_alias_poses[i].normals) continue;
+        assert(xgl_alias_poses[i].topology->indices);
+        assert(xgl_alias_poses[i].topology->parents);
+    }
+    assert(profile_counts[XGL_PROFILE_ALIAS_POSE_SLOT_EVICTIONS] > 0);
+    XGL_EntitiesShutdown();
+    assert(xgl_alias_pose_bytes == XGL_ALIAS_FIXED_BYTES);
+}
+
+static void test_alias_pose_byte_limit(void)
+{
+    aliashdr_t *header;
+    trivertx_t *pose;
+    xgl_alias_cache_t *colors;
+    int i, entries;
+    reset_test();
+    header = make_alias(1000);
+    pose = (trivertx_t *)((byte *)header + header->posedata);
+    colors = XGL_AliasColors(header, 10, 1, NULL);
+    assert(colors);
+    for (i = 0; i < XGL_ALIAS_POSE_SLOTS + 4; ++i) {
+        pose[0].lightnormalindex = (byte)i;
+        assert(XGL_AliasPose(header, pose, colors));
+        assert(xgl_alias_pose_bytes <= XGL_ALIAS_POSE_BYTES);
+    }
+    entries = 0;
+    for (i = 0; i < XGL_ALIAS_POSE_SLOTS; ++i)
+        if (xgl_alias_poses[i].normals) ++entries;
+    assert(entries > 0 && entries < XGL_ALIAS_POSE_SLOTS);
+    assert(profile_counts[XGL_PROFILE_ALIAS_POSE_BYTE_EVICTIONS] > 0);
+    assert(profile_counts[XGL_PROFILE_ALIAS_POSE_SLOT_EVICTIONS] == 0);
+    assert(profile_counts[XGL_PROFILE_ALIAS_TOPOLOGY_MISSES] == 1);
+    XGL_EntitiesShutdown();
+    assert(xgl_alias_pose_bytes == XGL_ALIAS_FIXED_BYTES);
+}
+
+static void test_alias_direct_partial_batches(void)
+{
+    xgl_vertex_t expected[192];
+    aliashdr_t *header;
+    int count;
+    reset_test();
+    header = make_alias(6);
+    header->frames[0].numposes = 1;
+    xgl_alias_subdivide.value = 2;
+    coverage_mode = 2;
+    XGL_DrawAlias(&cl_entities[1]);
+    count = captured_count;
+    assert(count > 0 && count < 192);
+    memcpy(expected, captured, (size_t)count * sizeof(*expected));
+    captured_count = 0; xgl_entity_extra_used = 0;
+    reserve_limit = 9;
+    XGL_DrawAlias(&cl_entities[1]);
+    compare_capture(expected, count);
+    assert(reserve_calls == (count + reserve_limit - 1) / reserve_limit);
+    assert(prepare_calls == count);
+    assert(audio_locks == audio_unlocks && !audio_lock_depth);
+    XGL_EntitiesShutdown();
 }
 
 static void test_alias_audio_lock_cleanup(void)
@@ -713,6 +870,9 @@ int main(void)
     test_alias_color_cache();
     test_alias_cache_coverage_and_capacity();
     test_alias_cache_allocation_failure();
+    test_alias_shared_topology();
+    test_alias_pose_byte_limit();
+    test_alias_direct_partial_batches();
     test_alias_audio_lock_cleanup();
     test_alias_pose_cache_equivalence();
     test_alias_pose_canceling_normals();

@@ -177,12 +177,13 @@ int XGL_LoadTexture (char *identifier, int width, int height, byte *data,
     return slot + 1;
 }
 
-qboolean XGL_SampleTexture (int id, float s, float t, float rgb[3],
-                           const byte *translation)
+/* The animated world path uses the palette index directly for gamma-ready
+ * colors. Keep wrapping and cutout coverage identical to ordinary samples. */
+qboolean XGL_SampleTextureIndex (int id, float s, float t, int *result)
 {
     xgl_material_t *material;
     int x, y, index;
-    if (!rgb || id <= 0 || id > XGL_MAX_MATERIALS ||
+    if (!result || id <= 0 || id > XGL_MAX_MATERIALS ||
         !(s > -1000000000.0f && s < 1000000000.0f &&
           t > -1000000000.0f && t < 1000000000.0f))
         return false;
@@ -201,6 +202,16 @@ qboolean XGL_SampleTexture (int id, float s, float t, float rgb[3],
     if (y >= material->height) y = material->height - 1;
     index = material->pixels[y * material->width + x];
     if (material->alpha && index == 255)
+        return false;
+    *result = index;
+    return true;
+}
+
+qboolean XGL_SampleTexture (int id, float s, float t, float rgb[3],
+                           const byte *translation)
+{
+    int index;
+    if (!rgb || !XGL_SampleTextureIndex(id, s, t, &index))
         return false;
     if (translation)
         index = translation[index];

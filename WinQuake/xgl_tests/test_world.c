@@ -1,7 +1,17 @@
 /* Host renderer contracts; these tests do not simulate XGL or GPU timing. */
 #include <assert.h>
 #include <stdarg.h>
+#include <stdlib.h>
+static int fail_alloc_after = -1;
+static void *test_malloc(size_t bytes)
+{
+    if (fail_alloc_after == 0) return NULL;
+    if (fail_alloc_after > 0) --fail_alloc_after;
+    return malloc(bytes);
+}
+#define malloc test_malloc
 #include "../xgl_world.c"
+#undef malloc
 
 client_state_t cl;
 lightstyle_t cl_lightstyle[MAX_LIGHTSTYLES];
@@ -28,7 +38,10 @@ static byte test_samples[81];
 static efrag_t test_efrag;
 static byte test_vis;
 static int pvs_calls, sample_calls, efrag_calls, reject_box;
-static xgl_vertex_t captured[1024];
+static xgl_native_vertex_t captured[1024];
+static const xgl_native_vertex_t *queued[1024];
+static xgl_native_vertex_t queued_copy[1024];
+static int queued_count, flush_calls, palette_calls, failed_sample;
 static int captured_count, captured_lit, captured_zwrite;
 static int captured_calls, varying_material, prepare_calls, filter_calls;
 static unsigned int color_revision, texture_revision;
@@ -60,6 +73,21 @@ void XGL_PrepareColor(float rgb[3])
     ++prepare_calls;
     for (i = 0; i < 3; ++i) rgb[i] *= gamma_scale;
 }
+void XGL_PreparePaletteColor(int index, float rgb[3])
+{
+    int i;
+    assert(index >= 0 && index <= 255);
+    ++palette_calls;
+    for (i = 0; i < 3; ++i) rgb[i] = xgl_palette[index * 3 + i] / 255.0f * gamma_scale;
+}
+void XGL_Flush(void)
+{
+    int i;
+    ++flush_calls;
+    for (i = 0; i < queued_count; ++i)
+        assert(!memcmp(queued[i], &queued_copy[i], sizeof(*queued[i])));
+    queued_count = 0;
+}
 void Sys_Error(char *format, ...)
 {
     va_list args;
@@ -88,18 +116,30 @@ void R_StoreEfrags(efrag_t **efrags)
     assert(*efrags == &test_efrag);
     ++efrag_calls;
 }
-qboolean XGL_SampleTexture(int texture, float s, float t, float rgb[3], const byte *translation)
+qboolean XGL_SampleTextureIndex(int texture, float s, float t, int *index)
 {
     assert(texture == 1 || texture == 2);
-    assert(translation == NULL);
     ++sample_calls;
-    rgb[0] = .8f; rgb[1] = .4f; rgb[2] = .2f;
+    if (failed_sample) return false;
+    s -= (float)floor(s); t -= (float)floor(t);
+    *index = ((int)(s * 255) + (int)(t * 127)) & 255;
+    return true;
+}
+qboolean XGL_SampleTexture(int texture, float s, float t, float rgb[3], const byte *translation)
+{
+    int i, index;
+    assert(texture == 1 || texture == 2);
+    assert(translation == NULL);
     if (varying_material) {
-        rgb[0] = s - (float)floor(s);
-        rgb[1] = t - (float)floor(t);
+        if (!XGL_SampleTextureIndex(texture, s, t, &index)) return false;
+        for (i = 0; i < 3; ++i) rgb[i] = xgl_palette[index * 3 + i] / 255.0f;
+    } else {
+        ++sample_calls;
+        rgb[0] = .8f; rgb[1] = .4f; rgb[2] = .2f;
     }
     return true;
 }
+
 qboolean XGL_SampleTextureFiltered(int texture, float s, float t, float fs, float ft,
                                   float rgb[3], const byte *translation)
 {
@@ -108,24 +148,38 @@ qboolean XGL_SampleTextureFiltered(int texture, float s, float t, float fs, floa
     return XGL_SampleTexture(texture, s, t, rgb, translation);
 }
 
-void XGL_DrawTrianglesStrided(const xgl_vertex_t *vertices, int count, size_t stride,
-                              int lit, float opacity, int zwrite, int prepared)
+void XGL_DrawNativeTriangles(const xgl_native_vertex_t *vertices, int count,
+                             int lit, float opacity, int zwrite)
 {
     int i;
-    const xgl_vertex_t *vertex;
-    assert(prepared && stride >= sizeof(*vertices));
     assert(count > 0 && count % 3 == 0 && captured_count + count <= 1024);
+    assert(queued_count + count <= 1024);
     for (i = 0; i < count; ++i) {
-        vertex = (const xgl_vertex_t *)((const byte *)vertices + i * stride);
-        assert(fabs(DotProduct(vertex->normal, vertex->normal) - 1) < .0001);
-        captured[captured_count++] = *vertex;
+        assert(fabs(DotProduct(vertices[i].normal, vertices[i].normal) - 1) < .0001);
+        captured[captured_count++] = vertices[i];
+        queued[queued_count] = vertices + i;
+        queued_copy[queued_count++] = vertices[i];
     }
     captured_lit = lit; captured_opacity = opacity; captured_zwrite = zwrite;
     ++captured_calls;
 }
 
+xgl_native_vertex_t *XGL_ReserveTriangles(int *count, int lit, float opacity, int zwrite)
+{
+    xgl_native_vertex_t *vertices;
+    assert(*count > 0 && *count % 3 == 0);
+    if (*count > 12) *count = 12; /* Exercise callers handling partial space. */
+    assert(captured_count + *count <= 1024);
+    vertices = captured + captured_count;
+    captured_count += *count;
+    captured_lit = lit; captured_opacity = opacity; captured_zwrite = zwrite;
+    ++captured_calls;
+    return vertices;
+}
+
 static void begin_frame(void)
 {
+    XGL_Flush(); /* The preceding frame has completed. */
     ++r_framecount;
     captured_count = captured_calls = 0;
     memset(profile_counts, 0, sizeof(profile_counts));
@@ -152,6 +206,7 @@ static void setup_world(void)
 {
     int i;
     XGL_WorldShutdown();
+    fail_alloc_after = -1;
     memset(&test_model, 0, sizeof(test_model));
     memset(&test_surface, 0, sizeof(test_surface));
     memset(&test_texinfo, 0, sizeof(test_texinfo));
@@ -219,6 +274,9 @@ static void setup_world(void)
     pvs_calls = sample_calls = efrag_calls = reject_box = captured_count = 0;
     captured_calls = varying_material = prepare_calls = filter_calls = 0;
     color_revision = texture_revision = 1; gamma_scale = 1;
+    palette_calls = failed_sample = flush_calls = 0;
+    for (i = 0; i < 256; ++i)
+        xgl_palette[i * 3] = xgl_palette[i * 3 + 1] = xgl_palette[i * 3 + 2] = (byte)i;
     realtime = 0;
     test_vis = 1;
     XGL_WorldNewMap();
@@ -237,13 +295,13 @@ static void test_animated_water_and_sky(void)
     test_surface.flags = SURF_DRAWTURB;
     begin_frame();
     assert(captured_count == 6 && captured_calls == 1 && captured_lit == 0);
-    first_color = captured[0].color[0];
+    first_color = captured[0].color.rgb[0];
     VectorCopy(captured[0].position, first_position);
     samples = sample_calls;
     realtime = .25;
     begin_frame();
-    assert(captured_count == 6 && captured_calls == 1 && sample_calls == samples + 6);
-    assert(fabs(captured[0].color[0] - first_color) > .01);
+    assert(captured_count == 6 && captured_calls == 1 && sample_calls == samples + 4);
+    assert(fabs(captured[0].color.rgb[0] - first_color) > .01);
     assert(VectorCompare(captured[0].position, first_position));
     /* Dynamic lighting never changes the water or sky's unlit material path. */
     assert(captured_lit == 0 && captured_zwrite == 1);
@@ -270,23 +328,23 @@ static void test_animated_water_and_sky(void)
     r_origin[0] = r_origin[1] = 0;
     begin_frame();
     assert(captured_count == 6 && captured_calls == 1 && captured_lit == 0);
-    assert(fabs(captured[0].color[0] - 1.0f / 255) < .0001);
+    assert(fabs(captured[0].color.rgb[0] - 1.0f / 255) < .0001);
     assert(sample_calls == 0); /* split image samples bypass the full-image registry */
     realtime = 1;
     begin_frame();
     assert(captured_count == 6 && captured_calls == 1);
-    assert(fabs(captured[0].color[0] - 9.0f / 255) < .0001);
+    assert(fabs(captured[0].color.rgb[0] - 9.0f / 255) < .0001);
     /* A nonzero foreground texel wins at the faster 16-unit scroll. */
     pixels[16 * 256 + 16] = 200;
     begin_frame();
     assert(captured_calls == 1);
-    assert(fabs(captured[0].color[0] - 200.0f / 255) < .0001);
+    assert(fabs(captured[0].color.rgb[0] - 200.0f / 255) < .0001);
     pixels[16 * 256 + 16] = 0;
     realtime = 0;
     r_origin[0] = 16;
     begin_frame();
     assert(captured_calls == 1 && captured_lit == 0);
-    assert(fabs(captured[0].color[0] - 1.0f / 255) > .01);
+    assert(fabs(captured[0].color.rgb[0] - 1.0f / 255) > .01);
     XGL_WorldShutdown();
     free(sky);
 }
@@ -301,7 +359,7 @@ static void test_cache_and_styles(void)
     assert(captured_zwrite == 1 && captured_opacity == 1);
     assert(fabs(captured_area() - 128 * 128) < .01);
     assert(xgl_cache_bytes <= XGL_WORLD_CACHE_BYTES);
-    original = captured[0].color[0];
+    original = captured[0].color.rgb[0];
     samples = sample_calls; count = captured_count; prepares = prepare_calls;
     assert(filter_calls == count);
     begin_frame();
@@ -310,19 +368,19 @@ static void test_cache_and_styles(void)
     gamma_scale = .5f; ++color_revision;
     begin_frame();
     assert(sample_calls == samples && prepare_calls == prepares + count);
-    assert(fabs(captured[0].color[0] - original * .5f) < .0001);
+    assert(fabs(captured[0].color.rgb[0] - original * .5f) < .0001);
     gamma_scale = 1; ++color_revision;
     begin_frame();
     assert(sample_calls == samples);
-    assert(fabs(captured[0].color[0] - original) < .0001);
+    assert(fabs(captured[0].color.rgb[0] - original) < .0001);
     d_lightstylevalue[0] = 128;
     begin_frame();
     assert(sample_calls == samples);
-    assert(fabs(captured[0].color[0] - original * .5f) < .0001);
+    assert(fabs(captured[0].color.rgb[0] - original * .5f) < .0001);
     r_fullbright.value = 1;
     begin_frame();
     assert(captured_lit == 0 && sample_calls == samples);
-    assert(fabs(captured[0].color[0] - .8f) < .0001);
+    assert(fabs(captured[0].color.rgb[0] - .8f) < .0001);
     ++texture_revision;
     begin_frame();
     assert(sample_calls == samples + count);
@@ -502,8 +560,158 @@ static void test_projected_detail_priority(void)
     XGL_WorldShutdown();
 }
 
+static void compare_sample_map(xgl_surface_mesh_t *mesh, texture_t *texture,
+                                entity_t *entity)
+{
+    float colors[96][3];
+    unsigned short *map;
+    int i, samples;
+    assert(mesh->count == 96 && mesh->sample_vertex);
+    XGL_UpdateSurfaceMesh(mesh, &test_surface, texture, entity);
+    for (i = 0; i < mesh->count; ++i)
+        VectorCopy(mesh->vertices[i].color.rgb, colors[i]);
+    samples = sample_calls;
+    map = mesh->sample_vertex;
+    mesh->sample_vertex = NULL;
+    XGL_UpdateSurfaceMesh(mesh, &test_surface, texture, entity);
+    if (test_surface.flags & SURF_DRAWTURB) assert(sample_calls == samples + 96);
+    for (i = 0; i < mesh->count; ++i)
+        assert(VectorCompare(mesh->vertices[i].color.rgb, colors[i]));
+    mesh->sample_vertex = map;
+}
+
+static void test_shared_animated_samples(void)
+{
+    xgl_surface_mesh_t *mesh;
+    texture_t *sky;
+    entity_t entity;
+    byte *pixels;
+    size_t bytes;
+    int i, failed, count, before;
+    float s, t, os, ot, phase, expected[3];
+    setup_world();
+    varying_material = 1;
+    test_surface.flags = SURF_DRAWTURB;
+    begin_frame();
+    mesh = &xgl_surfaces[0].detail;
+    assert(captured_count == 96 && sample_calls == 25 && palette_calls == 25);
+    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_VERTICES] == 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_SAMPLES] == 25);
+    assert(profile_sections[XGL_PROFILE_WORLD_WATER] == 1);
+    assert(profile_sections[XGL_PROFILE_WORLD_SKY] == 0);
+    /* Same positions share samples, without changing any emitted triangle. */
+    for (i = 0; i < mesh->count; ++i) {
+        assert(mesh->sample_vertex[i] <= i);
+        assert(VectorCompare(mesh->vertices[i].position,
+                             mesh->vertices[mesh->sample_vertex[i]].position));
+    }
+    test_texinfo.vecs[0][3] = -17; test_texinfo.vecs[1][3] = 23;
+    for (i = 0; i < mesh->count; ++i) {
+        mesh->data[i].st[0] -= 17; mesh->data[i].st[1] += 23;
+    }
+    for (i = 0; i < 4; ++i) {
+        realtime = i == 3 ? 1000000.25 : (i - 1) * .25;
+        gamma_scale = .65f;
+        compare_sample_map(mesh, &test_texture, &r_worldentity);
+        /* Compare the direct-index path with the former RGB-then-gamma
+         * water calculation, including texture translations and long time. */
+        phase = (float)fmod(realtime, 2 * M_PI);
+        for (count = 0; count < mesh->count; ++count) {
+            os = mesh->data[count].st[0] - test_texinfo.vecs[0][3];
+            ot = mesh->data[count].st[1] - test_texinfo.vecs[1][3];
+            s = (os + xgl_turb_sin[(int)((ot * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
+            t = (ot + xgl_turb_sin[(int)((os * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
+            assert(XGL_SampleTexture(1, s, t, expected, NULL));
+            XGL_PrepareColor(expected);
+            assert(VectorCompare(expected, mesh->vertices[count].color.rgb));
+        }
+    }
+    failed_sample = 1;
+    XGL_UpdateSurfaceMesh(mesh, &test_surface, &test_texture, &r_worldentity);
+    for (i = 0; i < mesh->count; ++i)
+        assert(mesh->vertices[i].color.rgb[0] == .5f * gamma_scale);
+
+    setup_world();
+    test_surface.flags = SURF_DRAWSKY;
+    sky = (texture_t *)calloc(1, sizeof(texture_t) + 256 * 128);
+    assert(sky);
+    sky->width = 256; sky->height = 128; sky->offsets[0] = sizeof(texture_t);
+    sky->gl_texturenum = 1; test_texinfo.texture = sky;
+    pixels = (byte *)sky + sky->offsets[0];
+    for (i = 0; i < 256 * 128; ++i) pixels[i] = (byte)(i * 17 + i / 256);
+    begin_frame();
+    mesh = &xgl_surfaces[0].detail;
+    assert(captured_count == 96 && palette_calls == 25 && prepare_calls == 0);
+    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_SAMPLES] == 25);
+    assert(profile_sections[XGL_PROFILE_WORLD_SKY] == 1);
+    memset(&entity, 0, sizeof(entity));
+    entity.model = &test_model;
+    entity.angles[1] = 27; entity.origin[0] = -31; entity.origin[2] = 15;
+    realtime = 1000000.25; gamma_scale = .7f;
+    compare_sample_map(mesh, sky, &entity);
+    XGL_WorldShutdown();
+    free(sky);
+
+    /* Optional sample-map allocation failure leaves the full mesh working.
+     * Exercise each allocation, including cleanup when the sort list fails. */
+    for (failed = 0; failed < 3; ++failed) {
+        setup_world();
+        test_surface.flags = SURF_DRAWTURB; xgl_detailtris.value = 0;
+        bytes = xgl_cache_bytes;
+        fail_alloc_after = failed;
+        begin_frame();
+        assert(captured_count == 6 && xgl_surfaces[0].coarse.sample_vertex == NULL);
+        if (!failed) assert(xgl_cache_bytes == bytes);
+        else assert(xgl_cache_bytes == bytes + 6 * (sizeof(xgl_native_vertex_t) + sizeof(xgl_cached_vertex_t)));
+        assert(sample_calls == 6);
+    }
+    setup_world();
+    test_surface.flags = SURF_DRAWTURB; xgl_detailtris.value = 0;
+    bytes = 6 * (sizeof(xgl_native_vertex_t) + sizeof(xgl_cached_vertex_t));
+    xgl_cache_bytes = XGL_WORLD_CACHE_BYTES - bytes - 4 * 6 + 1;
+    begin_frame();
+    assert(captured_count == 6 && xgl_surfaces[0].coarse.vertices);
+    assert(xgl_surfaces[0].coarse.sample_vertex == NULL && sample_calls == 6);
+    assert(xgl_cache_bytes <= XGL_WORLD_CACHE_BYTES);
+    before = flush_calls;
+    XGL_WorldShutdown();
+    assert(!queued_count && flush_calls == before + 1 && !xgl_cache_bytes);
+}
+
+static void test_borrowed_mesh_lifetime(void)
+{
+    int before;
+    float old_color;
+    setup_world();
+    xgl_detailtris.value = 0;
+    begin_frame();
+    assert(queued_count == 6);
+    before = flush_calls;
+    XGL_DrawSurface(&test_model, &test_surface, &r_worldentity, 1);
+    assert(flush_calls == before && queued_count == 12); /* Unchanged cache batches. */
+    old_color = captured[0].color.rgb[0];
+    gamma_scale = .5f; ++color_revision;
+    XGL_DrawSurface(&test_model, &test_surface, &r_worldentity, 1);
+    assert(flush_calls == before + 1 && queued_count == 6);
+    assert(captured[12].color.rgb[0] == old_color * .5f);
+    XGL_WorldShutdown(); /* The mock checks pointers before the arrays are freed. */
+    assert(!queued_count);
+
+    setup_world();
+    test_surface.flags = SURF_DRAWTURB; xgl_detailtris.value = 0;
+    begin_frame();
+    before = flush_calls; old_color = captured[0].color.rgb[0];
+    realtime = .25;
+    XGL_DrawSurface(&test_model, &test_surface, &r_worldentity, 1);
+    assert(flush_calls == before + 1 && queued_count == 6);
+    assert(captured[6].color.rgb[0] != old_color);
+    XGL_WorldShutdown();
+}
+
 int main(void)
 {
+    test_shared_animated_samples();
+    test_borrowed_mesh_lifetime();
     test_cache_and_styles();
     test_projected_detail_priority();
     test_pvs_and_fallback();

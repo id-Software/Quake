@@ -15,6 +15,15 @@ build. Existing software, XIL and OpenGL recipes are independent. XGL objects
 are kept in `build/xgl`; the executable is `xglquake`. All engine objects in
 this target are compiled with `XGLQUAKE`, never `GLQUAKE`.
 
+Run the same make command after updating sources; no `clean` is needed for
+normal source or header changes. GCC writes a `.d` file beside each object
+to track the headers that source actually includes. Objects from older
+builds without `.d` files rebuild once to establish these dependencies.
+Editing `Makefile.XGL` alone does not force a rebuild. After changing
+compiler options, run `make -f Makefile.XGL clean` before rebuilding;
+dependency files do not track option changes. `clean` also removes the
+generated dependency files.
+
 The SDK paths default to `/opt/SUNWits/Graphics-sw/xgl` and `/usr/openwin`.
 Override them if necessary:
 
@@ -107,15 +116,28 @@ faces may have coarse patches even when `xgl_subdivide` is small. Filtering
 reduces arbitrary single-texel gradients; it cannot reproduce texture detail
 smaller than the submitted geometry.
 
-Static world colors are gamma-converted when material/lightstyle/gamma state
-changes, then submitted directly from their strided cache. Animated models
-reuse sampled skin colors across poses while retaining current transforms,
-lighting, skins and player colors. A bounded cache also reuses indexed
-subdivision operations and model-local normals. Current pose positions are
-still read and transformed each frame; cache exhaustion keeps the original
-recursive drawing path. Both paths assemble larger vertex blocks before
-calling the backend, and a gamma lookup table avoids repeated conversion
-division for each color channel.
+**OPT-1 (vertex packing):** World meshes store contiguous native XGL vertex
+records separately from texture/light metadata. Static geometry is queued
+by reference, avoiding a conversion and copy every frame; cached colors
+change only with material/lightstyle/gamma state. Transformed brush and
+cached alias output is written into the backend's batch storage directly.
+The backend checks its vertex layout against the installed SDK and retains
+the existing triangle order, shading and 256-triangle batching limit.
+
+**OPT-2 (model cache churn):** Animated models reuse sampled skin colors
+while retaining current transforms, lighting, skins and player colors.
+Subdivision commands, parent links and triangle indices are shared between
+poses; smaller pose entries cache model-local normals. Hashes reject
+different command/normal sequences quickly, with exact comparisons before
+reuse. Current pose positions are still transformed each frame. All model
+cache storage remains bounded, with recursive drawing when caching fails.
+
+**OPT-3 (sky/water colors):** Animated meshes sample matching vertices once
+per update and reuse their colors at repeated triangle corners. The sample
+map is built with the mesh and charged to the world cache limit; allocation
+failure retains the original per-corner sampling. Indexed samples use a
+direct palette-to-gamma lookup. Animation is still updated every frame,
+including sky scrolling, camera-relative sky projection and turbulent UVs.
 
 Consecutive opaque UI rectangles are batched without changing their drawing
 order. Native text runs combine only when measured font advances and spacing
@@ -210,7 +232,9 @@ World detail selection includes mesh construction. Ordinary color timing
 includes cache validation and refresh; animated timing covers sky/water color
 updates. Alias cache/transform timing covers cache lookup/build and the cached
 path's live vertex transforms, excluding recursive fallback drawing and final
-color/output assembly. Packing excludes native submission. Native triangle
+color/output assembly. Packing excludes native submission and direct native
+output; gamma preparation for direct alias output remains in the entity or
+weapon stage. A drop in packing time alone is not an FPS gain. Native triangle
 batches can span stage boundaries, so the stage that flushes a batch can
 include submission work queued by an earlier stage.
 
@@ -222,6 +246,14 @@ and normal/topology (reported as pose) cache hits, misses, evictions and fallbac
 draws expose cache pressure without changing cache limits. Compare native
 text calls with emitted glyphs to see how much the installed font permits
 batching.
+
+The reuse line separates sky and water time and compares actual animated
+samples with emitted animated vertices. Native cached vertices are queued
+from persistent meshes; native direct vertices are filled in the backend
+batch; packed vertices use the general conversion path. The alias preparation
+line separates cache work from live transforms and reports shared-topology
+hits/misses and pose evictions caused by entry or byte limits. These counters
+help assess OPT-1 through OPT-3; use the profiling-off timedemo to assess FPS.
 
 ## Development-host checks
 

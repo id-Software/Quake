@@ -30,9 +30,14 @@ XGL_SOURCES = xgl_model.c xgl_mesh.c xgl_texture.c xgl_rmain.c xgl_world.c \
     xgl_effects.c xgl_entities.c xgl_filesystem.c xgl_snd_sun.c xgl_profile.c
 SOURCES = $(COMMON_SOURCES) $(XGL_SOURCES)
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
+DEPS = $(OBJECTS:.o=.d)
+MISSING_DEPS = $(filter-out $(wildcard $(DEPS)),$(DEPS))
+# Host test recipes compile several sources at once and retain their own
+# conservative header prerequisites.
 HEADERS = $(wildcard *.h)
 
-.PHONY: all native sdk-check clean check host-check native-contract-check print-sources
+.DELETE_ON_ERROR:
+.PHONY: all native sdk-check clean check host-check native-contract-check print-sources missing-deps
 all: native
 
 native: sdk-check
@@ -44,9 +49,18 @@ sdk-check:
 	@test -f "$(OPENWINHOME)/include/X11/Xlib.h" || { \
 	    echo "Missing OpenWindows headers; set OPENWINHOME to their installation." >&2; exit 1; }
 
-$(BUILD_DIR)/%.o: %.c $(HEADERS)
+# Older builds have no .d files. Rebuild those objects once to establish
+# complete dependencies, also recovering safely if a .d file is removed.
+ifneq ($(MISSING_DEPS),)
+$(MISSING_DEPS:.d=.o): missing-deps
+endif
+missing-deps:
+
+$(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(BUILD_DIR)
-	$(CC) $(CPPFLAGS) $(XGL_CPPFLAGS) $(CFLAGS) $(LANGFLAGS) $(WARNFLAGS) -c $< -o $@
+	$(CC) $(CPPFLAGS) $(XGL_CPPFLAGS) $(CFLAGS) $(LANGFLAGS) $(WARNFLAGS) \
+	    -MMD -MP -MF $(@:.o=.d.tmp) -MT $@ -c $< -o $@
+	@mv -f $(@:.o=.d.tmp) $(@:.o=.d)
 
 xglquake: $(OBJECTS)
 	$(CC) $(LDFLAGS) $(XGL_LDFLAGS) -o $@ $(OBJECTS) $(XGL_LIBS)
@@ -133,4 +147,8 @@ print-sources:
 	@echo $(SOURCES)
 
 clean:
-	rm -f $(OBJECTS) xglquake
+	rm -f $(OBJECTS) $(DEPS) $(DEPS:.d=.d.tmp) xglquake
+
+# Keep this after the default target; a dependency file must not change it.
+# Read existing files only: missing ones are generated with their objects.
+-include $(wildcard $(DEPS))

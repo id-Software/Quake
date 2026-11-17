@@ -22,6 +22,15 @@ typedef struct {
     float color[3];
 } xgl_vertex_t;
 
+/* Matches XGL's RGB point/color/normal record without requiring the SDK in
+ * CPU-only renderer files. The native backend checks size and field offsets.
+ * XGL's color union includes an unsigned long, including on host-test builds. */
+typedef struct {
+    float position[3];
+    union { float rgb[3]; unsigned long alignment; } color;
+    float normal[3];
+} xgl_native_vertex_t;
+
 extern byte xgl_palette[768];
 extern entity_t r_worldentity, *currententity;
 extern vec3_t modelorg, r_entorigin;
@@ -44,8 +53,19 @@ void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
 void XGL_DrawTrianglesStrided(const xgl_vertex_t *vertices, int count,
                              size_t stride, int lit, float opacity,
                              int zwrite, int prepared_color);
+/* Prepared native colors are already gamma corrected. Borrowed vertices
+ * must remain unchanged until XGL_Flush, which submits volatile XGL data. */
+void XGL_DrawNativeTriangles(const xgl_native_vertex_t *vertices, int count,
+                            int lit, float opacity, int zwrite);
+/* Reserve up to *count vertices (a multiple of three) in the backend batch.
+ * Fill them before any other draw or flush; color preparation is safe.
+ * No separate commit is needed.
+ * Returns NULL and sets *count to zero when no scene is active. */
+xgl_native_vertex_t *XGL_ReserveTriangles(int *count, int lit,
+                                         float opacity, int zwrite);
 unsigned int XGL_ColorRevision(void);
 void XGL_PrepareColor(float rgb[3]);
+void XGL_PreparePaletteColor(int index, float rgb[3]);
 void XGL_Flush(void);
 void XGL_EndScene(void);
 void XGL_EndFrame(void);
@@ -66,6 +86,7 @@ int XGL_LoadTexture(char *identifier, int width, int height, byte *data,
                     qboolean mipmap, qboolean alpha);
 qboolean XGL_SampleTexture(int id, float s, float t, float rgb[3],
                           const byte *translation);
+qboolean XGL_SampleTextureIndex(int id, float s, float t, int *index);
 unsigned int XGL_TextureRevision(int id);
 qboolean XGL_TextureHasAlpha(int id);
 qboolean XGL_SampleTextureFiltered(int id, float s, float t,

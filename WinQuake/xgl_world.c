@@ -18,15 +18,16 @@ static const float xgl_turb_sin[256] = {
 };
 
 typedef struct {
-    xgl_vertex_t draw;
     float st[2];
     byte material[3];
     byte samples[MAXLIGHTMAPS];
 } xgl_cached_vertex_t;
 
 typedef struct {
-    xgl_cached_vertex_t *vertices;
-    int count, texture, style[MAXLIGHTMAPS], fullbright;
+    xgl_native_vertex_t *vertices;
+    xgl_cached_vertex_t *data;
+    unsigned short *sample_vertex;
+    int count, texture, style[MAXLIGHTMAPS], fullbright, queued_frame;
     unsigned int texture_revision, color_revision;
 } xgl_surface_mesh_t;
 
@@ -75,9 +76,12 @@ void XGL_WorldShutdown (void)
 {
     int i;
     if (xgl_surfaces) {
+        XGL_Flush(); /* Native batches may still borrow cached vertex arrays. */
         for (i = 0; i < xgl_surface_count; ++i) {
             free(xgl_surfaces[i].coarse.vertices);
+            free(xgl_surfaces[i].coarse.sample_vertex);
             free(xgl_surfaces[i].detail.vertices);
+            free(xgl_surfaces[i].detail.sample_vertex);
         }
         free(xgl_surfaces);
     }
@@ -160,12 +164,13 @@ texture_t *R_TextureAnimation (texture_t *base)
     return XGL_SurfaceTexture(base, currententity);
 }
 
-static void XGL_InitCachedVertex (xgl_cached_vertex_t *vertex, msurface_t *surface, const float *point)
+static void XGL_InitCachedVertex (xgl_native_vertex_t *draw, xgl_cached_vertex_t *vertex,
+                                  msurface_t *surface, const float *point)
 {
     int i;
-    VectorCopy(point, vertex->draw.position);
+    VectorCopy(point, draw->position);
     for (i = 0; i < 3; ++i)
-        vertex->draw.normal[i] = surface->plane->normal[i] * ((surface->flags & SURF_PLANEBACK) ? -1 : 1);
+        draw->normal[i] = surface->plane->normal[i] * ((surface->flags & SURF_PLANEBACK) ? -1 : 1);
     for (i = 0; i < 2; ++i)
         vertex->st[i] = DotProduct(point, surface->texinfo->vecs[i]) + surface->texinfo->vecs[i][3];
     XGL_SurfaceLightSamples(surface, point, vertex->samples);
@@ -175,7 +180,7 @@ static void XGL_InitCachedVertex (xgl_cached_vertex_t *vertex, msurface_t *surfa
  * rather than world area alone, keeps detail useful on oblique materials. */
 static int XGL_SubdivideTriangle (msurface_t *surface, const float *a, const float *b,
                                  const float *c, int depth, float step,
-                                 xgl_cached_vertex_t *output)
+                                 xgl_native_vertex_t *output, xgl_cached_vertex_t *data)
 {
     vec3_t ab, bc, ca;
     float sa, sb, sc, low, high;
@@ -193,9 +198,9 @@ static int XGL_SubdivideTriangle (msurface_t *surface, const float *a, const flo
     }
     if (!split) {
         if (output) {
-            XGL_InitCachedVertex(output, surface, a);
-            XGL_InitCachedVertex(output + 1, surface, b);
-            XGL_InitCachedVertex(output + 2, surface, c);
+            XGL_InitCachedVertex(output, data, surface, a);
+            XGL_InitCachedVertex(output + 1, data + 1, surface, b);
+            XGL_InitCachedVertex(output + 2, data + 2, surface, c);
         }
         return 3;
     }
@@ -204,11 +209,64 @@ static int XGL_SubdivideTriangle (msurface_t *surface, const float *a, const flo
         bc[axis] = (b[axis] + c[axis]) * .5f;
         ca[axis] = (c[axis] + a[axis]) * .5f;
     }
-    count = XGL_SubdivideTriangle(surface, a, ab, ca, depth - 1, step, output);
-    n = XGL_SubdivideTriangle(surface, ab, b, bc, depth - 1, step, output ? output + count : NULL); count += n;
-    n = XGL_SubdivideTriangle(surface, ca, bc, c, depth - 1, step, output ? output + count : NULL); count += n;
-    n = XGL_SubdivideTriangle(surface, ab, bc, ca, depth - 1, step, output ? output + count : NULL); count += n;
+    count = XGL_SubdivideTriangle(surface, a, ab, ca, depth - 1, step, output, data);
+    n = XGL_SubdivideTriangle(surface, ab, b, bc, depth - 1, step,
+                              output ? output + count : NULL, data ? data + count : NULL);
+    count += n;
+    n = XGL_SubdivideTriangle(surface, ca, bc, c, depth - 1, step,
+                              output ? output + count : NULL, data ? data + count : NULL);
+    count += n;
+    n = XGL_SubdivideTriangle(surface, ab, bc, ca, depth - 1, step,
+                              output ? output + count : NULL, data ? data + count : NULL);
+    count += n;
     return count;
+}
+
+/* Equal positions on one surface have equal UVs. Sort only an index list,
+ * retaining the original triangle order and choosing the earliest corner
+ * as the sample source so its color is ready before any duplicate uses it. */
+static const xgl_native_vertex_t *xgl_sample_vertices;
+
+static int XGL_SampleVertexCompare(const void *left, const void *right)
+{
+    int a, b, order;
+    a = *(const unsigned short *)left;
+    b = *(const unsigned short *)right;
+    order = memcmp(xgl_sample_vertices[a].position,
+                   xgl_sample_vertices[b].position, sizeof(vec3_t));
+    return order ? order : a - b;
+}
+
+static void XGL_BuildSampleMap(xgl_surface_mesh_t *mesh)
+{
+    unsigned short *order;
+    size_t bytes;
+    int i, first, index;
+    if (mesh->count <= 3) return;
+    bytes = (size_t)mesh->count * sizeof(*order);
+    /* Include temporary sorting storage in the same fixed cache budget. */
+    if (bytes * 2 > XGL_WORLD_CACHE_BYTES - xgl_cache_bytes) return;
+    mesh->sample_vertex = (unsigned short *)malloc(bytes);
+    order = (unsigned short *)malloc(bytes);
+    if (!mesh->sample_vertex || !order) {
+        free(mesh->sample_vertex); free(order);
+        mesh->sample_vertex = NULL;
+        return;
+    }
+    xgl_cache_bytes += bytes * 2;
+    for (i = 0; i < mesh->count; ++i) order[i] = (unsigned short)i;
+    xgl_sample_vertices = mesh->vertices;
+    qsort(order, mesh->count, sizeof(*order), XGL_SampleVertexCompare);
+    xgl_sample_vertices = NULL;
+    first = order[0];
+    for (i = 0; i < mesh->count; ++i) {
+        index = order[i];
+        if (memcmp(mesh->vertices[index].position, mesh->vertices[first].position,
+                   sizeof(vec3_t))) first = index;
+        mesh->sample_vertex[index] = (unsigned short)first;
+    }
+    free(order);
+    xgl_cache_bytes -= bytes;
 }
 
 static int XGL_BuildSurfaceMeshData (model_t *model, msurface_t *surface,
@@ -228,24 +286,28 @@ static int XGL_BuildSurfaceMeshData (model_t *model, msurface_t *surface,
         if ((i & 15) == 1) XGL_AudioUpdate();
         XGL_SurfacePoint(model, surface, i, b);
         XGL_SurfacePoint(model, surface, i + 1, c);
-        count += XGL_SubdivideTriangle(surface, a, b, c, depth, step, NULL);
+        count += XGL_SubdivideTriangle(surface, a, b, c, depth, step, NULL, NULL);
         if (count > XGL_SURFACE_DETAIL_VERTS) return 0;
     }
-    bytes = (size_t)count * sizeof(*mesh->vertices);
+    bytes = (size_t)count * (sizeof(*mesh->vertices) + sizeof(*mesh->data));
     if (bytes > XGL_WORLD_CACHE_BYTES - xgl_cache_bytes) return 0;
-    mesh->vertices = (xgl_cached_vertex_t *)malloc(bytes);
+    mesh->vertices = (xgl_native_vertex_t *)malloc(bytes);
     if (!mesh->vertices) return 0;
     xgl_cache_bytes += bytes;
+    mesh->data = (xgl_cached_vertex_t *)(mesh->vertices + count);
     count = 0;
     for (i = 1; i + 1 < surface->numedges; ++i) {
         if ((i & 15) == 1) XGL_AudioUpdate();
         XGL_SurfacePoint(model, surface, i, b);
         XGL_SurfacePoint(model, surface, i + 1, c);
-        count += XGL_SubdivideTriangle(surface, a, b, c, depth, step, mesh->vertices + count);
+        count += XGL_SubdivideTriangle(surface, a, b, c, depth, step,
+                                       mesh->vertices + count, mesh->data + count);
     }
     mesh->count = count;
+    if (surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB)) XGL_BuildSampleMap(mesh);
     mesh->texture = -1;
     mesh->fullbright = -1;
+    mesh->queued_frame = -1;
     for (i = 0; i < MAXLIGHTMAPS; ++i) mesh->style[i] = -1;
     return 1;
 }
@@ -297,6 +359,7 @@ static void XGL_SampleSky (texture_t *texture, const float *position,
         rgb[0] = rgb[1] = rgb[2] = .5f;
         XGL_SampleTexture(texture->gl_texturenum, (s + slow) / 128,
                           (t + slow) / 128, rgb, NULL);
+        XGL_PrepareColor(rgb);
         return;
     }
     pixels = (const byte *)texture + texture->offsets[0];
@@ -308,18 +371,17 @@ static void XGL_SampleSky (texture_t *texture, const float *position,
         y = XGL_RepeatCoordinate((t + slow) / 128, texture->height);
         index = pixels[y * texture->width + half + x];
     }
-    rgb[0] = xgl_palette[index * 3] / 255.0f;
-    rgb[1] = xgl_palette[index * 3 + 1] / 255.0f;
-    rgb[2] = xgl_palette[index * 3 + 2] / 255.0f;
+    XGL_PreparePaletteColor(index, rgb);
 }
 
 static void XGL_UpdateSpecialSurface (xgl_surface_mesh_t *mesh, msurface_t *surface,
                                       texture_t *texture, entity_t *entity)
 {
     xgl_cached_vertex_t *vertex;
+    xgl_native_vertex_t *draw;
     vec3_t forward, right, up, position;
     float os, ot, s, t, phase, slow, fast;
-    int i, transformed, sky;
+    int i, index, transformed, sky, samples;
     sky = (surface->flags & SURF_DRAWSKY) != 0;
     transformed = sky && entity && entity != &r_worldentity;
     if (transformed) XGL_BrushBasis(entity, forward, right, up);
@@ -329,12 +391,20 @@ static void XGL_UpdateSpecialSurface (xgl_surface_mesh_t *mesh, msurface_t *surf
         slow = (float)fmod(realtime * 8, 128);
         fast = (float)fmod(realtime * 16, 128);
     } else phase = (float)fmod(realtime, 2 * M_PI);
-    for (i = 0, vertex = mesh->vertices; i < mesh->count; ++i, ++vertex) {
+    samples = 0;
+    for (i = 0; i < mesh->count; ++i) {
+        draw = mesh->vertices + i;
+        if (mesh->sample_vertex && mesh->sample_vertex[i] != i) {
+            VectorCopy(mesh->vertices[mesh->sample_vertex[i]].color.rgb, draw->color.rgb);
+            continue;
+        }
+        ++samples;
+        vertex = mesh->data + i;
         if (sky) {
             if (transformed)
-                XGL_BrushPoint(vertex->draw.position, entity, forward, right, up, position);
-            else VectorCopy(vertex->draw.position, position);
-            XGL_SampleSky(texture, position, slow, fast, vertex->draw.color);
+                XGL_BrushPoint(draw->position, entity, forward, right, up, position);
+            else VectorCopy(draw->position, position);
+            XGL_SampleSky(texture, position, slow, fast, draw->color.rgb);
         } else {
             /* Original turbulent UVs omit texture-vector translation and
              * repeat every 64 world texture units, just like EmitWaterPolys. */
@@ -342,11 +412,24 @@ static void XGL_UpdateSpecialSurface (xgl_surface_mesh_t *mesh, msurface_t *surf
             ot = vertex->st[1] - surface->texinfo->vecs[1][3];
             s = (os + xgl_turb_sin[(int)((ot * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
             t = (ot + xgl_turb_sin[(int)((os * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
-            vertex->draw.color[0] = vertex->draw.color[1] = vertex->draw.color[2] = .5f;
-            XGL_SampleTexture(texture->gl_texturenum, s, t, vertex->draw.color, NULL);
+            if (XGL_SampleTextureIndex(texture->gl_texturenum, s, t, &index))
+                XGL_PreparePaletteColor(index, draw->color.rgb);
+            else {
+                draw->color.rgb[0] = draw->color.rgb[1] = draw->color.rgb[2] = .5f;
+                XGL_PrepareColor(draw->color.rgb);
+            }
         }
-        XGL_PrepareColor(vertex->draw.color);
     }
+    XGL_ProfileCount(XGL_PROFILE_WORLD_ANIMATED_SAMPLES, (unsigned long)samples);
+}
+
+/* A mesh can be reused by more than one brush entity in the same frame.
+ * Finish any earlier borrowed submission before changing its colors. The
+ * previous frame has already completed, so normal first draws need no flush. */
+static void XGL_SurfaceWillChange(xgl_surface_mesh_t *mesh)
+{
+    if (mesh->queued_frame == r_framecount) XGL_Flush();
+    mesh->queued_frame = -1;
 }
 
 static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface,
@@ -357,11 +440,15 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
     unsigned int texture_revision, color_revision;
     int axis, corner;
     xgl_cached_vertex_t *vertex, *triangle;
+    xgl_native_vertex_t *draw;
     double start;
     if (surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB)) {
+        XGL_SurfaceWillChange(mesh);
         start = XGL_ProfileDetailNow();
         XGL_UpdateSpecialSurface(mesh, surface, texture, entity);
         XGL_ProfileAdd(XGL_PROFILE_WORLD_ANIMATED, start);
+        XGL_ProfileAdd((surface->flags & SURF_DRAWSKY) ?
+                       XGL_PROFILE_WORLD_SKY : XGL_PROFILE_WORLD_WATER, start);
         XGL_ProfileCount(XGL_PROFILE_WORLD_ANIMATED_VERTICES, (unsigned long)mesh->count);
         return;
     }
@@ -382,8 +469,9 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
         XGL_ProfileCount(XGL_PROFILE_WORLD_COLOR_HITS, 1);
         return;
     }
+    XGL_SurfaceWillChange(mesh);
     footprint[0] = footprint[1] = 0;
-    for (i = 0, vertex = mesh->vertices; i < mesh->count; ++i, ++vertex) {
+    for (i = 0, vertex = mesh->data, draw = mesh->vertices; i < mesh->count; ++i, ++vertex, ++draw) {
         if ((i & 255) == 0) XGL_AudioUpdate();
         if (texture_changed) {
             if (i % 3 == 0) {
@@ -404,8 +492,8 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
             for (j = 0; j < 3; ++j) vertex->material[j] = (byte)(rgb[j] * 255 + .5f);
         }
         light = XGL_SurfaceLightScale(surface, vertex->samples);
-        for (j = 0; j < 3; ++j) vertex->draw.color[j] = vertex->material[j] * (light / 255.0f);
-        XGL_PrepareColor(vertex->draw.color);
+        for (j = 0; j < 3; ++j) draw->color.rgb[j] = vertex->material[j] * (light / 255.0f);
+        XGL_PrepareColor(draw->color.rgb);
     }
     mesh->texture_revision = texture_revision;
     mesh->color_revision = color_revision;
@@ -416,31 +504,36 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
     XGL_ProfileCount(XGL_PROFILE_WORLD_COLOR_VERTICES, (unsigned long)mesh->count);
 }
 
-static void XGL_EmitSurfaceVertices (const xgl_cached_vertex_t *source, int count,
-                                    entity_t *entity, int lit, float opacity)
+static void XGL_EmitSurfaceVertices (xgl_surface_mesh_t *mesh,
+                                    entity_t *entity, int lit, float opacity,
+                                    int persistent)
 {
-    xgl_vertex_t vertices[XGL_WORLD_BATCH];
+    const xgl_native_vertex_t *source;
+    xgl_native_vertex_t *vertices;
     vec3_t forward, right, up;
-    int i, j, n, transformed;
+    int i, j, n, transformed, count;
+    source = mesh->vertices; count = mesh->count;
     transformed = entity && entity != &r_worldentity;
-    if (!transformed) {
-        XGL_DrawTrianglesStrided(&source[0].draw, count, sizeof(*source), lit, opacity, opacity >= 1, 1);
+    if (!transformed && persistent) {
+        XGL_DrawNativeTriangles(source, count, lit, opacity, opacity >= 1);
+        mesh->queued_frame = r_framecount;
         c_brush_polys += count / 3;
         return;
     }
-    XGL_BrushBasis(entity, forward, right, up);
+    if (transformed) XGL_BrushBasis(entity, forward, right, up);
     while (count > 0) {
         n = count > XGL_WORLD_BATCH ? XGL_WORLD_BATCH : count;
+        vertices = XGL_ReserveTriangles(&n, lit, opacity, opacity >= 1);
+        if (!vertices) return;
         for (i = 0; i < n; ++i) {
-            vertices[i] = source[i].draw;
+            vertices[i] = source[i];
             if (transformed) {
-                XGL_BrushPoint(source[i].draw.position, entity, forward, right, up, vertices[i].position);
+                XGL_BrushPoint(source[i].position, entity, forward, right, up, vertices[i].position);
                 for (j = 0; j < 3; ++j)
-                    vertices[i].normal[j] = source[i].draw.normal[0] * forward[j] -
-                        source[i].draw.normal[1] * right[j] + source[i].draw.normal[2] * up[j];
+                    vertices[i].normal[j] = source[i].normal[0] * forward[j] -
+                        source[i].normal[1] * right[j] + source[i].normal[2] * up[j];
             }
         }
-        XGL_DrawTrianglesStrided(vertices, n, sizeof(*vertices), lit, opacity, opacity >= 1, 1);
         c_brush_polys += n / 3;
         source += n; count -= n;
     }
@@ -542,7 +635,8 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
     xgl_surface_cache_t *cache;
     xgl_surface_mesh_t *mesh;
     xgl_surface_mesh_t fallback;
-    xgl_cached_vertex_t triangle[3];
+    xgl_native_vertex_t triangle[3];
+    xgl_cached_vertex_t triangle_data[3];
     texture_t *texture;
     vec3_t a, b, c, center, forward, right, up, worldcenter, delta;
     float distance;
@@ -587,7 +681,7 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
         if (mesh->vertices) {
             XGL_ProfileCount(XGL_PROFILE_WORLD_CACHED_SURFACES, 1);
             XGL_UpdateSurfaceMesh(mesh, surface, texture, entity);
-            XGL_EmitSurfaceVertices(mesh->vertices, mesh->count, entity, lit, opacity);
+            XGL_EmitSurfaceVertices(mesh, entity, lit, opacity, 1);
             return;
         }
     }
@@ -597,18 +691,19 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
     XGL_ProfileCount(XGL_PROFILE_WORLD_FALLBACK_SURFACES, 1);
     XGL_SurfacePoint(model, surface, 0, a);
     memset(&fallback, 0, sizeof(fallback));
-    fallback.vertices = triangle; fallback.count = 3;
+    fallback.vertices = triangle; fallback.data = triangle_data; fallback.count = 3;
+    fallback.queued_frame = -1;
     for (i = 1; i + 1 < surface->numedges; ++i) {
         if ((i & 15) == 1) XGL_AudioUpdate();
         XGL_SurfacePoint(model, surface, i, b);
         XGL_SurfacePoint(model, surface, i + 1, c);
-        XGL_InitCachedVertex(triangle, surface, a);
-        XGL_InitCachedVertex(triangle + 1, surface, b);
-        XGL_InitCachedVertex(triangle + 2, surface, c);
+        XGL_InitCachedVertex(triangle, triangle_data, surface, a);
+        XGL_InitCachedVertex(triangle + 1, triangle_data + 1, surface, b);
+        XGL_InitCachedVertex(triangle + 2, triangle_data + 2, surface, c);
         fallback.texture = -1; fallback.fullbright = -1;
         for (axis = 0; axis < MAXLIGHTMAPS; ++axis) fallback.style[axis] = -1;
         XGL_UpdateSurfaceMesh(&fallback, surface, texture, entity);
-        XGL_EmitSurfaceVertices(triangle, 3, entity, lit, opacity);
+        XGL_EmitSurfaceVertices(&fallback, entity, lit, opacity, 0);
     }
 }
 

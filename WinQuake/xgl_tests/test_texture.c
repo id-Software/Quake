@@ -26,10 +26,59 @@ void Sys_Error (char *format, ...)
 static void sample_is (int id, float s, float t, int index, const byte *translation)
 {
     float rgb[3];
-    int channel;
+    int channel, sampled;
+    assert (XGL_SampleTextureIndex (id, s, t, &sampled));
+    assert ((translation ? translation[sampled] : sampled) == index);
     assert (XGL_SampleTexture (id, s, t, rgb, translation));
     for (channel = 0; channel < 3; ++channel)
         assert (fabs(rgb[channel] - xgl_palette[index*3+channel]/255.0) < .000001);
+}
+
+static void test_index_samples(void)
+{
+    byte pixels[6] = {0, 1, 2, 3, 4, 255};
+    byte translation[256];
+    float rgb[3], s, t;
+    int opaque, cutout, x, y, index, expected, i;
+    opaque = XGL_LoadTexture("index-opaque", 3, 2, pixels, false, false);
+    cutout = XGL_LoadTexture("index-cutout", 3, 2, pixels, false, true);
+    for (i = 0; i < 256; ++i) translation[i] = (byte)(255 - i);
+    /* Include exact tile boundaries, negative repetition, and non-power-of-2
+     * dimensions; compare the direct index and both legacy palette paths. */
+    for (y = -4; y <= 4; ++y)
+        for (x = -8; x <= 8; ++x) {
+            s = x / 4.0f; t = y / 4.0f;
+            expected = pixels[((y % 4 + 4) % 4) / 2 * 3 + ((x % 4 + 4) % 4) * 3 / 4];
+            assert(XGL_SampleTextureIndex(opaque, s, t, &index));
+            assert(index == expected);
+            sample_is(opaque, s, t, expected, NULL);
+            sample_is(opaque, s, t, translation[expected], translation);
+            index = -1;
+            if (expected == 255) {
+                assert(!XGL_SampleTextureIndex(cutout, s, t, &index));
+                assert(index == -1);
+                assert(!XGL_SampleTexture(cutout, s, t, rgb, translation));
+            } else {
+                assert(XGL_SampleTextureIndex(cutout, s, t, &index));
+                assert(index == expected);
+            }
+        }
+    index = -1;
+    assert(!XGL_SampleTextureIndex(0, 0, 0, &index));
+    assert(!XGL_SampleTextureIndex(-1, 0, 0, &index));
+    assert(!XGL_SampleTextureIndex(100000, 0, 0, &index));
+    assert(!XGL_SampleTextureIndex(opaque, (float)HUGE_VAL, 0, &index));
+    assert(!XGL_SampleTextureIndex(opaque, 0, -(float)HUGE_VAL, &index));
+    assert(!XGL_SampleTextureIndex(opaque, (float)strtod("nan", NULL), 0, &index));
+    assert(!XGL_SampleTextureIndex(opaque, 0, (float)strtod("nan", NULL), &index));
+    assert(!XGL_SampleTextureIndex(opaque, 1e9f, 0, &index));
+    assert(!XGL_SampleTextureIndex(opaque, 0, -1e9f, &index));
+    assert(!XGL_SampleTextureIndex(opaque, 0, 0, NULL));
+    assert(!XGL_SampleTexture(opaque, 0, 0, NULL, NULL));
+    assert(index == -1);
+    XGL_TextureShutdown();
+    assert(!XGL_SampleTextureIndex(opaque, 0, 0, &index));
+    assert(index == -1);
 }
 
 static void test_filtered_materials(void)
@@ -137,6 +186,7 @@ int main (void)
     XGL_TextureShutdown ();
     assert (!XGL_SampleTexture (alias, 0, 0, rgb, NULL));
 
+    test_index_samples();
     test_filtered_materials();
 
     /* Exact budget exhaustion must fail without evicting live alias IDs. */

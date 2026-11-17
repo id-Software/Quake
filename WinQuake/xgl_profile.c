@@ -129,7 +129,11 @@ void XGL_ProfileEndFrame(void)
             "builds %.1f failed builds %.1f; color reuse %.1f updates %.1f; "
             "vertices built %.1f recolored %.1f animated %.1f\n"
             "  alias cache per frame: color hits %.1f misses %.1f evictions %.1f; "
-            "pose hits %.1f misses %.1f evictions %.1f; fallbacks %.1f; text calls %.1f\n",
+            "pose hits %.1f misses %.1f evictions %.1f; fallbacks %.1f; text calls %.1f\n"
+            "  reuse: sky %.2f water %.2f ms; animated samples/frame %.1f; "
+            "vertices/frame cached native %.1f direct native %.1f packed %.1f\n"
+            "  alias preparation (overlap): cache %.2f transform %.2f ms; "
+            "topology hits %.1f misses %.1f; pose evictions slot %.1f bytes %.1f\n",
             total_sections[XGL_PROFILE_WORLD_VISIBILITY] * scale,
             total_sections[XGL_PROFILE_WORLD_DETAIL_SELECT] * scale,
             total_sections[XGL_PROFILE_WORLD_BUILD] * scale,
@@ -153,7 +157,19 @@ void XGL_ProfileEndFrame(void)
             (double)total_counts[XGL_PROFILE_ALIAS_POSE_MISSES] / total_frames,
             (double)total_counts[XGL_PROFILE_ALIAS_POSE_EVICTIONS] / total_frames,
             (double)total_counts[XGL_PROFILE_ALIAS_FALLBACKS] / total_frames,
-            (double)total_counts[XGL_PROFILE_TEXT_CALLS] / total_frames);
+            (double)total_counts[XGL_PROFILE_TEXT_CALLS] / total_frames,
+            total_sections[XGL_PROFILE_WORLD_SKY] * scale,
+            total_sections[XGL_PROFILE_WORLD_WATER] * scale,
+            (double)total_counts[XGL_PROFILE_WORLD_ANIMATED_SAMPLES] / total_frames,
+            (double)total_counts[XGL_PROFILE_NATIVE_CACHED_VERTICES] / total_frames,
+            (double)total_counts[XGL_PROFILE_NATIVE_DIRECT_VERTICES] / total_frames,
+            (double)total_counts[XGL_PROFILE_VERTEX_PACKED] / total_frames,
+            total_sections[XGL_PROFILE_ALIAS_CACHE] * scale,
+            total_sections[XGL_PROFILE_ALIAS_TRANSFORM] * scale,
+            (double)total_counts[XGL_PROFILE_ALIAS_TOPOLOGY_HITS] / total_frames,
+            (double)total_counts[XGL_PROFILE_ALIAS_TOPOLOGY_MISSES] / total_frames,
+            (double)total_counts[XGL_PROFILE_ALIAS_POSE_SLOT_EVICTIONS] / total_frames,
+            (double)total_counts[XGL_PROFILE_ALIAS_POSE_BYTE_EVICTIONS] / total_frames);
     }
     XGL_ProfileReset();
     report_start = now;
