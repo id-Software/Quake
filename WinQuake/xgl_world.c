@@ -12,7 +12,6 @@
 #define XGL_WATER_QUEUE 4096
 #define XGL_WORLD_BATCH 384
 #define XGL_TURB_SCALE (256.0 / (2 * M_PI))
-#define XGL_SURFACE_MAX_CORNERS 512
 
 static const float xgl_turb_sin[256] = {
 #include "gl_warp_sin.h"
@@ -46,17 +45,6 @@ typedef struct {
     entity_t *entity;
     float distance;
 } xgl_water_surface_t;
-
-/* Reused while building or streaming one face. Reserving this fixed workspace
- * inside the world budget keeps the allocation-failure path able to preserve
- * BSP boundary vertices without allocating during a draw. Larger/malformed
- * faces still have the original complete fan fallback. */
-typedef struct {
-    vec3_t points[XGL_SURFACE_MAX_CORNERS];
-    unsigned short triangles[(XGL_SURFACE_MAX_CORNERS - 2) * 3];
-    unsigned short boundary[XGL_SURFACE_MAX_CORNERS];
-} xgl_surface_workspace_t;
-static xgl_surface_workspace_t xgl_surface_work;
 
 static xgl_surface_cache_t *xgl_surfaces;
 static model_t *xgl_cached_world;
@@ -116,17 +104,16 @@ void XGL_WorldNewMap (void)
     xgl_cached_world = cl.worldmodel;
     xgl_cache_step = xgl_subdivide.value;
     if (!xgl_cached_world || xgl_cached_world->numsurfaces <= 0) return;
-    xgl_cache_bytes = sizeof(xgl_surface_work);
-    if ((size_t)xgl_cached_world->numsurfaces > (XGL_WORLD_CACHE_BYTES - xgl_cache_bytes) /
+    if ((size_t)xgl_cached_world->numsurfaces > XGL_WORLD_CACHE_BYTES /
         (sizeof(*xgl_surfaces) + 2 * sizeof(int))) return;
     bytes = (size_t)xgl_cached_world->numsurfaces * (sizeof(*xgl_surfaces) + 2 * sizeof(int));
-    if (bytes <= XGL_WORLD_CACHE_BYTES - xgl_cache_bytes) {
+    if (bytes <= XGL_WORLD_CACHE_BYTES) {
         xgl_surfaces = (xgl_surface_cache_t *)calloc((size_t)xgl_cached_world->numsurfaces, sizeof(*xgl_surfaces));
         xgl_world_order = (int *)malloc((size_t)xgl_cached_world->numsurfaces * 2 * sizeof(int));
         if (xgl_surfaces && xgl_world_order) {
             xgl_detail_order = xgl_world_order + xgl_cached_world->numsurfaces;
             xgl_surface_count = xgl_cached_world->numsurfaces;
-            xgl_cache_bytes += bytes;
+            xgl_cache_bytes = bytes;
         } else {
             free(xgl_surfaces); free(xgl_world_order);
             xgl_surfaces = NULL; xgl_world_order = NULL;
@@ -140,129 +127,6 @@ static void XGL_SurfacePoint (model_t *model, msurface_t *surface, int index, ve
     int edge;
     edge = model->surfedges[surface->firstedge + index];
     VectorCopy(model->vertexes[model->edges[edge >= 0 ? edge : -edge].v[edge < 0]].position, point);
-}
-
-static double XGL_SurfaceCornerArea(int a, int b, int c, int u, int v)
-{
-    const float *pa, *pb, *pc;
-    pa = xgl_surface_work.points[a]; pb = xgl_surface_work.points[b];
-    pc = xgl_surface_work.points[c];
-    return ((double)pb[u] - pa[u]) * ((double)pc[v] - pa[v]) -
-           ((double)pb[v] - pa[v]) * ((double)pc[u] - pa[u]);
-}
-
-static int XGL_SurfaceDiagonalBlocked(int a, int b, int count, int u, int v)
-{
-    const float *pa, *pb, *point;
-    double dx, dy, px, py, cross, along, length_squared;
-    int i, index;
-    pa = xgl_surface_work.points[a]; pb = xgl_surface_work.points[b];
-    dx = (double)pb[u] - pa[u]; dy = (double)pb[v] - pa[v];
-    length_squared = dx * dx + dy * dy;
-    if (length_squared <= .00000001) return 1;
-    for (i = 0; i < count; ++i) {
-        index = xgl_surface_work.boundary[i];
-        if (index == a || index == b) continue;
-        point = xgl_surface_work.points[index];
-        px = (double)point[u] - pa[u]; py = (double)point[v] - pa[v];
-        along = px * dx + py * dy;
-        if (along <= 0 || along >= length_squared) continue;
-        cross = px * dy - py * dx;
-        if (cross * cross <= .00000001 * length_squared) return 1;
-    }
-    return 0;
-}
-
-static void XGL_SurfaceFan(int count)
-{
-    int i;
-    for (i = 0; i < count - 2; ++i) {
-        xgl_surface_work.triangles[i * 3] = 0;
-        xgl_surface_work.triangles[i * 3 + 1] = (unsigned short)(i + 1);
-        xgl_surface_work.triangles[i * 3 + 2] = (unsigned short)(i + 2);
-    }
-}
-
-/* BSP faces are convex, but their boundary may contain collinear vertices
- * inserted to fix T-junctions. A fan rooted on that line can skip them through
- * zero-area triangles. Keep valid fans unchanged; otherwise clip nonzero ears
- * whose diagonal does not bypass another retained boundary vertex. */
-static int XGL_BuildSurfaceTriangles(model_t *model, msurface_t *surface)
-{
-    double area, turn, sign;
-    int count, i, j, axis, u, v, remaining, emitted, previous, current, next, ear;
-    count = surface->numedges;
-    if (count < 3 || count > XGL_SURFACE_MAX_CORNERS) return 0;
-    for (i = 0; i < count; ++i) {
-        if ((i & 63) == 0) XGL_AudioUpdate();
-        XGL_SurfacePoint(model, surface, i, xgl_surface_work.points[i]);
-        xgl_surface_work.boundary[i] = (unsigned short)i;
-    }
-    XGL_SurfaceFan(count);
-    if (surface->flags & SURF_DRAWSKY) return 1;
-    axis = 0;
-    for (i = 1; i < 3; ++i)
-        if (fabs(surface->plane->normal[i]) > fabs(surface->plane->normal[axis])) axis = i;
-    u = (axis + 1) % 3; v = (axis + 2) % 3;
-    area = 0;
-    for (i = 1; i + 1 < count; ++i) area += XGL_SurfaceCornerArea(0, i, i + 1, u, v);
-    if (fabs(area) <= .00000001) return 1;
-    sign = area < 0 ? -1 : 1;
-    /* Do not reinterpret malformed/non-convex input as a valid convex face. */
-    for (i = 0; i < count; ++i) {
-        turn = XGL_SurfaceCornerArea((i + count - 1) % count, i, (i + 1) % count, u, v);
-        if (turn * sign < -.00000001) return 1;
-    }
-    for (i = 1; i + 1 < count; ++i) {
-        if ((i & 31) == 1) XGL_AudioUpdate();
-        if (XGL_SurfaceCornerArea(0, i, i + 1, u, v) * sign <= .00000001 ||
-            (i > 1 && XGL_SurfaceDiagonalBlocked(0, i, count, u, v))) break;
-    }
-    if (i + 1 == count) return 1;
-    remaining = count; emitted = 0;
-    while (remaining > 3) {
-        if ((remaining & 15) == 0) XGL_AudioUpdate();
-        ear = -1;
-        /* Vertex one retains the original fan order whenever that ear works. */
-        for (j = 0; j < remaining; ++j) {
-            i = (j + 1) % remaining;
-            previous = xgl_surface_work.boundary[(i + remaining - 1) % remaining];
-            current = xgl_surface_work.boundary[i];
-            next = xgl_surface_work.boundary[(i + 1) % remaining];
-            if (XGL_SurfaceCornerArea(previous, current, next, u, v) * sign <= .00000001 ||
-                XGL_SurfaceDiagonalBlocked(previous, next, remaining, u, v)) continue;
-            ear = i;
-            xgl_surface_work.triangles[emitted++] = (unsigned short)previous;
-            xgl_surface_work.triangles[emitted++] = (unsigned short)current;
-            xgl_surface_work.triangles[emitted++] = (unsigned short)next;
-            break;
-        }
-        if (ear < 0) { XGL_SurfaceFan(count); return 1; }
-        --remaining;
-        for (i = ear; i < remaining; ++i)
-            xgl_surface_work.boundary[i] = xgl_surface_work.boundary[i + 1];
-    }
-    if (XGL_SurfaceCornerArea(xgl_surface_work.boundary[0], xgl_surface_work.boundary[1],
-                             xgl_surface_work.boundary[2], u, v) * sign <= .00000001) {
-        XGL_SurfaceFan(count);
-        return 1;
-    }
-    for (i = 0; i < 3; ++i) xgl_surface_work.triangles[emitted++] = xgl_surface_work.boundary[i];
-    return 1;
-}
-
-static void XGL_SurfaceTrianglePoints(model_t *model, msurface_t *surface,
-                                     int index, int prepared, vec3_t a, vec3_t b, vec3_t c)
-{
-    if (prepared) {
-        VectorCopy(xgl_surface_work.points[xgl_surface_work.triangles[index * 3]], a);
-        VectorCopy(xgl_surface_work.points[xgl_surface_work.triangles[index * 3 + 1]], b);
-        VectorCopy(xgl_surface_work.points[xgl_surface_work.triangles[index * 3 + 2]], c);
-    } else {
-        XGL_SurfacePoint(model, surface, 0, a);
-        XGL_SurfacePoint(model, surface, index + 1, b);
-        XGL_SurfacePoint(model, surface, index + 2, c);
-    }
 }
 
 static void XGL_BrushBasis (entity_t *entity, vec3_t forward, vec3_t right, vec3_t up)
@@ -358,57 +222,6 @@ static int XGL_SubdivideTriangle (msurface_t *surface, const float *a, const flo
     return count;
 }
 
-/* Splitting only triangle interiors leaves every pre-existing edge intact.
- * Thus independently refined adjacent triangles retain the same endpoints,
- * including across coarse/detail faces and after native projection/clipping.
- * Select a level once from the original texture span; a centroid child keeps
- * its parent's long boundary edge, so repeating the span test would overrefine. */
-static int XGL_CentroidTriangle(msurface_t *surface, const float *a, const float *b,
-                               const float *c, int depth,
-                               xgl_native_vertex_t *output, xgl_cached_vertex_t *data)
-{
-    vec3_t center;
-    int i, count, n;
-    if (!depth) {
-        if (output) {
-            XGL_InitCachedVertex(output, data, surface, a);
-            XGL_InitCachedVertex(output + 1, data + 1, surface, b);
-            XGL_InitCachedVertex(output + 2, data + 2, surface, c);
-        }
-        return 3;
-    }
-    for (i = 0; i < 3; ++i) center[i] = (a[i] + b[i] + c[i]) / 3;
-    count = XGL_CentroidTriangle(surface, a, b, center, depth - 1, output, data);
-    n = XGL_CentroidTriangle(surface, b, c, center, depth - 1,
-                              output ? output + count : NULL, data ? data + count : NULL);
-    count += n;
-    n = XGL_CentroidTriangle(surface, c, a, center, depth - 1,
-                              output ? output + count : NULL, data ? data + count : NULL);
-    return count + n;
-}
-
-static int XGL_SurfaceTriangle(msurface_t *surface, const float *a, const float *b,
-                              const float *c, int depth, float step,
-                              xgl_native_vertex_t *output, xgl_cached_vertex_t *data)
-{
-    float sa, sb, sc, low, high, span;
-    int axis, level;
-    if (surface->flags & SURF_DRAWSKY)
-        return XGL_SubdivideTriangle(surface, a, b, c, depth, step, output, data);
-    span = 0;
-    for (axis = 0; axis < 2; ++axis) {
-        sa = DotProduct(a, surface->texinfo->vecs[axis]);
-        sb = DotProduct(b, surface->texinfo->vecs[axis]);
-        sc = DotProduct(c, surface->texinfo->vecs[axis]);
-        low = sa < sb ? sa : sb; if (sc < low) low = sc;
-        high = sa > sb ? sa : sb; if (sc > high) high = sc;
-        if (high - low > span) span = high - low;
-    }
-    level = 0;
-    while (level < depth && span > step) { span *= .5f; ++level; }
-    return XGL_CentroidTriangle(surface, a, b, c, level, output, data);
-}
-
 /* Equal positions on one surface have equal UVs. Sort only an index list,
  * retaining the original triangle order and choosing the earliest corner
  * as the sample source so its color is ready before any duplicate uses it. */
@@ -460,19 +273,20 @@ static int XGL_BuildSurfaceMeshData (model_t *model, msurface_t *surface,
                                 xgl_surface_mesh_t *mesh, int depth)
 {
     vec3_t a, b, c;
-    int i, count, prepared;
+    int i, count;
     size_t bytes;
     float step;
     if (surface->numedges < 3) return 0;
     step = xgl_subdivide.value;
     if (step < 8) step = 8;
     if (step > 256) step = 256;
-    prepared = XGL_BuildSurfaceTriangles(model, surface);
+    XGL_SurfacePoint(model, surface, 0, a);
     count = 0;
-    for (i = 0; i < surface->numedges - 2; ++i) {
-        if ((i & 15) == 0) XGL_AudioUpdate();
-        XGL_SurfaceTrianglePoints(model, surface, i, prepared, a, b, c);
-        count += XGL_SurfaceTriangle(surface, a, b, c, depth, step, NULL, NULL);
+    for (i = 1; i + 1 < surface->numedges; ++i) {
+        if ((i & 15) == 1) XGL_AudioUpdate();
+        XGL_SurfacePoint(model, surface, i, b);
+        XGL_SurfacePoint(model, surface, i + 1, c);
+        count += XGL_SubdivideTriangle(surface, a, b, c, depth, step, NULL, NULL);
         if (count > XGL_SURFACE_DETAIL_VERTS) return 0;
     }
     bytes = (size_t)count * (sizeof(*mesh->vertices) + sizeof(*mesh->data));
@@ -482,11 +296,12 @@ static int XGL_BuildSurfaceMeshData (model_t *model, msurface_t *surface,
     xgl_cache_bytes += bytes;
     mesh->data = (xgl_cached_vertex_t *)(mesh->vertices + count);
     count = 0;
-    for (i = 0; i < surface->numedges - 2; ++i) {
-        if ((i & 15) == 0) XGL_AudioUpdate();
-        XGL_SurfaceTrianglePoints(model, surface, i, prepared, a, b, c);
-        count += XGL_SurfaceTriangle(surface, a, b, c, depth, step,
-                                     mesh->vertices + count, mesh->data + count);
+    for (i = 1; i + 1 < surface->numedges; ++i) {
+        if ((i & 15) == 1) XGL_AudioUpdate();
+        XGL_SurfacePoint(model, surface, i, b);
+        XGL_SurfacePoint(model, surface, i + 1, c);
+        count += XGL_SubdivideTriangle(surface, a, b, c, depth, step,
+                                       mesh->vertices + count, mesh->data + count);
     }
     mesh->count = count;
     if (surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB)) XGL_BuildSampleMap(mesh);
@@ -621,9 +436,10 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
                                    texture_t *texture, entity_t *entity)
 {
     int i, j, changed, fullbright, texture_changed;
-    float rgb[3], light, footprint[2], step;
+    float rgb[3], light, footprint[2], low, high, value;
     unsigned int texture_revision, color_revision;
-    xgl_cached_vertex_t *vertex;
+    int axis, corner;
+    xgl_cached_vertex_t *vertex, *triangle;
     xgl_native_vertex_t *draw;
     double start;
     if (surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB)) {
@@ -654,20 +470,22 @@ static void XGL_UpdateSurfaceMesh (xgl_surface_mesh_t *mesh, msurface_t *surface
         return;
     }
     XGL_SurfaceWillChange(mesh);
-    /* One texture-space footprint makes matching material/UV corners agree
-     * across faces and coarse/detail meshes. Per-triangle spans gave the
-     * same corner different colors when neighboring triangles differed in
-     * size. Surface lightmaps and normals retain their own boundaries. */
-    if (texture_changed) {
-        step = xgl_subdivide.value;
-        if (step < 8) step = 8;
-        if (step > 256) step = 256;
-        footprint[0] = step / (3 * (float)texture->width);
-        footprint[1] = step / (3 * (float)texture->height);
-    }
+    footprint[0] = footprint[1] = 0;
     for (i = 0, vertex = mesh->data, draw = mesh->vertices; i < mesh->count; ++i, ++vertex, ++draw) {
         if ((i & 255) == 0) XGL_AudioUpdate();
         if (texture_changed) {
+            if (i % 3 == 0) {
+                triangle = vertex;
+                for (axis = 0; axis < 2; ++axis) {
+                    low = high = triangle[0].st[axis];
+                    for (corner = 1; corner < 3; ++corner) {
+                        value = triangle[corner].st[axis];
+                        if (value < low) low = value;
+                        if (value > high) high = value;
+                    }
+                    footprint[axis] = (high - low) / (3 * (float)(axis ? texture->height : texture->width));
+                }
+            }
             rgb[0] = rgb[1] = rgb[2] = .5f;
             XGL_SampleTextureFiltered(texture->gl_texturenum, vertex->st[0] / texture->width,
                               vertex->st[1] / texture->height, footprint[0], footprint[1], rgb, NULL);
@@ -822,7 +640,7 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
     texture_t *texture;
     vec3_t a, b, c, center, forward, right, up, worldcenter, delta;
     float distance;
-    int index, i, axis, lit, detail, prepared;
+    int index, i, axis, lit, detail;
     texture = XGL_SurfaceTexture(surface->texinfo->texture, entity);
     if (!texture || !texture->width || !texture->height) return;
     lit = !r_fullbright.value && !(surface->flags & (SURF_DRAWSKY | SURF_DRAWTURB));
@@ -867,17 +685,18 @@ static void XGL_DrawSurface (model_t *model, msurface_t *surface, entity_t *enti
             return;
         }
     }
-    /* Allocation/budget exhaustion never discards a face. Stream its complete
-     * coarse triangulation without allocation, even for external bmodels. */
+    /* Allocation/budget exhaustion never discards a face. Stream its whole
+     * coarse fan without persistent allocation, even for external bmodels. */
     if (surface->numedges < 3) return;
     XGL_ProfileCount(XGL_PROFILE_WORLD_FALLBACK_SURFACES, 1);
-    prepared = XGL_BuildSurfaceTriangles(model, surface);
+    XGL_SurfacePoint(model, surface, 0, a);
     memset(&fallback, 0, sizeof(fallback));
     fallback.vertices = triangle; fallback.data = triangle_data; fallback.count = 3;
     fallback.queued_frame = -1;
-    for (i = 0; i < surface->numedges - 2; ++i) {
-        if ((i & 15) == 0) XGL_AudioUpdate();
-        XGL_SurfaceTrianglePoints(model, surface, i, prepared, a, b, c);
+    for (i = 1; i + 1 < surface->numedges; ++i) {
+        if ((i & 15) == 1) XGL_AudioUpdate();
+        XGL_SurfacePoint(model, surface, i, b);
+        XGL_SurfacePoint(model, surface, i + 1, c);
         XGL_InitCachedVertex(triangle, triangle_data, surface, a);
         XGL_InitCachedVertex(triangle + 1, triangle_data + 1, surface, b);
         XGL_InitCachedVertex(triangle + 2, triangle_data + 2, surface, c);
