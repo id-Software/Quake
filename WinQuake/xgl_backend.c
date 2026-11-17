@@ -54,7 +54,7 @@ typedef struct {
     Xgl_color_facet ui_colors[XGL_UI_QUADS];
     Xgl_facet_list ui_facets[XGL_UI_QUADS];
     char glyphs[95][2];
-    int width, height, frame, scene_active, ui_active, overlay_3d;
+    int width, height, frame, scene_active, ui_active, overlay_3d, console_lines;
     int count, lit, zwrite, applied_lit, applied_zwrite;
     int errors, fatal, font_next, ui_glyph_count, ui_quad_count, ui_text_used;
     int scene_pending, ui_pending, ui_quad_first, text_color_valid;
@@ -474,6 +474,7 @@ void XGL_BeginFrame(void)
     update_gamma();
     XGL_Flush(); XGL_UIFlush(); complete_scene();
     xb.frame = 1; xb.scene_active = 0; xb.ui_active = 0; xb.overlay_3d = 0;
+    xb.console_lines = 0;
     set_transparency(1, 1);
     xb.stage = "frame clear state";
     xgl_object_set(xb.scene,
@@ -488,15 +489,23 @@ void XGL_BeginFrame(void)
     native_check();
 }
 
+void XGL_SetConsoleClip(int lines)
+{
+    if (lines < 0) lines = 0;
+    if ((unsigned int)lines > vid.height) lines = (int)vid.height;
+    xb.console_lines = lines;
+}
+
 void XGL_BeginScene(void)
 {
     Xgl_matrix_f3d matrix;
     Xgl_bounds_d3d bounds, window;
-    double sx, sy, left, top, span_x, span_y;
+    double sx, sy, left, top, span_x, span_y, console_edge;
     double near_clip, far_clip, a, offset, tx, ty;
     int i;
     if (!xb.frame) return;
     XGL_UIFlush(); XGL_Flush();
+    xb.scene_active = xb.ui_active = xb.overlay_3d = 0;
     memset(&bounds, 0, sizeof(bounds));
     bounds.xmin = bounds.ymin = -1; bounds.xmax = bounds.ymax = 1; bounds.zmax = 1;
     sx = (double)xb.width / vid.width; sy = (double)xb.height / vid.height;
@@ -513,6 +522,14 @@ void XGL_BeginScene(void)
     window.xmax = window.xmin + 2 * (xb.width - 1) / span_x;
     window.ymin = -1 - 2 * top / span_y;
     window.ymax = window.ymin + 2 * (xb.height - 1) / span_y;
+    /* Keep the complete view's camera and mapping. Only move the existing
+     * upper clip plane, leaving one device pixel under the opaque panel so
+     * raster edge rounding cannot expose a seam. Empty bounds are invalid:
+     * a completely covered view instead leaves 3D submission disabled. */
+    console_edge = xb.console_lines * sy - 1;
+    if (console_edge >= top + span_y) return;
+    if (console_edge > top)
+        bounds.ymin = -1 + 2 * (console_edge - top) / span_y;
     xb.stage = "scene mapping";
     xgl_object_set(xb.scene,
         XGL_CTX_VDC_MAP, XGL_VDC_MAP_ALL,

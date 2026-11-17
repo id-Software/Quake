@@ -77,7 +77,7 @@ check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
        $(TEST_BUILD_DIR)/test_world $(TEST_BUILD_DIR)/test_input \
        $(TEST_BUILD_DIR)/test_filesystem $(TEST_BUILD_DIR)/test_audio \
        $(TEST_BUILD_DIR)/test_profile $(TEST_BUILD_DIR)/test_effects \
-       $(TEST_BUILD_DIR)/test_alias_colors
+       $(TEST_BUILD_DIR)/test_alias_colors $(TEST_BUILD_DIR)/test_screen
 	./$(TEST_BUILD_DIR)/test_texture
 	./$(TEST_BUILD_DIR)/test_mesh
 	./$(TEST_BUILD_DIR)/test_draw
@@ -89,6 +89,12 @@ check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
 	./$(TEST_BUILD_DIR)/test_profile
 	./$(TEST_BUILD_DIR)/test_effects
 	./$(TEST_BUILD_DIR)/test_alias_colors
+	./$(TEST_BUILD_DIR)/test_screen
+
+$(TEST_BUILD_DIR)/test_screen: xgl_tests/test_screen.c xgl_screen.c $(HEADERS)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -DXGLQUAKE -I. -ffunction-sections -fdata-sections \
+	    -o $@ xgl_tests/test_screen.c -Wl,--gc-sections -lm
 
 $(TEST_BUILD_DIR)/test_alias_colors: xgl_tests/test_alias_colors.c xgl_entities.c xgl_texture.c mathlib.c $(HEADERS)
 	@mkdir -p $(TEST_BUILD_DIR)

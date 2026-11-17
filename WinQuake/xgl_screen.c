@@ -819,6 +819,17 @@ void SCR_TileClear (void)
 	}
 }
 
+/* Only clip for a console background drawn by the UI branch below.
+ * Closing animation still covers the view after leaving key_console. */
+static int XGL_ConsoleClipLines(void)
+{
+    if (scr_drawdialog || scr_drawloading ||
+        (key_dest == key_game &&
+         (cl.intermission == 1 || cl.intermission == 2)))
+        return 0;
+    return (int)scr_con_current;
+}
+
 /*
 ==================
 SCR_UpdateScreen
@@ -882,6 +893,7 @@ void SCR_UpdateScreen (void)
 // do 3D refresh drawing, and then update the screen
 //
 	SCR_SetUpToDrawConsole ();
+	XGL_SetConsoleClip (XGL_ConsoleClipLines ());
 
 	V_RenderView ();
 

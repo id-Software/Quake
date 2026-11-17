@@ -479,6 +479,152 @@ static void test_camera(void)
     check_camera_rectangle(42.5, 32.5, 734, 534);
 }
 
+static void project_device_row(double y, float distance, double clip[4])
+{
+    double sy, top, span, normalized, ty;
+    sy = (double)xb.height / vid.height;
+    top = r_refdef.vrect.y * sy;
+    span = r_refdef.vrect.height * sy - 1;
+    normalized = -1 + 2 * (y - top) / span;
+    ty = 1.0 / tan(r_refdef.fov_y * M_PI / 360.0);
+    project(distance, 0, (float)(-distance * normalized / ty), clip);
+}
+
+static void check_console_clip_rows(const int *lines, int count)
+{
+    Xgl_matrix_f3d original_view;
+    Xgl_bounds_d3d original_window;
+    double sy, top, span, edge, expected, above[4], below[4], crossing[4];
+    double fa, fb, fraction;
+    int i, j, waits, polygons;
+    XGL_SetConsoleClip(0); XGL_BeginScene();
+    memcpy(original_view, view_matrix, sizeof(original_view));
+    original_window = current_window;
+    sy = (double)xb.height / vid.height;
+    top = r_refdef.vrect.y * sy;
+    span = r_refdef.vrect.height * sy - 1;
+    waits = flush_calls; polygons = polygon_calls;
+    for (i = 0; i < count; ++i) {
+        XGL_SetConsoleClip(lines[i]); XGL_BeginScene();
+        assert(xb.scene_active);
+        assert(!memcmp(original_view, view_matrix, sizeof(original_view)));
+        assert(!memcmp(&original_window, &current_window, sizeof(original_window)));
+        assert(current_clip.xmin == -1 && current_clip.xmax == 1);
+        assert(current_clip.ymax == 1 && current_clip.zmin == 0 && current_clip.zmax == 1);
+        edge = lines[i] * sy - 1;
+        if (edge < top) edge = top;
+        expected = -1 + 2 * (edge - top) / span;
+        assert(fabs(current_clip.ymin - expected) < .0000001);
+        project_device_row(edge - .25, 100, above);
+        project_device_row(edge + .25, 200, below);
+        /* Check the actual homogeneous half-space, at unequal depths. */
+        fa = above[1] - current_clip.ymin * above[3];
+        fb = below[1] - current_clip.ymin * below[3];
+        assert(fa < 0 && fb > 0);
+        fraction = fa / (fa - fb);
+        for (j = 0; j < 4; ++j) crossing[j] = above[j] + fraction * (below[j] - above[j]);
+        assert(fabs(crossing[1] - current_clip.ymin * crossing[3]) < .000001);
+        check_device_position(crossing,
+            r_refdef.vrect.x * (double)xb.width / vid.width +
+            (r_refdef.vrect.width * (double)xb.width / vid.width - 1) * .5, edge);
+        /* Below-console content stays at its original screen coordinates. */
+        project_device_row(top + span * .9, 100, below);
+        check_device_position(below,
+            r_refdef.vrect.x * (double)xb.width / vid.width +
+            (r_refdef.vrect.width * (double)xb.width / vid.width - 1) * .5,
+            top + span * .9);
+    }
+    assert(flush_calls == waits && polygon_calls == polygons);
+}
+
+static void test_console_clip_projection(void)
+{
+    static const int ordinary[] = {0, 1, 29, 30, 31, 32, 120, 240, 429, 240, 31, 0};
+    static const int scaled[] = {0, 12, 13, 14, 24, 120, 213, 14, 0};
+    static const int full_view[] = {0, 1, 120, 239, 240, 479, 240, 0};
+    int waits;
+    reset_backend();
+    check_console_clip_rows(ordinary, sizeof(ordinary) / sizeof(ordinary[0]));
+    XGL_SetConsoleClip(-10);
+    assert(xb.console_lines == 0);
+    XGL_SetConsoleClip(10000);
+    assert(xb.console_lines == (int)vid.height);
+    XGL_BeginFrame();
+    assert(!xb.console_lines);
+    waits = flush_calls;
+    XGL_BeginScene();
+    assert(xb.scene_active && current_clip.ymin == -1 && flush_calls == waits);
+    XGLB_Resize(800, 600);
+    vid.width = 320; vid.height = 240;
+    r_refdef.vrect.x = 17; r_refdef.vrect.y = 13;
+    r_refdef.vrect.width = 277; r_refdef.vrect.height = 201;
+    r_refdef.fov_x = 100; r_refdef.fov_y = 70;
+    check_console_clip_rows(scaled, sizeof(scaled) / sizeof(scaled[0]));
+    reset_backend();
+    r_refdef.vrect.x = r_refdef.vrect.y = 0;
+    r_refdef.vrect.width = 640; r_refdef.vrect.height = 480;
+    check_console_clip_rows(full_view, sizeof(full_view) / sizeof(full_view[0]));
+}
+
+static void test_console_clip_full_cover(void)
+{
+    xgl_vertex_t raw[3];
+    xgl_native_vertex_t native[3];
+    Xgl_matrix_f3d original_view;
+    Xgl_bounds_d3d original_window, original_clip;
+    int count, clears, polygons, waits;
+    reset_backend();
+    XGL_BeginFrame(); XGL_BeginScene();
+    memcpy(original_view, view_matrix, sizeof(original_view));
+    original_window = current_window; original_clip = current_clip;
+    memset(raw, 0, sizeof(raw)); memset(native, 0, sizeof(native));
+    /* A console need cover only the reduced game rectangle, not the status
+     * bar, to suppress its geometry. Existing queued draws still flush. */
+    XGL_DrawTriangles(raw, 3, 1, 1, 1);
+    XGL_SetConsoleClip(430); XGL_BeginScene();
+    assert(!xb.scene_active && !xb.ui_active && !xb.overlay_3d && !xb.count);
+    assert(polygon_calls == 1 && submitted_count == 3);
+    assert(!memcmp(original_view, view_matrix, sizeof(original_view)));
+    assert(!memcmp(&original_window, &current_window, sizeof(original_window)));
+    assert(!memcmp(&original_clip, &current_clip, sizeof(original_clip)));
+    clears = clear_calls; polygons = polygon_calls; waits = flush_calls;
+    XGL_DrawTriangles(raw, 3, 1, 1, 1);
+    XGL_DrawTrianglesStrided(raw, 3, sizeof(raw[0]), 1, 1, 1, 1);
+    XGL_DrawNativeTriangles(native, 3, 1, 1, 1);
+    count = 3;
+    assert(!XGL_ReserveTriangles(&count, 1, 1, 1) && count == 0);
+    XGL_SetViewModel(1); XGL_SetViewModel(0); XGL_Flush();
+    assert(clear_calls == clears && polygon_calls == polygons && flush_calls == waits);
+    assert(!xb.count && !profile_sections[XGL_PROFILE_WEAPON_CLEAR]);
+    XGL_EndScene();
+    assert(flush_calls == waits + 1); /* Existing scene/UI completion. */
+    XGL_UIFill(0, 0, 640, 430, 1, 1);
+    XGL_UIText(8, 8, "Console", 1, 8, 8);
+    assert(text_calls == 1 && glyph_count == 7 && xb.ui_active);
+    XGL_EndFrame();
+    assert(swap_calls == 1 && !xb.frame && !xb.scene_active && !xb.ui_active);
+
+    /* BeginFrame drops the old clip; closing the console restores drawing
+     * and the weapon clear without needing another explicit clip setter. */
+    XGL_BeginFrame(); XGL_BeginScene();
+    assert(xb.scene_active && !xb.console_lines && current_clip.ymin == -1);
+    XGL_DrawTriangles(raw, 3, 2, 1, 1); XGL_Flush();
+    assert(submitted_count == 6);
+    XGL_SetViewModel(1);
+    assert(clear_calls == clears + 2);
+    /* Repeated scene entry after UI also clears the UI state on full cover. */
+    XGL_UIText(8, 8, "H", 1, 8, 8);
+    assert(xb.ui_active);
+    XGL_SetConsoleClip(vid.height); XGL_BeginScene();
+    assert(!xb.scene_active && !xb.ui_active && !xb.overlay_3d);
+    XGL_UIText(8, 8, "H", 1, 8, 8);
+    assert(xb.ui_active);
+    XGL_SetConsoleClip(0); XGL_BeginScene();
+    assert(xb.scene_active && !xb.ui_active && current_clip.ymin == -1);
+    XGL_EndFrame();
+    assert(swap_calls == 2);
+}
+
 static void test_first_console_frame(void)
 {
     float color[3] = {.15f, .1f, .05f};
@@ -1069,6 +1215,8 @@ int main(void)
 {
     test_first_console_frame();
     test_camera();
+    test_console_clip_projection();
+    test_console_clip_full_cover();
     test_clear_and_lighting();
     test_weapon_clear_state_reuse();
     test_fonts_and_gamma();

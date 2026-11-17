@@ -46,6 +46,9 @@ extern float v_blend[4];
 extern byte gammatable[256];
 
 void XGL_BeginFrame(void);
+/* After BeginFrame and before BeginScene, pass the opaque console height
+ * in logical screen pixels. Zero leaves the complete game view visible. */
+void XGL_SetConsoleClip(int lines);
 void XGL_BeginScene(void);
 /* Positions and unit normals are in Quake world coordinates. */
 void XGL_DrawTriangles(const xgl_vertex_t *vertices, int count, int lit,
