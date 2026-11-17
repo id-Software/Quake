@@ -4,6 +4,8 @@ Shareware recognition, CPU texture/mesh, native UI/entity/particle submission, a
 queueing and profiling tests need no SDK or game data. They run against
 controlled engine/backend mocks. Alias color checks also use the real CPU
 texture sampler to compare cached output with the original color calculation.
+World checks cover shared edges across detail levels, collinear map boundary
+vertices, animated water colors and consistent architectural texture sampling.
 Run from `WinQuake/`:
 
 ```sh

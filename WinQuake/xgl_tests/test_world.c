@@ -45,8 +45,11 @@ static xgl_native_vertex_t queued_copy[1024];
 static int queued_count, flush_calls, palette_calls, failed_sample;
 static int captured_count, captured_lit, captured_zwrite;
 static int captured_calls, varying_material, prepare_calls, filter_calls;
+static int filter_variation;
+static float filter_min_s, filter_max_s, filter_min_t, filter_max_t;
 static unsigned int color_revision, texture_revision;
 static float gamma_scale;
+static int gamma_curve;
 static float captured_opacity;
 static unsigned long profile_counts[XGL_PROFILE_COUNTER_COUNT];
 static int profile_sections[XGL_PROFILE_SECTION_COUNT];
@@ -72,14 +75,21 @@ void XGL_PrepareColor(float rgb[3])
 {
     int i;
     ++prepare_calls;
-    for (i = 0; i < 3; ++i) rgb[i] *= gamma_scale;
+    for (i = 0; i < 3; ++i) {
+        if (gamma_curve) rgb[i] *= rgb[i];
+        rgb[i] *= gamma_scale;
+    }
 }
 void XGL_PreparePaletteColor(int index, float rgb[3])
 {
     int i;
     assert(index >= 0 && index <= 255);
     ++palette_calls;
-    for (i = 0; i < 3; ++i) rgb[i] = xgl_palette[index * 3 + i] / 255.0f * gamma_scale;
+    for (i = 0; i < 3; ++i) {
+        rgb[i] = xgl_palette[index * 3 + i] / 255.0f;
+        if (gamma_curve) rgb[i] *= rgb[i];
+        rgb[i] *= gamma_scale;
+    }
 }
 void XGL_Flush(void)
 {
@@ -144,9 +154,20 @@ qboolean XGL_SampleTexture(int texture, float s, float t, float rgb[3], const by
 qboolean XGL_SampleTextureFiltered(int texture, float s, float t, float fs, float ft,
                                   float rgb[3], const byte *translation)
 {
+    qboolean sampled;
     assert(fs >= 0 && ft >= 0);
     ++filter_calls;
-    return XGL_SampleTexture(texture, s, t, rgb, translation);
+    if (fs < filter_min_s) filter_min_s = fs;
+    if (fs > filter_max_s) filter_max_s = fs;
+    if (ft < filter_min_t) filter_min_t = ft;
+    if (ft > filter_max_t) filter_max_t = ft;
+    sampled = XGL_SampleTexture(texture, s, t, rgb, translation);
+    if (sampled && filter_variation) {
+        rgb[0] /= 1 + fs;
+        rgb[1] /= 1 + ft;
+        rgb[2] /= 1 + fs + ft;
+    }
+    return sampled;
 }
 
 void XGL_DrawNativeTriangles(const xgl_native_vertex_t *vertices, int count,
@@ -274,7 +295,10 @@ static void setup_world(void)
     for (i = 0; i < 256; ++i) d_lightstylevalue[i] = 256;
     pvs_calls = sample_calls = efrag_calls = reject_box = captured_count = 0;
     captured_calls = varying_material = prepare_calls = filter_calls = 0;
-    color_revision = texture_revision = 1; gamma_scale = 1;
+    filter_variation = 0;
+    filter_min_s = filter_min_t = FLT_MAX;
+    filter_max_s = filter_max_t = 0;
+    color_revision = texture_revision = 1; gamma_scale = 1; gamma_curve = 0;
     palette_calls = failed_sample = flush_calls = 0;
     for (i = 0; i < 256; ++i)
         xgl_palette[i * 3] = xgl_palette[i * 3 + 1] = xgl_palette[i * 3 + 2] = (byte)i;
@@ -350,13 +374,302 @@ static void test_animated_water_and_sky(void)
     free(sky);
 }
 
+/* Reference the original nearest-texel animation; edge continuity must
+ * retain these samples without introducing texture filtering. */
+static void water_sample_at(msurface_t *surface, texture_t *texture,
+                            const float *position, float rgb[3])
+{
+    float os, ot, s, t, phase;
+    os = DotProduct(position, surface->texinfo->vecs[0]);
+    ot = DotProduct(position, surface->texinfo->vecs[1]);
+    phase = (float)fmod(realtime, 2 * M_PI);
+    s = (os + xgl_turb_sin[(int)((ot * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
+    t = (ot + xgl_turb_sin[(int)((os * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
+    assert(XGL_SampleTexture(texture->gl_texturenum, s, t, rgb, NULL));
+    XGL_PrepareColor(rgb);
+}
+
+static int inside_edge(const float *position, const float *a, const float *b,
+                        float *fraction)
+{
+    vec3_t edge, offset;
+    float length, t;
+    int axis;
+    VectorSubtract(b, a, edge);
+    VectorSubtract(position, a, offset);
+    length = DotProduct(edge, edge);
+    if (length == 0) return 0;
+    t = DotProduct(offset, edge) / length;
+    if (t <= .000001f || t >= .999999f) return 0;
+    for (axis = 0; axis < 3; ++axis)
+        if (fabs(offset[axis] - t * edge[axis]) > .0001) return 0;
+    *fraction = t;
+    return 1;
+}
+
+/* Every emitted edge must have the same endpoints on both sides. A vertex
+ * strictly inside somebody else's edge would reproduce the original seam. */
+static void check_conforming_mesh(void)
+{
+    int i, j, edge, channel;
+    float fraction;
+    for (i = 0; i < captured_count; ++i) {
+        for (j = 0; j < captured_count; j += 3)
+            for (edge = 0; edge < 3; ++edge)
+                assert(!inside_edge(captured[i].position,
+                    captured[j + edge].position,
+                    captured[j + (edge + 1) % 3].position, &fraction));
+        for (j = i + 1; j < captured_count; ++j)
+            if (VectorCompare(captured[i].position, captured[j].position))
+                for (channel = 0; channel < 3; ++channel)
+                    assert(fabs(captured[i].color.rgb[channel] -
+                                captured[j].color.rgb[channel]) < .000001);
+    }
+}
+
+static void test_water_edge_continuity(void)
+{
+    static const double times[] = {0, .25, 1, 1000000.25};
+    xgl_native_vertex_t original[30];
+    xgl_surface_mesh_t *mesh;
+    entity_t entity;
+    unsigned short *map;
+    float expected[3], fraction;
+    vec3_t a = {0, 0, 0}, c = {64, 64, 0};
+    int phase, i, channel;
+    setup_world();
+    varying_material = 1;
+    test_surface.flags = SURF_DRAWTURB;
+    test_vertices[1].position[0] = 512;
+    test_vertices[2].position[0] = test_vertices[2].position[1] = 64;
+    test_vertices[3].position[1] = 64;
+    xgl_subdivide.value = 128;
+    for (phase = 0; phase < 4; ++phase) {
+        realtime = times[phase]; gamma_curve = phase & 1; gamma_scale = .65f;
+        begin_frame();
+        assert(captured_count == 30 && captured_lit == 0);
+        assert(captured_zwrite == 1 && captured_opacity == 1 && !filter_calls);
+        assert(fabs(captured_area() - 18432) < .01);
+        mesh = &xgl_surfaces[0].detail;
+        assert(mesh->count == captured_count);
+        if (!phase) memcpy(original, captured, sizeof(original));
+        check_conforming_mesh();
+        for (i = 0; i < captured_count; ++i) {
+            assert(VectorCompare(captured[i].position, original[i].position));
+            assert(VectorCompare(captured[i].normal, original[i].normal));
+            assert(captured[i].position[2] == 0);
+            water_sample_at(&test_surface, &test_texture, captured[i].position, expected);
+            for (channel = 0; channel < 3; ++channel)
+                assert(fabs(captured[i].color.rgb[channel] - expected[channel]) < .000001);
+            /* Refinement never introduces a differently sampled midpoint
+             * on A-C, which is also an edge of the unsplit A-C-D face. */
+            assert(!inside_edge(captured[i].position, a, c, &fraction));
+        }
+    }
+    /* Edge correction is independent of the optional duplicate sample map. */
+    memcpy(original, captured, sizeof(original));
+    map = mesh->sample_vertex; mesh->sample_vertex = NULL;
+    XGL_UpdateSurfaceMesh(mesh, &test_surface, &test_texture, &r_worldentity);
+    for (i = 0; i < mesh->count; ++i)
+        for (channel = 0; channel < 3; ++channel)
+            assert(fabs(mesh->vertices[i].color.rgb[channel] - original[i].color.rgb[channel]) < .000001);
+    mesh->sample_vertex = map;
+
+    /* A rotated/transformed brush retains the same local water colors. */
+    XGL_Flush(); captured_count = captured_calls = 0; xgl_detail_used = 0;
+    memset(&entity, 0, sizeof(entity));
+    entity.model = &test_model;
+    entity.angles[1] = 90;
+    entity.origin[0] = 11; entity.origin[1] = -7; entity.origin[2] = 19;
+    XGL_DrawSurface(&test_model, &test_surface, &entity, 1);
+    assert(captured_count == 30 && !filter_calls);
+    for (i = 0; i < captured_count; ++i) {
+        assert(fabs(captured[i].position[0] - (11 - original[i].position[1])) < .001);
+        assert(fabs(captured[i].position[1] - (-7 + original[i].position[0])) < .001);
+        assert(captured[i].position[2] == 19);
+        for (channel = 0; channel < 3; ++channel)
+            assert(fabs(captured[i].color.rgb[channel] - original[i].color.rgb[channel]) < .000001);
+    }
+    XGL_WorldShutdown();
+}
+
+static void test_surface_boundary_tjunctions(int turbulent)
+{
+    static const float xy[10][2] = {
+        {128, 0}, {128, 64}, {128, 128}, {0, 128}, {0, 0},
+        {128, 0}, {256, 0}, {256, 128}, {128, 128}, {128, 64}
+    };
+    msurface_t surfaces[2], *marks[2];
+    mvertex_t vertices[10];
+    medge_t edges[10];
+    xgl_native_vertex_t previous[256];
+    int surfedges[10], i, j, k, phase, detailed, cost[2], left_count, shared, previous_count;
+    float rgb[3], area;
+    vec3_t side1, side2, cross;
+    setup_world();
+    varying_material = 1; filter_variation = !turbulent;
+    previous_count = 0;
+    memset(vertices, 0, sizeof(vertices));
+    memset(edges, 0, sizeof(edges));
+    for (i = 0; i < 2; ++i) {
+        surfaces[i] = test_surface;
+        surfaces[i].flags = turbulent ? SURF_DRAWTURB : 0;
+        surfaces[i].numedges = 5; surfaces[i].firstedge = i * 5;
+        marks[i] = &surfaces[i];
+        for (j = 0; j < 5; ++j) {
+            vertices[i * 5 + j].position[0] = xy[i * 5 + j][0];
+            vertices[i * 5 + j].position[1] = xy[i * 5 + j][1];
+            edges[i * 5 + j].v[0] = i * 5 + j;
+            edges[i * 5 + j].v[1] = i * 5 + (j + 1) % 5;
+            surfedges[i * 5 + j] = i * 5 + j;
+        }
+    }
+    test_model.surfaces = surfaces;
+    test_model.numsurfaces = test_model.nummodelsurfaces = 2;
+    test_model.vertexes = vertices; test_model.edges = edges; test_model.surfedges = surfedges;
+    test_node.numsurfaces = 2;
+    test_leaves[1].firstmarksurface = marks; test_leaves[1].nummarksurfaces = 2;
+    XGL_WorldNewMap();
+    begin_frame();
+    for (i = 0; i < 2; ++i) {
+        assert(xgl_surfaces[i].coarse.count == 9);
+        cost[i] = xgl_surfaces[i].detail.count / 3;
+        assert(cost[i] > 3);
+    }
+    for (phase = 0; phase < 4; ++phase) {
+        detailed = phase & 1;
+        r_origin[0] = detailed ? 192 : 64;
+        xgl_detailtris.value = cost[detailed];
+        realtime = phase * .37; gamma_curve = turbulent && phase >= 2; gamma_scale = .7f;
+        ++color_revision;
+        begin_frame();
+        assert(xgl_surfaces[detailed].detail_frame == r_framecount);
+        assert(xgl_surfaces[1 - detailed].detail_frame != r_framecount);
+        assert(captured_count == cost[detailed] * 3 + 9);
+        if (turbulent) assert(!filter_calls);
+        else {
+            assert(filter_calls > 0);
+            assert(fabs(filter_min_s - 1.0 / 12) < .000001 && filter_min_s == filter_max_s);
+            assert(fabs(filter_min_t - 1.0 / 12) < .000001 && filter_min_t == filter_max_t);
+        }
+        assert(xgl_detail_used == cost[detailed]);
+        assert(fabs(captured_area() - 32768) < .01);
+        left_count = detailed ? 9 : cost[0] * 3;
+        shared = 0;
+        check_conforming_mesh();
+        for (i = 0; i < captured_count; i += 3) {
+            VectorSubtract(captured[i + 1].position, captured[i].position, side1);
+            VectorSubtract(captured[i + 2].position, captured[i].position, side2);
+            CrossProduct(side1, side2, cross);
+            area = cross[2];
+            assert(area > 0); /* No degenerate fan skips the middle BSP vertex. */
+        }
+        for (i = 0; i < captured_count; ++i) {
+            assert(captured[i].position[2] == 0 && captured[i].normal[2] == 1);
+            if (turbulent) {
+                j = i >= left_count;
+                water_sample_at(&surfaces[j], &test_texture, captured[i].position, rgb);
+                for (j = 0; j < 3; ++j)
+                    assert(fabs(captured[i].color.rgb[j] - rgb[j]) < .000001);
+            } else {
+                /* Same material point retains its color as the two faces
+                 * exchange the limited detail allowance. */
+                for (j = 0; j < previous_count; ++j)
+                    if (VectorCompare(captured[i].position, previous[j].position))
+                        for (k = 0; k < 3; ++k)
+                            assert(fabs(captured[i].color.rgb[k] - previous[j].color.rgb[k]) < .000001);
+            }
+            if (captured[i].position[0] != 128) continue;
+            ++shared;
+            assert(captured[i].position[1] == 0 || captured[i].position[1] == 64 ||
+                   captured[i].position[1] == 128);
+        }
+        assert(shared && xgl_cache_bytes <= XGL_WORLD_CACHE_BYTES);
+        assert(captured_count <= 256);
+        memcpy(previous, captured, captured_count * sizeof(*captured));
+        previous_count = captured_count;
+    }
+    if (!turbulent) {
+        /* Continuity must not erase a real lightstyle difference across
+         * otherwise matching material coordinates. */
+        surfaces[1].styles[0] = 1; d_lightstylevalue[1] = 128;
+        gamma_curve = 0; gamma_scale = 1;
+        ++color_revision;
+        begin_frame();
+        shared = 0;
+        for (i = 0; i < 9; ++i)
+            for (j = 9; j < captured_count; ++j)
+                if (VectorCompare(captured[i].position, captured[j].position)) {
+                    ++shared;
+                    for (k = 0; k < 3; ++k)
+                        assert(fabs(captured[j].color.rgb[k] - captured[i].color.rgb[k] * .5f) < .000001);
+                }
+        assert(shared);
+        surfaces[1].styles[0] = 0;
+    }
+    /* Allocation failures and the exhausted world cache keep complete,
+     * conforming coarse geometry, including the collinear boundary point. */
+    for (phase = 0; phase < 5; ++phase) {
+        fail_alloc_after = -1;
+        XGL_WorldNewMap();
+        if (phase == 4) xgl_cache_bytes = XGL_WORLD_CACHE_BYTES;
+        else fail_alloc_after = phase;
+        xgl_detailtris.value = 4096;
+        begin_frame();
+        assert(captured_count >= 18 && fabs(captured_area() - 32768) < .01);
+        assert(xgl_cache_bytes <= XGL_WORLD_CACHE_BYTES);
+        check_conforming_mesh();
+        fail_alloc_after = -1;
+        XGL_WorldShutdown();
+    }
+    /* Reversing the boundary retains the same complete polygon with
+     * reversed triangle winding, including both collinear boundary points. */
+    for (i = 0; i < 2; ++i)
+        for (j = 0; j < 5; ++j) {
+            edges[i * 5 + j].v[0] = i * 5 + (5 - j) % 5;
+            edges[i * 5 + j].v[1] = i * 5 + (9 - j) % 5;
+        }
+    xgl_detailtris.value = 0;
+    XGL_WorldNewMap();
+    begin_frame();
+    assert(captured_count == 18 && fabs(captured_area() - 32768) < .01);
+    check_conforming_mesh();
+    for (i = 0; i < captured_count; i += 3) {
+        VectorSubtract(captured[i + 1].position, captured[i].position, side1);
+        VectorSubtract(captured[i + 2].position, captured[i].position, side2);
+        CrossProduct(side1, side2, cross);
+        assert(cross[2] < 0);
+    }
+    XGL_WorldShutdown();
+}
+
+static void test_architecture_filter_footprints(void)
+{
+    static const float step[] = {3, 32, 600};
+    static const float expected_s[] = {1.0f / 24, 1.0f / 6, 4.0f / 3};
+    static const float expected_t[] = {1.0f / 96, 1.0f / 24, 1.0f / 3};
+    int i;
+    for (i = 0; i < 3; ++i) {
+        setup_world();
+        varying_material = filter_variation = 1;
+        test_texture.width = 64; test_texture.height = 256;
+        xgl_subdivide.value = step[i];
+        begin_frame();
+        assert(filter_calls > 0);
+        assert(fabs(filter_min_s - expected_s[i]) < .000001 && filter_min_s == filter_max_s);
+        assert(fabs(filter_min_t - expected_t[i]) < .000001 && filter_min_t == filter_max_t);
+        check_conforming_mesh();
+    }
+}
+
+
 static void test_cache_and_styles(void)
 {
     float original;
     int count, samples, prepares;
     setup_world();
     begin_frame();
-    assert(captured_count == 96 && captured_lit == 1);
+    assert(captured_count == 54 && captured_lit == 1);
     assert(captured_zwrite == 1 && captured_opacity == 1);
     assert(fabs(captured_area() - 128 * 128) < .01);
     assert(xgl_cache_bytes <= XGL_WORLD_CACHE_BYTES);
@@ -421,11 +734,11 @@ static void test_profile_cache_events(void)
     setup_world();
     begin_frame();
     assert(profile_counts[XGL_PROFILE_WORLD_MESH_BUILDS] == 2);
-    assert(profile_counts[XGL_PROFILE_WORLD_BUILD_VERTICES] == 6 + 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_BUILD_VERTICES] == 6 + 54);
     assert(profile_counts[XGL_PROFILE_WORLD_MESH_FAILURES] == 0);
     assert(profile_counts[XGL_PROFILE_WORLD_CACHED_SURFACES] == 1);
     assert(profile_counts[XGL_PROFILE_WORLD_COLOR_UPDATES] == 1);
-    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_VERTICES] == 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_VERTICES] == 54);
     assert(profile_counts[XGL_PROFILE_WORLD_COLOR_HITS] == 0);
     assert(profile_sections[XGL_PROFILE_WORLD_VISIBILITY] == 1);
     assert(profile_sections[XGL_PROFILE_WORLD_DETAIL_SELECT] == 1);
@@ -443,11 +756,11 @@ static void test_profile_cache_events(void)
     ++color_revision;
     begin_frame();
     assert(profile_counts[XGL_PROFILE_WORLD_COLOR_UPDATES] == 1);
-    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_VERTICES] == 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_COLOR_VERTICES] == 54);
     assert(profile_counts[XGL_PROFILE_WORLD_COLOR_HITS] == 0);
     test_surface.flags = SURF_DRAWTURB;
     begin_frame();
-    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_VERTICES] == 96);
+    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_VERTICES] == 54);
     assert(profile_counts[XGL_PROFILE_WORLD_COLOR_UPDATES] == 0);
     assert(profile_sections[XGL_PROFILE_WORLD_ANIMATED] == 1);
     assert(profile_sections[XGL_PROFILE_WORLD_COLORS] == 0);
@@ -537,12 +850,12 @@ static void test_projected_detail_priority(void)
     test_model.vertexes = vertices; test_model.edges = edges; test_model.surfedges = surfedges;
     test_node.numsurfaces = 2;
     test_leaves[1].firstmarksurface = marks; test_leaves[1].nummarksurfaces = 2;
-    xgl_detailtris.value = 32;
+    xgl_detailtris.value = 18;
     XGL_WorldNewMap();
     begin_frame();
     /* BSP order reaches the smaller face first, but the larger screen-area
      * estimate receives the detail budget. Both faces still draw, in order. */
-    assert(xgl_detail_used == 32 && captured_count == 6 + 96);
+    assert(xgl_detail_used == 18 && captured_count == 6 + 54);
     assert(xgl_surfaces[0].detail_frame != r_framecount);
     assert(xgl_surfaces[1].detail_frame == r_framecount);
     assert(captured[0].position[0] == 32 && captured[6].position[0] == 0);
@@ -552,10 +865,10 @@ static void test_projected_detail_priority(void)
     begin_frame();
     assert(captured_count == 12 && xgl_detail_used == 0);
     assert(fabs(captured_area() - (64 * 64 + 128 * 128)) < .01);
-    xgl_detailtris.value = 32;
+    xgl_detailtris.value = 18;
     surfaces[1].flags = SURF_DRAWTURB; r_wateralpha.value = 0;
     begin_frame();
-    assert(captured_count == 24 && xgl_detail_used == 8 && !xgl_water_count);
+    assert(captured_count == 18 && xgl_detail_used == 6 && !xgl_water_count);
     assert(xgl_surfaces[0].detail_frame == r_framecount);
     assert(xgl_surfaces[1].detail_frame != r_framecount);
     XGL_WorldShutdown();
@@ -567,7 +880,7 @@ static void compare_sample_map(xgl_surface_mesh_t *mesh, texture_t *texture,
     float colors[96][3];
     unsigned short *map;
     int i, samples;
-    assert(mesh->count == 96 && mesh->sample_vertex);
+    assert(mesh->count <= 96 && mesh->sample_vertex);
     XGL_UpdateSurfaceMesh(mesh, &test_surface, texture, entity);
     for (i = 0; i < mesh->count; ++i)
         VectorCopy(mesh->vertices[i].color.rgb, colors[i]);
@@ -575,7 +888,7 @@ static void compare_sample_map(xgl_surface_mesh_t *mesh, texture_t *texture,
     map = mesh->sample_vertex;
     mesh->sample_vertex = NULL;
     XGL_UpdateSurfaceMesh(mesh, &test_surface, texture, entity);
-    if (test_surface.flags & SURF_DRAWTURB) assert(sample_calls == samples + 96);
+    if (test_surface.flags & SURF_DRAWTURB) assert(sample_calls == samples + mesh->count);
     for (i = 0; i < mesh->count; ++i)
         assert(VectorCompare(mesh->vertices[i].color.rgb, colors[i]));
     mesh->sample_vertex = map;
@@ -589,15 +902,15 @@ static void test_shared_animated_samples(void)
     byte *pixels;
     size_t bytes;
     int i, failed, count, before, channel;
-    float s, t, os, ot, phase, expected[3];
+    float expected[3];
     setup_world();
     varying_material = 1;
     test_surface.flags = SURF_DRAWTURB;
     begin_frame();
     mesh = &xgl_surfaces[0].detail;
-    assert(captured_count == 96 && sample_calls == 25 && palette_calls == 25);
-    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_VERTICES] == 96);
-    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_SAMPLES] == 25);
+    assert(captured_count == 54 && sample_calls == 12 && palette_calls == 12);
+    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_VERTICES] == 54);
+    assert(profile_counts[XGL_PROFILE_WORLD_ANIMATED_SAMPLES] == 12);
     assert(profile_sections[XGL_PROFILE_WORLD_WATER] == 1);
     assert(profile_sections[XGL_PROFILE_WORLD_SKY] == 0);
     /* Same positions share samples, without changing any emitted triangle. */
@@ -614,16 +927,10 @@ static void test_shared_animated_samples(void)
         realtime = i == 3 ? 1000000.25 : (i - 1) * .25;
         gamma_scale = .65f;
         compare_sample_map(mesh, &test_texture, &r_worldentity);
-        /* Compare the direct-index path with the former RGB-then-gamma
-         * water calculation, including texture translations and long time. */
-        phase = (float)fmod(realtime, 2 * M_PI);
+        /* Every vertex retains the original nearest-texel animation. */
         for (count = 0; count < mesh->count; ++count) {
-            os = mesh->data[count].st[0] - test_texinfo.vecs[0][3];
-            ot = mesh->data[count].st[1] - test_texinfo.vecs[1][3];
-            s = (os + xgl_turb_sin[(int)((ot * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
-            t = (ot + xgl_turb_sin[(int)((os * .125f + phase) * XGL_TURB_SCALE) & 255]) / 64;
-            assert(XGL_SampleTexture(1, s, t, expected, NULL));
-            XGL_PrepareColor(expected);
+            water_sample_at(&test_surface, &test_texture,
+                mesh->vertices[count].position, expected);
             /* Fast math may reassociate the mock's palette/gamma scaling.
              * Allow float rounding, far below a change of one palette byte. */
             for (channel = 0; channel < 3; ++channel)
@@ -715,6 +1022,10 @@ static void test_borrowed_mesh_lifetime(void)
 
 int main(void)
 {
+    test_water_edge_continuity();
+    test_surface_boundary_tjunctions(1);
+    test_surface_boundary_tjunctions(0);
+    test_architecture_filter_footprints();
     test_shared_animated_samples();
     test_borrowed_mesh_lifetime();
     test_cache_and_styles();

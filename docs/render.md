@@ -25,8 +25,24 @@ palette effects appear as native overlay geometry.
 Ordinary world materials use cached, filtered CPU color samples. Optional
 RGB mip averages share the existing material memory budget; they are never
 uploaded as XGL textures. Large visible surfaces receive priority within
-the same detail-triangle allowance. The depth-two limit still means large
-faces may have coarse patches even when `xgl_subdivide` is small. Filtering
+the same detail-triangle allowance. Ordinary surfaces use a common sampling
+footprint of one third of `xgl_subdivide` in texture units, so matching
+texture coordinates do not change color merely because adjacent triangles
+have different sizes. Original lightmaps, material boundaries and native
+lighting remain in effect.
+
+World, brush and water detail adds vertices inside triangles while keeping
+their existing edges intact. Neighboring coarse and detailed triangles
+therefore share the same edge endpoints for native color interpolation and
+lighting. The base triangulation retains collinear map boundary vertices
+instead of spanning past them with a degenerate triangle. Interior refinement
+uses three children per triangle, keeping the existing detail budget and
+depth-two limit; sky retains its previous subdivision.
+Boundary repair uses a fixed 512-corner workspace within the world cache
+budget. Larger or malformed faces retain the complete-face fan fallback.
+
+The depth-two limit still means large faces may have coarse patches even
+when `xgl_subdivide` is small. Filtering
 reduces arbitrary single-texel gradients; it cannot reproduce texture detail
 smaller than the submitted geometry.
 
@@ -75,6 +91,10 @@ and charged to the world cache limit. If allocation fails, each triangle
 corner is sampled separately. Indexed samples use a
 direct palette-to-gamma lookup. Animation is still updated every frame,
 including sky scrolling, camera-relative sky projection and turbulent UVs.
+Water still samples the original animated palette colors without texture
+filtering. Its vertices remain on the map surface; animation changes colors,
+not surface height. Triangle edges now remain consistent across detail
+levels, though the limited vertex colors can still reveal triangular shading.
 
 ### UI batching
 
