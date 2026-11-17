@@ -19,14 +19,31 @@ Prevent audio buffer exhaustion.
 
 ```+_snd_mixahead 0.3```
 
+### xgl_alias_subdivide
+Limit subdivision of Alias models.
+
+```+xgl_alias_subdivide 0```
+
+
+### xgl_detailtris
+Limit number of world triangles
+
+```+xgl_detailtris 1024``` 
+
 ### xgl_profile
 0, 1 or 2 level of profile information output.
 
 ```+xgl_profile 1```
+
 
 ### winsize
 
 ```-winsize 640 480```
 
 ## Demo
-``./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 1 +timedemo demo1 > xglquake-timedemo.txt 2>&1``
+
+```./xglquake -winsize 640 480 +_snd_mixahead 0.3 +xgl_profile 1 +timedemo demo1 > xglquake-timedemo.txt 2>&1```
+
+## xglbench
+Benchmark to test basic card performance and functionality and generate reports.
+
