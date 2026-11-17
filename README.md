@@ -11,7 +11,7 @@ with native XGL text and geometry. A similar approach can be seen at
 ### Build
 see [build details](docs/build.md) for information.
 
-Install GNU make, GCC, the [Sun XGL SDK](https://archive.org/details/xgl-solaris2.6), and OpenWindows development files.
+Install GNU make, GCC (for example [tgcware](https://jupiterrise.com/tgcware/sunos5.6_sparc/stable/)), the [Sun XGL SDK](https://archive.org/details/xgl-solaris2.6), and OpenWindows development files.
 From the repository root:
 
 ```sh
