@@ -21,10 +21,12 @@ entity_t *currententity;
 vec3_t r_origin, vpn, vright, vup;
 int c_alias_polys;
 cvar_t r_fullbright, r_drawentities, r_drawviewmodel, chase_active;
+byte xgl_palette[768];
 
 static xgl_vertex_t captured[4096];
 static int captured_count, native_lit, material_seen, coverage_mode;
 static int sample_calls, test_light, draw_calls, normalizations;
+static byte material_pixels[16 * 16];
 static xgl_native_vertex_t reserved_vertices[XGL_ENTITY_BATCH_VERTICES];
 static int reserved_count, reserved_lit, reserve_calls, prepare_calls;
 static int reserve_limit = XGL_ENTITY_BATCH_VERTICES;
@@ -174,19 +176,29 @@ void XGL_PrepareColor(float rgb[3])
     ++prepare_calls;
 }
 
-qboolean XGL_SampleTexture(int material, float s, float t, float rgb[3],
-                           const byte *translation)
+qboolean XGL_SampleTextureIndex(int material, float s, float t, int *result)
 {
+    int x, y, index;
     ++sample_calls;
     material_seen = material;
-    rgb[0] = s; rgb[1] = t; rgb[2] = translation ? translation[TOP_RANGE] / 255.0f : .5f;
-    if (coverage_mode == 1) return false;
-    if (coverage_mode == 2 && s < .5f) return false;
+    if (!(s > -1000000000.0f && s < 1000000000.0f &&
+          t > -1000000000.0f && t < 1000000000.0f)) return false;
+    s -= (float)(int)s; t -= (float)(int)t;
+    if (s < 0) s += 1;
+    if (t < 0) t += 1;
+    x = (int)(s * 16); y = (int)(t * 16);
+    if (x > 15) x = 15;
+    if (y > 15) y = 15;
+    index = material_pixels[y * 16 + x];
+    if (coverage_mode == 1 || (coverage_mode == 2 && s < .5f)) index = 255;
+    if (coverage_mode && index == 255) return false;
+    *result = index;
     return true;
 }
 
 static void reset_test(void)
 {
+    int i;
     assert(!audio_lock_depth && audio_locks == audio_unlocks);
     memset(&cl, 0, sizeof(cl));
     memset(cl_entities, 0, sizeof(cl_entities));
@@ -218,6 +230,14 @@ static void reset_test(void)
     memset(profile_sections, 0, sizeof(profile_sections));
     light_calls = 0;
     memset(light_origin, 0, sizeof(light_origin));
+    /* A repeating 16x16 indexed fixture: UV (.1,.2) samples TOP_RANGE.
+     * Distinct palette channels expose player translation and UV changes. */
+    for (i = 0; i < 256; ++i) {
+        material_pixels[i] = (byte)(i + 223);
+        xgl_palette[i * 3] = (byte)(i * 37 + 31);
+        xgl_palette[i * 3 + 1] = (byte)(255 - i);
+        xgl_palette[i * 3 + 2] = (byte)i;
+    }
     allocation_fail_after = -1;
     audio_locks = audio_unlocks = expect_alias_lock = test_cull = 0;
     XGL_EntitiesInit();
@@ -289,7 +309,7 @@ static void test_alias_pose_transform_translation(void)
     assert(fabs(captured[0].position[0] - 94) < .0001);
     assert(fabs(captured[0].position[1] - 215) < .0001);
     assert(fabs(captured[0].position[2] - 307) < .0001);
-    assert(fabs(captured[0].color[0] - .1) < .0001);
+    assert(fabs(captured[0].color[0] - xgl_palette[239 * 3] / 255.0f) < .0001);
     assert(fabs(captured[0].color[2] - 239.0 / 255) < .0001);
     assert(xgl_player_translation[0][TOP_RANGE + 15] == 224);
     assert(xgl_player_translation[0][BOTTOM_RANGE] == 16);
@@ -471,7 +491,7 @@ static void test_alias_lighting_selection(void)
         r_fullbright.value = mode == 3;
         test_light = 64;
         lit = mode == 0;
-        expected = lit ? .05f : .1f;
+        expected = xgl_palette[0] * (1.0f / 255.0f) * (lit ? .5f : 1);
         for (pass = 0; pass < 2; ++pass) {
             captured_count = 0;
             XGL_DrawAlias(&cl_entities[1]);
@@ -492,11 +512,11 @@ static void test_alias_lighting_selection(void)
     test_light = 0;
     XGL_DrawAlias(&cl_entities[1]);
     assert(light_calls == 1 && native_lit == 2);
-    assert(fabs(captured[0].color[0] - .004f) < .0001);
+    assert(fabs(captured[0].color[0] - xgl_palette[TOP_RANGE * 3] * (1.0f / 255.0f) * .04f) < .0001);
     cl_entities[1].colormap = player_colormap;
     captured_count = 0;
     XGL_DrawAlias(&cl_entities[1]);
-    assert(light_calls == 2 && fabs(captured[0].color[0] - .008f) < .0001);
+    assert(light_calls == 2 && fabs(captured[0].color[0] - xgl_palette[0] * (1.0f / 255.0f) * .08f) < .0001);
 }
 
 static void test_nested_alias_profile_paths(void)
@@ -542,11 +562,11 @@ static void test_nested_weapon_profile_paths(void)
     assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_FALLBACK] == 1);
     assert(!profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_OUTPUT]);
     assert(light_calls == 1 && native_lit == 2);
-    assert(fabs(captured[0].color[0] - .02f) < .0001);
+    assert(fabs(captured[0].color[0] - xgl_palette[TOP_RANGE * 3] * (1.0f / 255.0f) * .20f) < .0001);
     assert(light_origin[0] == 7 && light_origin[1] == 11 && light_origin[2] == 13);
     captured_count = 0;
     XGL_DrawViewModel();
-    assert(captured_count == 3 && fabs(captured[0].color[0] - .02f) < .0001);
+    assert(captured_count == 3 && fabs(captured[0].color[0] - xgl_palette[TOP_RANGE * 3] * (1.0f / 255.0f) * .20f) < .0001);
     assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_FALLBACK] == 1);
     assert(profile_draw_calls[XGL_PROFILE_DRAW_WEAPON_OUTPUT] == 1);
     commands = (int *)((byte *)header + header->commands);
@@ -618,7 +638,7 @@ static void test_alias_color_cache(void)
     assert(fabs(captured[0].color[2] - 64.0 / 255) < .0001);
     captured_count = 0; sample_calls = 0; xgl_playercolors.value = 0;
     XGL_DrawAlias(&cl_entities[1]);
-    assert(sample_calls == 3 && captured[0].color[2] == .5f);
+    assert(sample_calls == 3 && fabs(captured[0].color[2] - TOP_RANGE / 255.0f) < .0001);
     captured_count = 0; sample_calls = 0; xgl_playercolors.value = 1;
     XGL_DrawAlias(&cl_entities[1]);
     assert(sample_calls == 0 && fabs(captured[0].color[2] - 64.0 / 255) < .0001);
@@ -633,7 +653,7 @@ static void test_alias_color_cache(void)
     memcpy(commands + 1, &changed_uv, sizeof(changed_uv));
     captured_count = 0; sample_calls = 0;
     XGL_DrawAlias(&cl_entities[1]);
-    assert(sample_calls == 3 && captured[0].color[0] == .75f);
+    assert(sample_calls == 3 && fabs(captured[0].color[0] - xgl_palette[75 * 3] / 255.0f) < .0001);
 
     captured_count = 0; sample_calls = 0;
     xgl_alias_subdivide.value = 1;
@@ -682,13 +702,13 @@ static void test_alias_cache_coverage_and_capacity(void)
     XGL_DrawAlias(&cl_entities[1]);
     assert(sample_calls == sampled + 3 && captured_count == 3);
 
-    /* Large valid models force byte-budget eviction before the slot table
-     * fills. A single oversized model is declined before allocation. */
+    /* Large valid models still force byte-budget eviction before slots
+     * fill. Compact indices also allow the largest valid model to fit. */
     large = (aliashdr_t *)calloc(1, sizeof(*large) +
                                 (2 + (MAXALIASTRIS + 2) * 2) * sizeof(int));
     assert(large);
     large->commands = sizeof(*large);
-    large->poseverts = 258; large->numtris = 256;
+    large->poseverts = 514; large->numtris = 512;
     commands = (int *)((byte *)large + large->commands);
     commands[0] = large->poseverts;
     XGL_EntitiesShutdown();
@@ -702,9 +722,12 @@ static void test_alias_cache_coverage_and_capacity(void)
     assert(entries > 0 && entries < 10);
     large->poseverts = MAXALIASTRIS + 2; large->numtris = MAXALIASTRIS;
     commands[0] = large->poseverts;
-    old_bytes = xgl_alias_cache_bytes;
     cache = XGL_AliasColors(large, 10, 2, NULL);
-    assert(!cache && xgl_alias_cache_bytes == old_bytes);
+    assert(cache && xgl_alias_cache_bytes <= XGL_ALIAS_CACHE_BYTES);
+    large->numtris = MAXALIASTRIS + 1;
+    old_bytes = xgl_alias_cache_bytes;
+    assert(!XGL_AliasColors(large, 10, 2, NULL));
+    assert(xgl_alias_cache_bytes == old_bytes);
     free(large);
 
     /* The ordinary path still supplies complete geometry without a usable
@@ -1021,7 +1044,7 @@ static void test_alias_direct_partial_batches(void)
 {
     xgl_vertex_t expected[192];
     aliashdr_t *header;
-    int count;
+    int count, i, j, distinct;
     reset_test();
     header = make_alias(6);
     header->frames[0].numposes = 1;
@@ -1036,7 +1059,13 @@ static void test_alias_direct_partial_batches(void)
     XGL_DrawAlias(&cl_entities[1]);
     compare_capture(expected, count);
     assert(reserve_calls == (count + reserve_limit - 1) / reserve_limit);
-    assert(prepare_calls == count);
+    distinct = 0;
+    for (i = 0; i < count; ++i) {
+        for (j = 0; j < i; ++j)
+            if (!memcmp(expected[i].color, expected[j].color, sizeof(expected[i].color))) break;
+        if (j == i) ++distinct;
+    }
+    assert(prepare_calls == distinct && distinct < count);
     assert(audio_locks == audio_unlocks && !audio_lock_depth);
     /* Rebuilding material colors must also replace the cached visible count. */
     ++material_revision; coverage_mode = 1;

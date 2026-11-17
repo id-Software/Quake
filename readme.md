@@ -202,8 +202,15 @@ the existing triangle order, shading and 256-triangle batching limit.
 
 ### Animated model caching
 
-Animated models reuse sampled skin colors while retaining current transforms,
-lighting, skins and player colors.
+Animated models cache sampled skin palette indices while retaining current
+transforms, lighting, skins and player colors. Cached output prepares each
+used palette color's lighting and gamma once per model draw, then reuses its
+RGB values at repeated corners. A fixed table of about 3.3 KiB lasts only for
+that draw, so lighting and gamma changes take effect immediately. Color
+entries use 16 bytes per triangle instead of 40; existing cache limits remain
+unchanged. Fallback and sprite drawing retain the generic color conversion
+path, including their original cutout coverage and corner-color rules.
+
 Subdivision commands, parent links and triangle indices are shared between
 poses; smaller pose entries cache model-local normals. Hashes reject
 different command/normal sequences quickly, with exact comparisons before
@@ -360,6 +367,8 @@ from cached output and fallback drawing. Lighting times only the actual
 `R_LightPoint` call; unlit flame models and fullbright drawing skip it.
 Cached output covers final position/normal copying, light multiplication,
 gamma preparation and native batch reservations after pose transformation.
+Lighting/gamma preparation in this path is reused for matching palette
+indices within the draw.
 Fallback drawing includes uncached vertex transforms, subdivision, skin
 sampling and generic vertex packing. Each output/fallback scope reports
 wall/submission/synchronization time, including native calls made inside it.
@@ -391,7 +400,9 @@ disabled.
 
 Shareware recognition, CPU texture/mesh, native UI/entity/particle submission, audio
 queueing and profiling tests need no SDK or game data. They run against
-controlled engine/backend mocks. Run from `WinQuake/`:
+controlled engine/backend mocks. Alias color checks also use the real CPU
+texture sampler to compare cached output with the original color calculation.
+Run from `WinQuake/`:
 
 ```sh
 make -f Makefile.XGL check

@@ -53,7 +53,7 @@ typedef struct {
 } xgl_entity_vertex_t;
 
 typedef struct {
-    float rgb[3][3];
+    int index[3];
     int visible;
 } xgl_alias_color_t;
 
@@ -540,6 +540,18 @@ static void XGL_AliasFlush(xgl_alias_draw_t *draw, int lit)
     draw->count = 0;
 }
 
+static void XGL_AliasRawColor(int index, float rgb[3])
+{
+    volatile float normalized;
+    int i;
+    for (i = 0; i < 3; ++i) {
+        /* Keep the old sampler's stored float rounding before lighting,
+         * including with -ffast-math. -1 is black, not palette entry zero. */
+        normalized = index < 0 ? 0 : xgl_palette[index * 3 + i] * (1.0f / 255.0f);
+        rgb[i] = normalized;
+    }
+}
+
 static void XGL_EmitAliasPose(const xgl_alias_pose_cache_t *cache,
                              xgl_alias_draw_t *draw, float light, int lit)
 {
@@ -547,9 +559,14 @@ static void XGL_EmitAliasPose(const xgl_alias_pose_cache_t *cache,
     const xgl_alias_work_vertex_t *source;
     const xgl_alias_color_t *colors;
     xgl_native_vertex_t *vertices, *out;
-    int i, j, k, count, emitted, remaining;
+    float prepared[257][3];
+    byte valid[257];
+    int i, j, k, slot, count, emitted, remaining;
     topology = cache->topology;
     remaining = draw->cache->visible_triangles * 3;
+    /* One fresh table per draw: lighting, palette and gamma need no cache
+     * keys or invalidation. Slot zero holds the literal-black fallback. */
+    memset(valid, 0, sizeof(valid));
     i = 0;
     while (remaining) {
         count = remaining;
@@ -560,12 +577,18 @@ static void XGL_EmitAliasPose(const xgl_alias_pose_cache_t *cache,
             colors = &draw->cache->colors[i];
             if (colors->visible) {
                 for (j = 0; j < 3; ++j) {
+                    slot = colors->index[j] + 1;
+                    if (!valid[slot]) {
+                        XGL_AliasRawColor(colors->index[j], prepared[slot]);
+                        for (k = 0; k < 3; ++k) prepared[slot][k] *= light;
+                        XGL_PrepareColor(prepared[slot]);
+                        valid[slot] = 1;
+                    }
                     source = &xgl_alias_work[topology->indices[i * 3 + j]];
                     out = &vertices[emitted++];
                     VectorCopy(source->position, out->position);
                     VectorCopy(source->normal, out->normal);
-                    for (k = 0; k < 3; ++k) out->color.rgb[k] = colors->rgb[j][k] * light;
-                    XGL_PrepareColor(out->color.rgb);
+                    VectorCopy(prepared[slot], out->color.rgb);
                 }
             }
             ++i;
@@ -652,8 +675,7 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
     xgl_entity_vertex_t ab, bc, ca;
     xgl_vertex_t *vertices;
     xgl_alias_color_t sampled, *colors;
-    float center[3];
-    int i, j;
+    int i, j, center, index;
     if (depth > 0) {
         XGL_EntityMidpoint(a, b, &ab);
         XGL_EntityMidpoint(b, c, &bc);
@@ -673,17 +695,20 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
     source[0] = a; source[1] = b; source[2] = c;
     if (colors == &sampled || draw->building) {
         colors->visible = 0;
-        center[0] = center[1] = center[2] = 0;
+        center = -1;
         /* Opaque alias skins need no coverage sample. Sprites retain their
          * centroid coverage rule; cached aliases also retain alpha holes. */
-        if (!draw->opaque &&
-            !XGL_SampleTexture(material, (a->s + b->s + c->s) / 3,
-                               (a->t + b->t + c->t) / 3, center, translation)) return;
+        if (!draw->opaque) {
+            if (!XGL_SampleTextureIndex(material, (a->s + b->s + c->s) / 3,
+                                        (a->t + b->t + c->t) / 3, &center)) return;
+            if (translation) center = translation[center];
+        }
         for (i = 0; i < 3; ++i) {
-            if (!XGL_SampleTexture(material, source[i]->s, source[i]->t,
-                                   colors->rgb[i], translation)) {
-                VectorCopy(center, colors->rgb[i]);
-            }
+            /* Coverage is decided by the source index, before player
+             * translation: a translated index 255 is still an opaque color. */
+            if (XGL_SampleTextureIndex(material, source[i]->s, source[i]->t, &index))
+                colors->index[i] = translation ? translation[index] : index;
+            else colors->index[i] = center;
         }
         colors->visible = 1;
     }
@@ -692,7 +717,8 @@ static void XGL_EntityTriangleCached(const xgl_entity_vertex_t *a,
     for (i = 0; i < 3; ++i) {
         VectorCopy(source[i]->position, vertices[i].position);
         VectorCopy(source[i]->normal, vertices[i].normal);
-        for (j = 0; j < 3; ++j) vertices[i].color[j] = colors->rgb[i][j] * light;
+        XGL_AliasRawColor(colors->index[i], vertices[i].color);
+        for (j = 0; j < 3; ++j) vertices[i].color[j] *= light;
     }
     draw->count += 3;
     if (draw->count == XGL_ENTITY_BATCH_VERTICES) XGL_AliasFlush(draw, lit);
