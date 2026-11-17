@@ -9,7 +9,7 @@ with native XGL text and geometry. A similar approach can be seen at
 ## Quick start
 
 ### Build
-see [build details](docs/build.md)
+see [build details](docs/build.md) for information.
 
 Install GNU make, GCC, the [Sun XGL SDK](https://archive.org/details/xgl-solaris2.6), and OpenWindows development files.
 From the repository root:
@@ -109,10 +109,10 @@ An existing `config.cfg` may restore `_snd_mixahead 0.1`; use
 `+_snd_mixahead 0.3` to override that value for a run.
 
 ## Renderer
-see [renderer](docs/render.md)
+see [renderer](docs/render.md) for information.
 
 ## Profiling
-see [profiling](docs/profile.md)
+see [profiling](docs/profile.md) for information.
 
 ## Testing
-see [testing](docs/test.md)
+see [testing](docs/test.md) for information.
