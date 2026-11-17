@@ -36,7 +36,7 @@ Run from that Quake directory:
 ```
 
 Official Quake 1.00, 1.01, and 1.06 shareware PAK directories are recognized.
-See [game data and display setup](#game-data-and-display-setup) for alternate
+See [game data and display setup](docs/setup.md) for alternate
 locations and shareware restrictions.
 
 ### Common options
@@ -51,7 +51,7 @@ locations and shareware restrictions.
 
 Lower subdivision makes sampled textures and lighting coarser. The detail
 allowance is not a cap on all drawn triangles. See the
-[full settings table](#renderer-settings) for defaults and other controls.
+[full settings table](docs/render.md#renderer-settings) for defaults and other controls.
 
 ### Measure performance
 
@@ -68,7 +68,7 @@ Then collect a detailed profile with the same resolution and detail settings:
 ```
 
 Keep the console closed during playback and quit after each timedemo finishes.
-See [profiling details](#profiling-details) for interpreting the results.
+See [profiling details](docs/profile.md#profiling-details) for interpreting the results.
 
 ## Hardware
 ### XGL benchmark

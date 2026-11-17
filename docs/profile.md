@@ -1,7 +1,8 @@
 ## Profiling details
 
-Use the two [performance commands](#measure-performance) above with the same
-resolution, demo, audio lookahead, and detail settings for each comparison.
+Use the two [performance commands](../README.md#measure-performance) in the
+README with the same resolution, demo, audio lookahead, and detail settings
+for each comparison.
 
 Keep the console closed during playback and quit after the timedemo result
 appears. The console stays visible after playback and has a different workload;

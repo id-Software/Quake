@@ -117,3 +117,10 @@ The 3D context uses the benchmark's automatic full-raster VDC mapping.
 Quake's view rectangle is selected through the VDC window and view clipping,
 without explicitly setting `XGL_CTX_DC_VIEWPORT`. This preserves `viewsize`
 and the space reserved for the status bar. Native UI uses device coordinates.
+
+While the opaque console slides over the view, the 3D clip boundary follows
+its lower edge without changing the camera or scaling the exposed scene.
+One device pixel overlaps beneath the panel to avoid seams. Fully covered
+views submit no 3D geometry; simulation continues normally. Partial coverage
+reduces hidden rasterization, but geometry preparation still runs. This is
+automatic and does not affect performance with the console closed.
