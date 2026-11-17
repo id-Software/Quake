@@ -108,7 +108,7 @@ make -f Makefile.XGL XGLHOME=/path/to/xgl OPENWINHOME=/path/to/openwin
 
 The target uses the native compiler's 32-bit SPARC default. Use a compiler
 configured for that ABI; a 64-bit build is not supported by the original
-engine or this initial port. The build deliberately has no `-ansi` flag and
+engine or the XGL renderer. The build deliberately has no `-ansi` flag and
 does not enable `-ffast-math`. `CC`, `CPPFLAGS`, `CFLAGS`, `LANGFLAGS`,
 `WARNFLAGS`, `LDFLAGS` and `XGL_LIBS` can be overridden on the command line.
 
@@ -162,8 +162,8 @@ geometry. Menu, HUD, console and image-based labels use native stroke text
 and geometric replacements, so their appearance differs from the original
 pixel artwork; unknown pictures receive a labelled fallback.
 
-Texture detail and sprite cutouts are geometric approximations. This first
-target does not implement the OpenGL renderer's optional mirrors, projected
+Texture detail and sprite cutouts are geometric approximations. The XGL
+renderer does not implement the OpenGL renderer's optional mirrors, projected
 alias shadows or environment-map capture. Those features in the existing
 OpenGL target are unchanged.
 
@@ -183,17 +183,17 @@ faces may have coarse patches even when `xgl_subdivide` is small. Filtering
 reduces arbitrary single-texel gradients; it cannot reproduce texture detail
 smaller than the submitted geometry.
 
-### OPT-1: Vertex packing
+### Native vertex storage
 
 World meshes store contiguous native XGL vertex records separately from
-texture/light metadata. Static geometry is queued
-by reference, avoiding a conversion and copy every frame; cached colors
+texture/light metadata. Static geometry is queued by reference, avoiding a
+conversion and copy every frame; cached colors
 change only with material/lightstyle/gamma state. Transformed brush and
 cached alias output is written into the backend's batch storage directly.
 The backend checks its vertex layout against the installed SDK and retains
 the existing triangle order, shading and 256-triangle batching limit.
 
-### OPT-2: Model cache churn
+### Animated model caching
 
 Animated models reuse sampled skin colors while retaining current transforms,
 lighting, skins and player colors.
@@ -203,12 +203,12 @@ different command/normal sequences quickly, with exact comparisons before
 reuse. Current pose positions are still transformed each frame. All model
 cache storage remains bounded, with recursive drawing when caching fails.
 
-### OPT-3: Sky/water colors
+### Sky and water sampling
 
 Animated meshes sample matching vertices once per update and reuse their
-colors at repeated triangle corners. The sample
-map is built with the mesh and charged to the world cache limit; allocation
-failure retains the original per-corner sampling. Indexed samples use a
+colors at repeated triangle corners. The sample map is built with the mesh
+and charged to the world cache limit. If allocation fails, each triangle
+corner is sampled separately. Indexed samples use a
 direct palette-to-gamma lookup. Animation is still updated every frame,
 including sky scrolling, camera-relative sky projection and turbulent UVs.
 
@@ -337,7 +337,8 @@ from persistent meshes; native direct vertices are filled in the backend
 batch; packed vertices use the general conversion path. The alias preparation
 line separates cache work from live transforms and reports shared-topology
 hits/misses and pose evictions caused by entry or byte limits. These counters
-help assess OPT-1 through OPT-3; use the profiling-off timedemo to assess FPS.
+identify geometry preparation and cache costs. Measure FPS with profiling
+disabled.
 
 ## Development-host checks
 
