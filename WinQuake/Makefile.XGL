@@ -2,7 +2,7 @@
 # Existing software, XIL and OpenGL build recipes remain independent.
 
 CC = gcc
-CFLAGS ?= -O2 -ffast-math -fno-strict-aliasing -fcommon
+CFLAGS ?= -O3 -mcpu=supersparc -ffast-math -fno-strict-aliasing -fcommon
 CPPFLAGS ?=
 LDFLAGS ?=
 LANGFLAGS ?=
