@@ -23,6 +23,8 @@ Run the same make command after source updates; it rebuilds affected files
 using generated `.d` dependencies. See [build details](docs/build.md) for
 SDK paths and when a clean build is needed.
 
+Makefile.XGL assumes a SuperSPARC or better processor with `-mcpu=supersparc`.
+
 ### Game data and launch
 
 Place the resulting `xglquake` executable in your Quake directory, alongside
