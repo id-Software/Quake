@@ -67,6 +67,12 @@ These are nested measurements within the existing entity or weapon scopes,
 not additional costs to add to them. Audio service after the draw is outside
 these detail scopes.
 
+When comparing SMP modes, the level 2 SMP line reports completed alias
+preparation jobs per frame. The main prepass covers finding and queuing work.
+Worker time measures elapsed time in those jobs and can overlap world drawing.
+Main wait measures time the renderer spends waiting for the jobs to finish.
+Use the jobs count to check whether a scene actually exercises the worker.
+
 ### Counters
 
 Detailed counts are per-frame averages. World cached draws include meshes

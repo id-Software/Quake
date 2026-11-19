@@ -28,6 +28,9 @@ typedef enum {
     XGL_PROFILE_WEAPON_CLEAR,
     XGL_PROFILE_ALIAS_LIGHT,
     XGL_PROFILE_WEAPON_LIGHT,
+    XGL_PROFILE_SMP_PREPASS,
+    XGL_PROFILE_SMP_WORKER,
+    XGL_PROFILE_SMP_WAIT,
     XGL_PROFILE_SECTION_COUNT
 } xgl_profile_section_t;
 
@@ -64,6 +67,7 @@ typedef enum {
     XGL_PROFILE_ALIAS_POSE_BYTE_EVICTIONS,
     XGL_PROFILE_ALIAS_TOPOLOGY_HITS,
     XGL_PROFILE_ALIAS_TOPOLOGY_MISSES,
+    XGL_PROFILE_SMP_JOBS,
     XGL_PROFILE_COUNTER_COUNT
 } xgl_profile_counter_t;
 
@@ -96,6 +100,10 @@ void XGL_ProfileBeginFrame(void);
 void XGL_ProfileEndFrame(void);
 double XGL_ProfileNow(void);
 double XGL_ProfileDetailNow(void);
+/* Main thread only. Snapshot the level before handing work to the helper,
+ * then collect its measured wall time after it finishes. */
+int XGL_ProfileDetailEnabled(void);
+void XGL_ProfileSMPWork(unsigned long completed_jobs, double worker_seconds);
 void XGL_ProfileAdd(xgl_profile_section_t section, double start);
 void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count);
 void XGL_ProfileDrawBegin(xgl_profile_draw_scope_t *scope);

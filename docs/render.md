@@ -67,6 +67,26 @@ used by alias models. This reduces CPU draw calls while preserving triangle
 order and per-triangle cutout sampling. Weapon depth clearing reuses the
 tracked opaque/depth-write state; its completion waits remain in place.
 
+### Multiprocessor rendering
+
+`xgl_smp` controls CPU preparation of vertices for animated models. The
+default (`-1`) selects SMP automatically when multiple CPUs are online.
+Use `0` to select the serial path or `1` to request the helper explicitly.
+While the main thread draws the world, the helper can transform cached alias
+model positions and normals and prepare shaded, gamma-adjusted vertex colors.
+The main thread submits the results to XGL in the original entity order.
+Cold caches, a full work queue, and the view weapon use the serial path.
+If the helper fails to start, the renderer reports the failure and continues
+in serial mode.
+
+The renderer allocates scratch space on demand for up to 32 model draws
+and 8,190 output vertices per frame. This adds less than 512 KiB on 32-bit
+SPARC, plus the worker's thread stack. Models beyond these limits draw
+serially at the detail level selected for that frame.
+
+Measure the benefit on the target with the
+[Sun ZX timedemo comparison](test.md#compare-single-cpu-and-smp-rendering-on-the-sun-zx).
+
 ### Sky and water sampling
 
 Animated meshes sample matching vertices once per update and reuse their
@@ -93,6 +113,7 @@ issued only when native work is pending.
 | `xgl_detailtris` | 1024 | Detailed world/brush triangle allowance; visible world faces are ranked by projected-size estimate, with complete coarse faces when exhausted. |
 | `xgl_detaildistance` | 512 | Distance within which detailed world surfaces are considered. |
 | `xgl_alias_subdivide` | 1 | Alias subdivision depth, 0–2; distant models use less detail. |
+| `xgl_smp` | -1 | Automatically select multiprocessor preparation; 0 selects serial and 1 requests the helper. |
 | `xgl_entity_triangles` | 512 | Additional alias subdivision triangles per frame; original model triangles remain. |
 | `xgl_sprite_cells` | 8 | Sample grid per sprite dimension, clamped to 2–16. |
 | `xgl_playercolors` | 1 | Apply original player shirt/pants palette translations to sampled skins. |

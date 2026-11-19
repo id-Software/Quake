@@ -96,7 +96,7 @@ def main():
             for source in args.sources:
                 target = output / (pathlib.Path(source).stem + ".o")
                 flags = ["-std=gnu89", "-O0", "-fcommon", "-fno-strict-aliasing",
-                         "-DXGLQUAKE", "-D__EXTENSIONS__", "-D__sun__",
+                         "-DXGLQUAKE", "-D__EXTENSIONS__", "-D__sun__", "-pthread",
                          "-Wno-unknown-pragmas"]
                 if pathlib.Path(source).name.startswith("xgl_"):
                     flags += ["-Wall", "-Wextra", "-Werror=implicit-function-declaration"]
@@ -129,7 +129,7 @@ def main():
                                    "".join("void %s(void) { abort(); }\n" % name
                                            for name in external))
             executable = output / "xglquake-host-link-only"
-            run(compiler + ["-o", str(executable), str(combined), str(stub_source), "-lm"],
+            run(compiler + ["-o", str(executable), str(combined), str(stub_source), "-pthread", "-lm"],
                 cwd=directory, log=log)
             print("Compiled and linked %d source files; %d native/X11 placeholders." %
                   (len(objects), len(external)))

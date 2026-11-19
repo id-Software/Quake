@@ -18,9 +18,10 @@ Run the same make command after updating sources; no `clean` is needed for
 normal source or header changes. GCC writes a `.d` file beside each object
 to track the headers that source actually includes. Objects from older
 builds without `.d` files rebuild once to establish these dependencies.
-Editing `Makefile.XGL` alone does not force a rebuild. After changing
-compiler options, run `make -f Makefile.XGL clean` before rebuilding;
-dependency files do not track option changes. `clean` also removes the
+Changes to `Makefile.XGL` rebuild the XGL objects, including when upgrading
+to the POSIX-threaded build. After overriding compiler options on the
+command line, run `make -f Makefile.XGL clean` before rebuilding because the
+dependency files only track inputs on disk. `clean` also removes the
 generated dependency files.
 
 The SDK paths default to `/opt/SUNWits/Graphics-sw/xgl` and `/usr/openwin`.

@@ -47,6 +47,7 @@ see [renderer help](docs/render.md) for full list of available options.
 | `-winsize 640 480` | Set the window size. |
 | `+_snd_mixahead 0.3` | Buffer 0.3 seconds of audio. |
 | `+xgl_alias_subdivide 0` | Keep original model triangles without extra subdivision. |
+| `+xgl_smp 0` | Select serial vertex preparation. The default detects multiple CPUs. Use 1 to request a helper. |
 | `+xgl_detailtris 1024` | Set the detailed world triangle allowance; complete coarse faces remain. |
 | `+xgl_profile 0` | Disable profiling for FPS measurements. Use 1 for summary timings or 2 for detail. |
 

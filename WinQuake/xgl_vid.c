@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  * the software framebuffer and OpenGL drivers remain separate targets. */
 #include "quakedef.h"
 #include "xgl_backend.h"
+#include "xgl_smp.h"
 #include <X11/Xutil.h>
 #include <X11/keysym.h>
 
@@ -400,6 +401,7 @@ void VID_Init(unsigned char *palette)
 
 void VID_Shutdown(void)
 {
+    XGL_SMPShutdown();
     IN_Shutdown();
     XGLB_Shutdown();
     XGL_WorldShutdown();

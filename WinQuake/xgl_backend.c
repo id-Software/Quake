@@ -103,6 +103,12 @@ unsigned int XGL_ColorRevision(void)
     return xb.color_revision;
 }
 
+void XGL_CopyGammaOutput(float output[256])
+{
+    if (!xb.color_revision) update_gamma();
+    memcpy(output, xb.gamma_output, sizeof(xb.gamma_output));
+}
+
 void XGL_PrepareColor(float rgb[3])
 {
     int i;

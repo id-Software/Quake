@@ -15,9 +15,9 @@ HOST_X11_INCLUDE ?=
 HOST_CFLAGS ?= -O2 -ffast-math -std=gnu89 -Wall -Wextra
 TEST_BUILD_DIR ?= build/xgl-tests
 
-XGL_CPPFLAGS = -DXGLQUAKE -D__EXTENSIONS__ -I$(XGLHOME)/include -I$(OPENWINHOME)/include
+XGL_CPPFLAGS = -DXGLQUAKE -D__EXTENSIONS__ -D_REENTRANT -I$(XGLHOME)/include -I$(OPENWINHOME)/include
 XGL_LDFLAGS = -L$(XGLHOME)/lib -L$(OPENWINHOME)/lib -R$(XGLHOME)/lib:$(OPENWINHOME)/lib
-XGL_LIBS ?= -lxgl -lX11 -lXext -ldga -ldl -lsocket -lnsl -lthread -lm
+XGL_LIBS ?= -lxgl -lX11 -lXext -ldga -ldl -lsocket -lnsl -lpthread -lthread -lm
 
 COMMON_SOURCES = chase.c cl_demo.c cl_input.c cl_main.c cl_parse.c cl_tent.c \
     cmd.c common.c console.c crc.c cvar.c host.c host_cmd.c keys.c menu.c \
@@ -27,7 +27,8 @@ COMMON_SOURCES = chase.c cl_demo.c cl_input.c cl_main.c cl_parse.c cl_tent.c \
     cd_null.c sys_sun.c snd_dma.c snd_mem.c snd_mix.c
 XGL_SOURCES = xgl_model.c xgl_mesh.c xgl_texture.c xgl_rmain.c xgl_world.c \
     xgl_light.c xgl_draw.c xgl_vid.c xgl_backend.c xgl_screen.c \
-    xgl_effects.c xgl_entities.c xgl_filesystem.c xgl_snd_sun.c xgl_profile.c
+    xgl_effects.c xgl_entities.c xgl_filesystem.c xgl_snd_sun.c xgl_profile.c \
+    xgl_smp.c
 SOURCES = $(COMMON_SOURCES) $(XGL_SOURCES)
 OBJECTS = $(SOURCES:%.c=$(BUILD_DIR)/%.o)
 DEPS = $(OBJECTS:.o=.d)
@@ -56,7 +57,7 @@ $(MISSING_DEPS:.d=.o): missing-deps
 endif
 missing-deps:
 
-$(BUILD_DIR)/%.o: %.c
+$(BUILD_DIR)/%.o: %.c Makefile.XGL
 	@mkdir -p $(BUILD_DIR)
 	$(CC) $(CPPFLAGS) $(XGL_CPPFLAGS) $(CFLAGS) $(LANGFLAGS) $(WARNFLAGS) \
 	    -MMD -MP -MF $(@:.o=.d.tmp) -MT $@ -c $< -o $@
@@ -77,7 +78,8 @@ check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
        $(TEST_BUILD_DIR)/test_world $(TEST_BUILD_DIR)/test_input \
        $(TEST_BUILD_DIR)/test_filesystem $(TEST_BUILD_DIR)/test_audio \
        $(TEST_BUILD_DIR)/test_profile $(TEST_BUILD_DIR)/test_effects \
-       $(TEST_BUILD_DIR)/test_alias_colors $(TEST_BUILD_DIR)/test_screen
+       $(TEST_BUILD_DIR)/test_alias_colors $(TEST_BUILD_DIR)/test_screen \
+       $(TEST_BUILD_DIR)/test_smp
 	./$(TEST_BUILD_DIR)/test_texture
 	./$(TEST_BUILD_DIR)/test_mesh
 	./$(TEST_BUILD_DIR)/test_draw
@@ -90,6 +92,11 @@ check: $(TEST_BUILD_DIR)/test_texture $(TEST_BUILD_DIR)/test_mesh \
 	./$(TEST_BUILD_DIR)/test_effects
 	./$(TEST_BUILD_DIR)/test_alias_colors
 	./$(TEST_BUILD_DIR)/test_screen
+	./$(TEST_BUILD_DIR)/test_smp
+
+$(TEST_BUILD_DIR)/test_smp: xgl_tests/test_smp.c xgl_smp.c $(HEADERS)
+	@mkdir -p $(TEST_BUILD_DIR)
+	$(HOST_CC) $(HOST_CFLAGS) -DXGLQUAKE -I. -pthread -o $@ xgl_tests/test_smp.c
 
 $(TEST_BUILD_DIR)/test_screen: xgl_tests/test_screen.c xgl_screen.c $(HEADERS)
 	@mkdir -p $(TEST_BUILD_DIR)

@@ -67,6 +67,7 @@ void XGL_DrawNativeTriangles(const xgl_native_vertex_t *vertices, int count,
 xgl_native_vertex_t *XGL_ReserveTriangles(int *count, int lit,
                                          float opacity, int zwrite);
 unsigned int XGL_ColorRevision(void);
+void XGL_CopyGammaOutput(float output[256]);
 void XGL_PrepareColor(float rgb[3]);
 void XGL_PreparePaletteColor(int index, float rgb[3]);
 void XGL_Flush(void);
@@ -105,6 +106,8 @@ void XGL_WorldShutdown(void);
 void XGL_DrawWorld(void);
 void XGL_DrawBrushModel(entity_t *entity);
 void XGL_DrawWater(void);
+void XGL_AliasPrepareFrame(void);
+void XGL_AliasFinishFrame(void);
 void XGL_DrawEntities(void);
 void XGL_DrawViewModel(void);
 void XGL_EntitiesInit(void);

@@ -6,6 +6,7 @@
 #include "quakedef.h"
 #include "xgl_audio.h"
 #include "xgl_profile.h"
+#include "xgl_smp.h"
 
 #define XGL_WORLD_CACHE_BYTES (8UL * 1024UL * 1024UL)
 #define XGL_SURFACE_DETAIL_VERTS 12288
@@ -827,6 +828,13 @@ void XGL_DrawWorld (void)
      * The fallback counter identifies that case in a detailed report. */
     XGL_ProfileAdd(XGL_PROFILE_WORLD_VISIBILITY, start);
     if (xgl_world_order) {
+        /* Leaf traversal has now appended the visible static entities.
+         * Prepare models while the main thread selects and submits surfaces. */
+        if (XGL_SMPActive()) {
+            start = XGL_ProfileDetailNow();
+            XGL_AliasPrepareFrame();
+            XGL_ProfileAdd(XGL_PROFILE_SMP_PREPASS, start);
+        }
         start = XGL_ProfileDetailNow();
         XGL_SelectWorldDetail();
         XGL_ProfileAdd(XGL_PROFILE_WORLD_DETAIL_SELECT, start);

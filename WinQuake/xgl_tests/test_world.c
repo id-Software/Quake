@@ -39,6 +39,7 @@ static byte test_samples[81];
 static efrag_t test_efrag;
 static byte test_vis;
 static int pvs_calls, sample_calls, efrag_calls, reject_box;
+static int smp_active, alias_prepasses;
 static xgl_native_vertex_t captured[1024];
 static const xgl_native_vertex_t *queued[1024];
 static xgl_native_vertex_t queued_copy[1024];
@@ -65,6 +66,13 @@ void XGL_ProfileCount(xgl_profile_counter_t counter, unsigned long count)
 }
 
 void Con_Printf(char *format, ...) { (void)format; }
+int XGL_SMPActive(void) { return smp_active; }
+void XGL_AliasPrepareFrame(void)
+{
+    assert(efrag_calls == 1); /* All visible entities are known. */
+    assert(!captured_calls);  /* World surface drawing can overlap the worker. */
+    ++alias_prepasses;
+}
 void XGL_AudioUpdate(void) {}
 unsigned int XGL_TextureRevision(int id) { assert(id == 1 || id == 2); return texture_revision; }
 unsigned int XGL_ColorRevision(void) { return color_revision; }
@@ -396,6 +404,12 @@ static void test_pvs_and_fallback(void)
     xgl_detailtris.value = 0;
     begin_frame();
     assert(captured_count == 6 && pvs_calls == 1);
+    assert(alias_prepasses == 0);
+    efrag_calls = 0;
+    smp_active = 1;
+    begin_frame();
+    assert(alias_prepasses == 1 && captured_count == 6);
+    smp_active = 0;
     test_vis = 2;
     r_viewleaf = &test_leaves[2];
     begin_frame();

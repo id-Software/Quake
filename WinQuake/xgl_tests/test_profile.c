@@ -64,6 +64,9 @@ static void test_disabled(void)
     XGL_ProfileAdd(XGL_PROFILE_ALIAS_LIGHT, 0);
     XGL_ProfileAdd(XGL_PROFILE_WEAPON_LIGHT, 0);
     XGL_ProfileCount(XGL_PROFILE_NATIVE_CACHED_VERTICES, 999);
+    assert(!XGL_ProfileDetailEnabled());
+    XGL_ProfileSMPWork(8, .2);
+    XGL_ProfileAdd(XGL_PROFILE_SMP_WAIT, 0);
     XGL_ProfileEndFrame();
     assert(start == 0 && clock_calls == 0 && print_calls == 0);
 }
@@ -83,6 +86,8 @@ static void test_detail_levels(void)
     XGL_ProfileAdd(XGL_PROFILE_ALIAS_LIGHT, 0);
     XGL_ProfileAdd(XGL_PROFILE_WEAPON_LIGHT, 0);
     XGL_ProfileCount(XGL_PROFILE_WORLD_ANIMATED_SAMPLES, 99);
+    assert(!XGL_ProfileDetailEnabled());
+    XGL_ProfileSMPWork(8, .2);
     assert(clock_calls == calls);
     XGL_ProfileCount(XGL_PROFILE_TRIANGLES, 999);
     clock_time = 100.5; XGL_ProfileEndFrame();
@@ -92,6 +97,12 @@ static void test_detail_levels(void)
      * never enter a detailed report's frame denominator. */
     profile_setting->value = 2;
     clock_time = 101; XGL_ProfileBeginFrame();
+    assert(XGL_ProfileDetailEnabled());
+    XGL_ProfileSMPWork(3, .014);
+    start = XGL_ProfileDetailNow();
+    clock_time += .004; XGL_ProfileAdd(XGL_PROFILE_SMP_PREPASS, start);
+    start = XGL_ProfileDetailNow();
+    clock_time += .002; XGL_ProfileAdd(XGL_PROFILE_SMP_WAIT, start);
     clock_time = 101.02; start = XGL_ProfileDetailNow();
     clock_time = 101.12; XGL_ProfileAdd(XGL_PROFILE_WORLD_VISIBILITY, start);
     clock_time = 101.2; start = XGL_ProfileDetailNow();
@@ -143,6 +154,8 @@ static void test_detail_levels(void)
     assert(strstr(output, "vertices/frame cached native 24.0 direct native 6.0 packed 3.0"));
     assert(strstr(output, "cache 10.00 transform 30.00 ms; topology hits 1.5 misses 0.5"));
     assert(strstr(output, "pose evictions slot 1.0 bytes 2.0"));
+    assert(strstr(output, "SMP alias preparation: 1.5 jobs/frame; main prepass 2.00 worker 7.00 main wait 1.00 ms/frame"));
+    assert(!XGL_ProfileDetailEnabled());
     calls = clock_calls;
     assert(XGL_ProfileDetailNow() == 0);
     XGL_ProfileAdd(XGL_PROFILE_WORLD_BUILD, 0);

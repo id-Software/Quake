@@ -47,7 +47,48 @@ static int weapon_scope[8], weapon_scope_count;
 static scoreboard_t scores[MAX_SCOREBOARD];
 static byte base_colormap[256], player_colormap[256];
 static union { double alignment; byte bytes[32768]; } alias_storage;
-static model_t alias_model;
+static model_t alias_model, *evict_on_audio_lock;
+static void *evicted_data;
+
+/* Defer work until the renderer waits. This exercises the production worker
+ * computation after the main thread has released Quake's movable model. */
+static int smp_active, smp_limit, pending_jobs, executed_jobs, native_submissions;
+static int worker_running, test_gamma;
+static float gamma_output[256];
+static struct {
+    void (*run)(void *);
+    void *arg;
+} deferred[8];
+
+int XGL_SMPActive(void) { return smp_active; }
+
+int XGL_SMPSubmit(void (*run)(void *), void *arg)
+{
+    assert(!worker_running && run);
+    if (!smp_active || pending_jobs >= smp_limit) return 0;
+    deferred[pending_jobs].run = run;
+    deferred[pending_jobs++].arg = arg;
+    return 1;
+}
+
+void XGL_SMPWait(void)
+{
+    int i;
+    assert(!worker_running);
+    for (i = 0; i < pending_jobs; ++i) {
+        worker_running = 1;
+        deferred[i].run(deferred[i].arg);
+        worker_running = 0;
+        ++executed_jobs;
+    }
+    pending_jobs = 0;
+}
+
+void XGL_CopyGammaOutput(float out[256])
+{
+    assert(!worker_running);
+    memcpy(out, gamma_output, sizeof(gamma_output));
+}
 
 static void *entity_test_malloc(size_t bytes)
 {
@@ -101,7 +142,16 @@ void Sys_Error(char *format, ...)
     va_end(args);
     abort();
 }
-void XGL_AudioLock(void) { ++audio_lock_depth; ++audio_locks; }
+void XGL_AudioLock(void)
+{
+    ++audio_lock_depth;
+    ++audio_locks;
+    if (evict_on_audio_lock && !evicted_data) {
+        evicted_data = evict_on_audio_lock->cache.data;
+        assert(evicted_data);
+        evict_on_audio_lock->cache.data = NULL;
+    }
+}
 void XGL_AudioUnlock(void)
 {
     assert(audio_lock_depth > 0);
@@ -112,6 +162,11 @@ void *Mod_Extradata(model_t *model)
 {
     assert(audio_lock_depth > 0);
     expect_alias_lock = 1;
+    if (model == evict_on_audio_lock && evicted_data) {
+        model->cache.data = evicted_data;
+        evicted_data = NULL;
+        evict_on_audio_lock = NULL;
+    }
     return model->cache.data;
 }
 qboolean R_CullBox(vec3_t mins, vec3_t maxs) { (void)mins; (void)maxs; return test_cull; }
@@ -172,7 +227,11 @@ xgl_native_vertex_t *XGL_ReserveTriangles(int *count, int lit, float opacity, in
 
 void XGL_PrepareColor(float rgb[3])
 {
-    (void)rgb;
+    int i;
+    assert(!worker_running);
+    if (test_gamma)
+        for (i = 0; i < 3; ++i)
+            rgb[i] = gamma_output[(int)(rgb[i] * 255.0f + .5f)];
     ++prepare_calls;
 }
 
@@ -196,10 +255,31 @@ qboolean XGL_SampleTextureIndex(int material, float s, float t, int *result)
     return true;
 }
 
+void XGL_DrawNativeTriangles(const xgl_native_vertex_t *vertices, int count,
+                             int lit, float opacity, int zwrite)
+{
+    int i;
+    assert(!worker_running && count > 0 && count % 3 == 0);
+    assert(opacity == 1 && zwrite == 1);
+    capture_reserved();
+    assert(captured_count + count <= 4096);
+    for (i = 0; i < count; ++i) {
+        VectorCopy(vertices[i].position, captured[captured_count].position);
+        VectorCopy(vertices[i].normal, captured[captured_count].normal);
+        VectorCopy(vertices[i].color.rgb, captured[captured_count].color);
+        ++captured_count;
+    }
+    native_lit = lit;
+    ++native_submissions;
+}
+
 static void reset_test(void)
 {
     int i;
     assert(!audio_lock_depth && audio_locks == audio_unlocks);
+    assert(!pending_jobs && !worker_running);
+    test_gamma = smp_active = executed_jobs = native_submissions = 0;
+    smp_limit = sizeof(deferred) / sizeof(deferred[0]);
     memset(&cl, 0, sizeof(cl));
     memset(cl_entities, 0, sizeof(cl_entities));
     memset(&vid, 0, sizeof(vid));
@@ -1113,6 +1193,93 @@ static void test_alias_audio_lock_cleanup(void)
     XGL_EntitiesShutdown();
 }
 
+static void test_smp_alias_frame(void)
+{
+    static union { double alignment; byte bytes[sizeof(alias_storage)]; } relocated;
+    model_t second_model;
+    xgl_vertex_t expected[192];
+    aliashdr_t *header;
+    trivertx_t *pose;
+    int i, count, pass, previous_submits;
+
+    reset_test();
+    header = make_alias(6);
+    header->frames[0].numposes = 1;
+    header->scale[0] = .3f;
+    header->scale[1] = 2;
+    header->scale_origin[0] = 5;
+    pose = (trivertx_t *)((byte *)header + header->posedata);
+    for (i = 0; i < header->poseverts; ++i) {
+        pose[i].v[0] = (byte)(2 + 3 * i);
+        pose[i].v[1] = (byte)(i * i);
+        pose[i].lightnormalindex = (byte)(i * 23);
+    }
+    cl_entities[2] = cl_entities[1];
+    cl_entities[2].origin[1] = 65;
+    cl_entities[1].angles[YAW] = 17;
+    cl_entities[2].angles[PITCH] = -39;
+    cl_visedicts[0] = &cl_entities[1];
+    cl_visedicts[1] = &cl_entities[2];
+    cl_numvisedicts = 2;
+    xgl_alias_subdivide.value = 1;
+    xgl_entity_triangles.value = 12; /* Exactly one refined four-triangle draw. */
+    scores[0].colors = 0xe1;
+    test_light = 83;
+    test_gamma = 1;
+    for (i = 0; i < 256; ++i) gamma_output[i] = (float)(255 - i) / 255.0f;
+
+    /* Warm both depth variants before capturing the serial reference. */
+    for (i = 0; i < 3; ++i) {
+        captured_count = 0;
+        XGL_DrawEntities();
+    }
+    count = captured_count;
+    assert(count == 60 && xgl_entity_extra_used == 12);
+    memcpy(expected, captured, count * sizeof(*expected));
+    smp_active = 1;
+    for (pass = 0; pass <= 2; ++pass) {
+        /* Simulate an unavailable queue, one accepted job, then both. */
+        smp_limit = pass;
+        captured_count = executed_jobs = 0;
+        previous_submits = native_submissions;
+        XGL_AliasPrepareFrame();
+        assert(pending_jobs == pass);
+        if (pass == 2) {
+            memcpy(relocated.bytes, &alias_storage, sizeof(alias_storage));
+            alias_model.cache.data = relocated.bytes;
+            /* A real cache move invalidates the entire old allocation. */
+            memset(&alias_storage, 0, sizeof(alias_storage));
+        }
+        XGL_DrawEntities();
+        XGL_AliasFinishFrame();
+        compare_capture(expected, count);
+        assert(xgl_entity_extra_used == 12);
+        assert(executed_jobs == pass && native_submissions - previous_submits == pass);
+    }
+    /* Starting an audio lock can evict the first model. The regular draw
+     * reloads it and spends the detail budget, even if the prepass couldn't
+     * see its header. Later models must retain their original lower LOD. */
+    second_model = alias_model;
+    cl_entities[2].model = &second_model;
+    evict_on_audio_lock = &alias_model;
+    captured_count = 0;
+    XGL_AliasPrepareFrame();
+    XGL_DrawEntities();
+    XGL_AliasFinishFrame();
+    compare_capture(expected, count);
+    assert(!evict_on_audio_lock && !evicted_data);
+    assert(xgl_entity_extra_used == 12);
+
+    /* A map change or shutdown can abandon a prepared frame. Drain before
+     * releasing any cache storage still referenced by a worker. */
+    XGL_AliasPrepareFrame();
+    assert(pending_jobs == 2);
+    XGL_EntitiesShutdown();
+    assert(!pending_jobs);
+    smp_active = 0;
+    cl_numvisedicts = 0;
+}
+
 int main(void)
 {
     test_alias_pose_transform_translation();
@@ -1130,6 +1297,7 @@ int main(void)
     test_alias_pose_byte_limit();
     test_alias_direct_partial_batches();
     test_alias_audio_lock_cleanup();
+    test_smp_alias_frame();
     test_alias_pose_cache_equivalence();
     test_alias_pose_canceling_normals();
     test_alias_pose_cache_batching_and_limits();

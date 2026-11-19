@@ -77,6 +77,18 @@ double XGL_ProfileDetailNow(void)
     return profile_active == 2 ? Sys_FloatTime() : 0;
 }
 
+int XGL_ProfileDetailEnabled(void)
+{
+    return profile_active == 2;
+}
+
+void XGL_ProfileSMPWork(unsigned long completed_jobs, double worker_seconds)
+{
+    if (profile_active != 2) return;
+    frame_counts[XGL_PROFILE_SMP_JOBS] += completed_jobs;
+    if (worker_seconds > 0) frame_sections[XGL_PROFILE_SMP_WORKER] += worker_seconds;
+}
+
 void XGL_ProfileAdd(xgl_profile_section_t section, double start)
 {
     double elapsed;
@@ -195,7 +207,9 @@ void XGL_ProfileEndFrame(void)
             "fallback (transform/subdivide/sample/pack) %.2f/%.2f/%.2f ms wall/submit/sync\n"
             "  view weapon detail (overlap): lighting %.2f ms; "
             "cached final vertex/color output %.2f/%.2f/%.2f; "
-            "fallback (transform/subdivide/sample/pack) %.2f/%.2f/%.2f ms wall/submit/sync\n",
+            "fallback (transform/subdivide/sample/pack) %.2f/%.2f/%.2f ms wall/submit/sync\n"
+            "  SMP alias preparation: %.1f jobs/frame; main prepass %.2f worker %.2f "
+            "main wait %.2f ms/frame (overlapping wall times)\n",
             total_sections[XGL_PROFILE_WORLD_VISIBILITY] * scale,
             total_sections[XGL_PROFILE_WORLD_DETAIL_SELECT] * scale,
             total_sections[XGL_PROFILE_WORLD_BUILD] * scale,
@@ -273,7 +287,11 @@ void XGL_ProfileEndFrame(void)
             total_draw[XGL_PROFILE_DRAW_WEAPON_OUTPUT].sync * scale,
             total_draw[XGL_PROFILE_DRAW_WEAPON_FALLBACK].wall * scale,
             total_draw[XGL_PROFILE_DRAW_WEAPON_FALLBACK].submit * scale,
-            total_draw[XGL_PROFILE_DRAW_WEAPON_FALLBACK].sync * scale);
+            total_draw[XGL_PROFILE_DRAW_WEAPON_FALLBACK].sync * scale,
+            (double)total_counts[XGL_PROFILE_SMP_JOBS] / total_frames,
+            total_sections[XGL_PROFILE_SMP_PREPASS] * scale,
+            total_sections[XGL_PROFILE_SMP_WORKER] * scale,
+            total_sections[XGL_PROFILE_SMP_WAIT] * scale);
     }
     XGL_ProfileReset();
     report_start = now;

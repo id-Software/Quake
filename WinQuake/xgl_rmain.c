@@ -6,6 +6,7 @@
 #include "quakedef.h"
 #include "xgl_audio.h"
 #include "xgl_profile.h"
+#include "xgl_smp.h"
 
 entity_t r_worldentity, *currententity;
 qboolean r_cache_thrash;
@@ -88,6 +89,7 @@ void R_Init (void)
     XGL_TextureInit();
     XGL_EntitiesInit();
     R_InitParticles();
+    XGL_SMPInit();
     Con_Printf("XGL renderer: sampled material geometry, native lighting and native UI\n");
 }
 
@@ -139,6 +141,9 @@ void R_RenderView (void)
     double start, section_start;
     xgl_profile_draw_scope_t draw_scope;
     if (r_norefresh.value || !cl.worldmodel) return;
+    /* BeginFrame has submitted any leftover geometry. Reclaim the previous
+     * view's job storage here even if Host_Error interrupted that view. */
+    XGL_AliasFinishFrame();
     start = r_speeds.value ? Sys_FloatTime() : 0;
     if (cl.maxclients > 1 && r_fullbright.value) Cvar_Set("r_fullbright", "0");
     R_AnimateLight();
@@ -187,5 +192,6 @@ void R_RenderView (void)
 
 void D_FlushCaches (void)
 {
+    XGL_AliasFinishFrame();
     XGL_WorldShutdown();
 }

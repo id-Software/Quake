@@ -22,6 +22,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 
 #include "quakedef.h"
 #include "xgl_profile.h"
+#include "xgl_smp.h"
 
 /*
 
@@ -869,6 +870,7 @@ void SCR_UpdateScreen (void)
 		return;				// not initialized yet
 
 
+	XGL_SMPUpdate ();
 	XGL_BeginFrame ();
 
 	//

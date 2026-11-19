@@ -4,7 +4,9 @@ Shareware recognition, CPU texture/mesh, native UI/entity/particle submission, a
 queueing and profiling tests need no SDK or game data. They run against
 controlled engine/backend mocks. Alias color checks also use the real CPU
 texture sampler to compare cached output with the original color calculation.
-Run from `WinQuake/`:
+The SMP tests use a real POSIX worker with controlled CPU counts and startup
+failures to check mode selection, queuing, draining, and shutdown. Run from
+`WinQuake/`:
 
 ```sh
 make -f Makefile.XGL check
@@ -46,3 +48,33 @@ native font rendering, Sun ZX correctness, or performance. Validate changes
 with a native build and game run on the target Sun, including map startup,
 gameplay, audio, fonts, lighting, and transparency. No game assets are bundled
 with the host checks, and host test results do not establish hardware FPS.
+
+## Compare single-CPU and SMP rendering on the Sun ZX
+
+On the dual-processor machine, run the same executable from the directory
+containing `id1/`. Use the same display, demo, game data, and detail settings
+for both runs. The 320×240 window matches the supplied `demo1` profile.
+On Solaris, `psrinfo` lists the processors and their online state.
+
+```sh
+./xglquake -winsize 320 240 +_snd_mixahead 0.3 +xgl_smp 0 +xgl_profile 0 +timedemo demo1 > demo1-serial.log 2>&1
+./xglquake -winsize 320 240 +_snd_mixahead 0.3 +xgl_smp 1 +xgl_profile 0 +timedemo demo1 > demo1-smp.log 2>&1
+```
+
+Keep the console closed during playback and quit after each result appears.
+The last `XGL SMP:` status line in each run gives the requested mode,
+online CPU count, and whether the worker started. Repeat each mode and
+compare median elapsed time for the same frame count. At 15 FPS the frame
+budget is 66.7 ms. Compare the same demo scenes for model pose, sampled
+colors, lighting, and drawing order.
+
+The game saves `xgl_smp` in `config.cfg`. To restore automatic selection
+after testing, enter `xgl_smp -1` at the game console. Check this on both
+machines. With both CPUs online, the dual-SM61 should report one worker.
+The single-SM61 should report single-threaded rendering.
+
+To locate a timing difference, repeat both commands with `+xgl_profile 2`
+and separate log filenames. Use the unprofiled runs for the FPS comparison.
+The supplied profiled run on Sun LEO recorded 969 frames in 77.3 seconds
+(12.5 FPS). Dual-SM61 speedup and the 15 FPS target still require hardware
+measurements.
