@@ -40,6 +40,7 @@ See [game data and display setup](docs/setup.md) for alternate
 locations and shareware restrictions.
 
 ### Common options
+see [renderer help](docs/render.md) for full list of available options.
 
 | Command-line option | Purpose |
 | --- | --- |
@@ -109,7 +110,7 @@ An existing `config.cfg` may restore `_snd_mixahead 0.1`; use
 `+_snd_mixahead 0.3` to override that value for a run.
 
 ## Renderer
-see [renderer](docs/render.md) for information.
+see [renderer](docs/render.md) for information on renderer, including full list of options for performance and visual quality.
 
 ## Profiling
 see [profiling](docs/profile.md) for information.
