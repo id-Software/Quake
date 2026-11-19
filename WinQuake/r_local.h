@@ -19,7 +19,7 @@ Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
 */
 // r_local.h -- private refresh defs
 
-#ifndef GLQUAKE
+#if !defined(GLQUAKE) && !defined(XGLQUAKE)
 #include "r_shared.h"
 
 #define ALIAS_BASE_SIZE_RATIO		(1.0 / 11.0)
