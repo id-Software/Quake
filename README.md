@@ -111,10 +111,10 @@ An existing `config.cfg` may restore `_snd_mixahead 0.1`; use
 `+_snd_mixahead 0.3` to override that value for a run.
 
 ## Renderer
-see [renderer](docs/render.md) for information on renderer, including full list of options for performance and visual quality.
+see [renderer help](docs/render.md) for information on renderer, including full list of options for performance and visual quality.
 
 ## Profiling
-see [profiling](docs/profile.md) for information.
+see [profiling help](docs/profile.md) for information.
 
 ## Testing
-see [testing](docs/test.md) for information.
+see [testing help](docs/test.md) for information.
